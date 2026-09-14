@@ -16,6 +16,20 @@ def test_financial_model_returns_cashflows_and_ratio_duration():
     assert result["initial_investment_yuan"] == pytest.approx(240_000_000)
 
 
+def test_financial_model_breaks_out_revenues_and_financing():
+    parameters = FinancialTaskParameters(
+        power_mw=50, capacity_mwh=200, annual_revenue_yuan=6_000_000,
+        capacity_lease_yuan=500_000, subsidy_yuan=200_000,
+        loan_ratio=0.8, loan_years=10, replace_year=3, replace_capex_yuan=20_000_000,
+    )
+    result = calculate_financials(parameters.financial())
+    first, replacement_year = result["yearly"][0], result["yearly"][2]
+    assert first["capacity_lease_yuan"] == 500_000
+    assert first["loan_principal_yuan"] > 0
+    assert replacement_year["replacement_capex_yuan"] == 20_000_000
+    assert len(result["equity_cashflows_yuan"]) == 26
+
+
 def test_financial_task_is_traceable_to_upstream_run():
     registry = RunRegistry()
     upstream = registry.submit("strict-dispatch")

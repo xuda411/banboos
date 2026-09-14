@@ -4,7 +4,7 @@
 
 任务可以直接传入 `annual_revenue_yuan`，也可以传入 `source_run_id`，由 Worker 读取已成功的 `strict-dispatch` 结果中的 `annualized_net_revenue_yuan`。后者保证价差调度与财务测算来自同一条可回放任务链路。
 
-模型目前包含：单位投资、运营年限、EOL 线性衰减、运维费率及增长、残值率、所得税、折现率、项目现金流、NPV、唯一 IRR 和静态回收期。每个结果都保留 `source_run_id`、`model_version`、年度现金流和功率/容量时长。
+模型目前包含：单位投资、运营年限、EOL 线性衰减、运维费率及增长、容量租赁、容量电费、补贴、一次/二次调频、残值率、所得税、折现率、贷款比例/期限/利率、建设期利息、换电池投资、项目和资本金现金流、NPV、唯一 IRR 和静态回收期。每个结果都保留 `source_run_id`、`model_version`、年度现金流和功率/容量时长。
 
 示例请求：
 

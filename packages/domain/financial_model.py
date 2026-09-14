@@ -15,6 +15,11 @@ class FinancialParameters:
     power_mw: float
     capacity_mwh: float
     annual_revenue_yuan: float
+    capacity_lease_yuan: float = 0.0
+    capacity_fee_yuan: float = 0.0
+    subsidy_yuan: float = 0.0
+    primary_frequency_yuan: float = 0.0
+    secondary_frequency_yuan: float = 0.0
     capex_yuan_per_wh: float = 1.2
     operation_years: int = 25
     om_rate: float = 0.0075
@@ -24,16 +29,37 @@ class FinancialParameters:
     residual_rate: float = 0.02
     income_tax_rate: float = 0.25
     discount_rate: float = 0.08
+    loan_ratio: float = 0.0
+    loan_years: int = 10
+    loan_rate: float = 0.045
+    construction_years: float = 0.5
+    construction_loan_rate: float = 0.045
+    replace_year: int | None = None
+    replace_capex_yuan: float = 0.0
 
     def validate(self) -> None:
-        if any(isinstance(v, bool) or not isfinite(float(v)) for v in asdict(self).values()):
+        if any(v is not None and (isinstance(v, bool) or not isfinite(float(v)))
+               for v in asdict(self).values()):
             raise FinancialError("财务参数必须为有限数值")
-        if self.power_mw <= 0 or self.capacity_mwh <= 0 or self.annual_revenue_yuan < 0:
-            raise FinancialError("功率、容量必须为正，年收入不能为负")
+        if self.power_mw <= 0 or self.capacity_mwh <= 0:
+            raise FinancialError("功率和容量必须为正")
+        if any(value < 0 for value in (self.annual_revenue_yuan, self.capacity_lease_yuan,
+                                       self.capacity_fee_yuan, self.subsidy_yuan,
+                                       self.primary_frequency_yuan, self.secondary_frequency_yuan,
+                                       self.replace_capex_yuan)):
+            raise FinancialError("收入和换电池投资不能为负")
         if self.capex_yuan_per_wh <= 0:
             raise FinancialError("单位投资必须为正")
         if not 1 <= self.operation_years <= 100 or int(self.operation_years) != self.operation_years:
             raise FinancialError("运营年限必须为1至100年的整数")
+        if not 0 <= self.loan_ratio <= 1 or self.loan_years < 1 or self.loan_years > 100:
+            raise FinancialError("贷款比例须在0至1之间，贷款期限须为正整数")
+        if int(self.loan_years) != self.loan_years or self.loan_rate < 0:
+            raise FinancialError("贷款期限和利率无效")
+        if self.construction_years < 0 or self.construction_loan_rate < 0:
+            raise FinancialError("建设期和建设期利率不能为负")
+        if self.replace_year is not None and (self.replace_year < 1 or self.replace_year > self.operation_years):
+            raise FinancialError("换电池年份必须在运营期内")
         for value in (self.om_rate, self.om_growth, self.residual_rate, self.income_tax_rate):
             if value < 0 or value > 1:
                 raise FinancialError("费率和残值率必须在0至1之间")
@@ -89,23 +115,57 @@ def irr(cashflows: list[float]) -> float | None:
 def calculate_financials(p: FinancialParameters) -> dict:
     p.validate()
     years = int(p.operation_years)
+    construction_interest = (p.initial_investment_yuan * p.loan_ratio * p.construction_loan_rate
+                              * p.construction_years)
+    total_investment = p.initial_investment_yuan + construction_interest
     depreciation = p.initial_investment_yuan * (1 - p.residual_rate) / years
+    loan_principal = p.initial_investment_yuan * p.loan_ratio
+    annual_principal = loan_principal / p.loan_years if loan_principal else 0.0
+    replacement_depreciation = (p.replace_capex_yuan * (1 - p.residual_rate)
+                                / max(1, years - (p.replace_year or years) + 1)
+                                if p.replace_capex_yuan and p.replace_year else 0.0)
     yearly: list[dict] = []
-    cashflows = [-p.initial_investment_yuan]
+    cashflows = [-total_investment]
+    equity_cashflows = [-(total_investment - loan_principal)]
+    remaining_loan = loan_principal
     for year in range(1, years + 1):
         eol = p.first_year_eol + (p.final_eol - p.first_year_eol) * (year - 1) / max(1, years - 1)
-        revenue = p.annual_revenue_yuan * eol
-        operating_cost = p.initial_investment_yuan * p.om_rate * (1 + p.om_growth) ** (year - 1)
-        taxable_profit = revenue - operating_cost - depreciation
+        energy_revenue = p.annual_revenue_yuan * eol
+        capacity_fee = p.capacity_fee_yuan * eol
+        subsidy = p.subsidy_yuan * eol
+        revenue = (energy_revenue + capacity_fee + subsidy + p.capacity_lease_yuan
+                   + p.primary_frequency_yuan + p.secondary_frequency_yuan)
+        replacement = p.replace_capex_yuan if p.replace_year == year else 0.0
+        operating_cost = total_investment * p.om_rate * (1 + p.om_growth) ** (year - 1)
+        depreciation_this_year = depreciation + (replacement_depreciation if p.replace_year and year >= p.replace_year else 0.0)
+        taxable_profit = revenue - operating_cost - depreciation_this_year
         income_tax = max(0.0, taxable_profit * p.income_tax_rate)
         net_profit = taxable_profit - income_tax
-        project_cashflow = net_profit + depreciation
+        interest = remaining_loan * p.loan_rate if year <= p.loan_years else 0.0
+        principal = annual_principal if year <= p.loan_years else 0.0
+        if year == years:
+            principal += remaining_loan - principal
+        remaining_loan = max(0.0, remaining_loan - principal)
+        project_cashflow = net_profit + depreciation_this_year - replacement
+        equity_taxable_profit = taxable_profit - interest
+        equity_tax = max(0.0, equity_taxable_profit * p.income_tax_rate)
+        equity_cashflow = revenue - operating_cost - replacement - interest - principal - equity_tax + depreciation_this_year
         cashflows.append(project_cashflow)
+        equity_cashflows.append(equity_cashflow)
         yearly.append({"year": year, "eol": eol, "revenue_yuan": revenue,
-                       "operating_cost_yuan": operating_cost, "depreciation_yuan": depreciation,
+                       "energy_revenue_yuan": energy_revenue,
+                       "capacity_fee_yuan": capacity_fee, "subsidy_yuan": subsidy,
+                       "capacity_lease_yuan": p.capacity_lease_yuan,
+                       "primary_frequency_yuan": p.primary_frequency_yuan,
+                       "secondary_frequency_yuan": p.secondary_frequency_yuan,
+                       "operating_cost_yuan": operating_cost, "depreciation_yuan": depreciation_this_year,
+                       "replacement_capex_yuan": replacement, "loan_interest_yuan": interest,
+                       "loan_principal_yuan": principal, "remaining_loan_yuan": remaining_loan,
+                       "equity_tax_yuan": equity_tax,
                        "taxable_profit_yuan": taxable_profit, "income_tax_yuan": income_tax,
-                       "net_profit_yuan": net_profit, "project_cashflow_yuan": project_cashflow})
-    cumulative = -p.initial_investment_yuan
+                       "net_profit_yuan": net_profit, "project_cashflow_yuan": project_cashflow,
+                       "equity_cashflow_yuan": equity_cashflow})
+    cumulative = -total_investment
     payback = None
     for year, value in enumerate(cashflows[1:], start=1):
         before = cumulative
@@ -117,8 +177,12 @@ def calculate_financials(p: FinancialParameters) -> dict:
         "power_mw": p.power_mw, "capacity_mwh": p.capacity_mwh,
         "duration_hours": p.capacity_mwh / p.power_mw,
         "initial_investment_yuan": p.initial_investment_yuan,
+        "construction_interest_yuan": construction_interest,
+        "total_investment_yuan": total_investment,
         "full_irr": irr(cashflows), "full_npv_yuan": npv(p.discount_rate, cashflows),
-        "payback_year": payback, "yearly": yearly,
+        "payback_year": payback, "equity_irr": irr(equity_cashflows),
+        "equity_npv_yuan": npv(p.discount_rate, equity_cashflows),
+        "yearly": yearly, "equity_cashflows_yuan": equity_cashflows,
         "model_version": "banboos-financial-1.0.0",
         "cashflows_yuan": cashflows,
     }
