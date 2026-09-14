@@ -39,6 +39,7 @@ legacy/          1.6.6 迁移说明，不存放生产数据库
 - 边缘基础：遥测本地缓存、去重、乱序回放、补传确认和安全心跳。
 - 运营展示：总览大屏、节点分析、测算任务和边缘接入导航。
 - 运营摘要：节点、任务、遥测和告警的一次性只读聚合 API，并保留不可用状态。
+- 气象专题：观测序列、来源标识和光伏/风电预计功率曲线 API。
 
 交付记录见 [第一阶段](docs/phase-1-delivery.md)、[第二阶段基础](docs/phase-2-foundation.md)、[第三阶段任务执行链路](docs/phase-3-task-execution.md)、[严格调度](docs/strict-dispatch.md)、[财务测算](docs/financial-task.md)、[边缘网关](docs/edge-gateway.md)、[运营展示层](docs/operations-display.md)、[Web 功能对齐路线](docs/web-parity-roadmap.md) 和 [初步上线检查](docs/launch-readiness.md)。
 

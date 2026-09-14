@@ -59,6 +59,7 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; }
 .filters { display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)) auto; gap: 12px; padding: 16px; align-items: end; }
 .curve-filters { grid-template-columns: repeat(5, minmax(130px, 1fr)) auto; }
 .curve-layout { display: grid; grid-template-columns: 1fr 230px; gap: 16px; margin-top: 16px; }.curve-card { padding: 20px; min-height: 450px; }.curve-card h2, .curve-days h2 { margin: 0; font-size: 20px; }.curve-card canvas { display: block; width: 100%; height: 340px; margin-top: 18px; }.curve-days { padding: 20px; }.curve-day-list { display: grid; gap: 6px; margin-top: 14px; max-height: 380px; overflow: auto; }.curve-day { padding: 9px 10px; border: 1px solid #dfe5e2; border-radius: 7px; background: #f8fbf9; color: #52635d; font-size: 12px; cursor: pointer; }.curve-day.active, .curve-day:hover { border-color: #176b50; color: #176b50; background: #eaf4ee; }
+.weather-chart-card { margin-top: 16px; padding: 20px; }.weather-chart-card h2 { margin: 0; font-size: 20px; }.weather-chart-card canvas { display: block; width: 100%; height: 330px; margin-top: 18px; }
 label { display: grid; gap: 6px; color: #52635d; font-size: 12px; }
 label small { color: #176b50; font-size: 11px; }
 select, input, button { min-height: 38px; border: 1px solid #c6d2cb; border-radius: 7px; background: #fff; color: #243a30; padding: 0 10px; font: inherit; }

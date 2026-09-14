@@ -31,6 +31,7 @@ from packages.contracts.readonly import (
     PriceRange,
     PriceSummary,
     RunStatus,
+    WeatherObservation,
     WeatherSummary,
 )
 from packages.contracts.tasks import RunRequest
@@ -162,6 +163,16 @@ def weather_summary(node_id: int = Query(gt=0), start_time: datetime | None = No
                     end_time: datetime | None = None) -> WeatherSummary:
     try:
         return readonly_service.weather(node_id, start_time, end_time)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/v1/weather/series", response_model=list[WeatherObservation], tags=["readonly"])
+def weather_series(node_id: int = Query(gt=0), start_time: datetime | None = None,
+                  end_time: datetime | None = None,
+                  limit: int = Query(default=744, ge=1, le=744)) -> list[WeatherObservation]:
+    try:
+        return readonly_service.weather_series(node_id, start_time, end_time, limit)
     except (ValueError, RuntimeError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

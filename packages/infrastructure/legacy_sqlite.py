@@ -131,6 +131,29 @@ class LegacySQLiteReader:
             source_mode="legacy-readonly",
         )
 
+    def weather_observations(self, node_id: int, start_time: datetime | None = None,
+                             end_time: datetime | None = None, limit: int = 744) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 744:
+            raise ValueError("limit must be between 1 and 744")
+        start_text = start_time.isoformat(sep=" ") if start_time else "0000-01-01"
+        end_text = end_time.isoformat(sep=" ") if end_time else "9999-12-31"
+        with self._connect() as conn:
+            table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='node_meteorology_data'"
+            ).fetchone()
+            if not table:
+                return []
+            rows = conn.execute(
+                "SELECT data_time, source, ghi, wind_speed_100m, temp "
+                "FROM node_meteorology_data WHERE node_id=? AND data_time>=? AND data_time<=? "
+                "AND COALESCE(is_outlier,0)=0 ORDER BY data_time LIMIT ?",
+                (node_id, start_text, end_text, limit),
+            ).fetchall()
+        return [dict(data_time=datetime.fromisoformat(str(row["data_time"])),
+                     source=row["source"], ghi_w_m2=row["ghi"],
+                     wind_speed_m_s=row["wind_speed_100m"], temp_c=row["temp"])
+                for row in rows]
+
     def quality_summary(self, node_id: int, market: str, start_date: date,
                         end_date: date) -> dict[str, Any]:
         if market not in {"日前", "实时"}:

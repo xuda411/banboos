@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime
+from math import isfinite
 
 from packages.contracts.analysis import PriceAnalysisResult
 from packages.contracts.readonly import (
@@ -11,6 +12,7 @@ from packages.contracts.readonly import (
     PriceCurve,
     PriceRange,
     PriceSummary,
+    WeatherObservation,
     WeatherSummary,
 )
 from packages.infrastructure.legacy_sqlite import LegacySQLiteReader
@@ -72,6 +74,31 @@ class ReadonlyService:
             return WeatherSummary.model_validate(self._reader.weather_summary(node_id, start_time, end_time))
         return WeatherSummary(node_id=node_id, observations=0, source_mode="demo")
 
+    def weather_series(self, node_id: int, start_time: datetime | None = None,
+                       end_time: datetime | None = None, limit: int = 744) -> list[WeatherObservation]:
+        if end_time and start_time and end_time < start_time:
+            raise ValueError("end_time must be on or after start_time")
+        if not 1 <= limit <= 744:
+            raise ValueError("limit must be between 1 and 744")
+        if not self._reader:
+            return []
+        observations = self._reader.weather_observations(node_id, start_time, end_time, limit)
+        result = []
+        for row in observations:
+            ghi = _finite_or_none(row["ghi_w_m2"])
+            wind = _finite_or_none(row["wind_speed_m_s"])
+            temp = _finite_or_none(row["temp_c"])
+            ambient = temp if temp is not None else 25.0
+            temp_factor = max(0.82, min(1.04, 1.0 - 0.004 * (ambient - 25.0)))
+            pv = None if ghi is None else max(0.0, 100.0 * min(1.05, ghi / 1000.0)
+                                              * 0.98 * temp_factor)
+            wind_power = None if wind is None else _wind_power(wind, 100.0)
+            result.append(WeatherObservation(node_id=node_id, data_time=row["data_time"],
+                source=row["source"], ghi_w_m2=ghi, wind_speed_m_s=wind, temp_c=temp,
+                pv_predict_power_mw=round(pv, 4) if pv is not None else None,
+                wind_predict_power_mw=round(wind_power, 4) if wind_power is not None else None))
+        return result
+
     def quality(self, node_id: int, market: str, start_date: date,
                 end_date: date) -> DataQualitySummary:
         if market not in {"日前", "实时"}:
@@ -131,3 +158,19 @@ class ReadonlyService:
         if not self._reader:
             return []
         return self._reader.price_curves(node_id, market, start_date, end_date)
+
+
+def _finite_or_none(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if isfinite(number) else None
+
+
+def _wind_power(speed: float, capacity: float) -> float:
+    if speed < 3 or speed >= 25:
+        return 0.0
+    if speed >= 12:
+        return capacity
+    return capacity * ((speed**3 - 3**3) / (12**3 - 3**3))

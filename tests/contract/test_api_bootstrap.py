@@ -42,6 +42,9 @@ def test_readonly_demo_endpoints():
     })
     assert response.status_code == 200
     assert response.json()["source_mode"] == "demo"
+    response = client.get("/api/v1/weather/series", params={"node_id": 1})
+    assert response.status_code == 200
+    assert response.json() == []
     response = client.get("/api/v1/price/range", params={"node_id": 1, "market": "实时"})
     assert response.status_code == 200
     assert response.json()["first_date"] is None

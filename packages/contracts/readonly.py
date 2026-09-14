@@ -61,6 +61,21 @@ class WeatherSummary(BaseModel):
     source_mode: str = "legacy-readonly"
 
 
+class WeatherObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: int
+    data_time: datetime
+    source: str | None = None
+    ghi_w_m2: float | None = None
+    wind_speed_m_s: float | None = None
+    temp_c: float | None = None
+    pv_predict_power_mw: float | None = None
+    wind_predict_power_mw: float | None = None
+    source_mode: str = "legacy-readonly"
+    is_power_simulated: bool = True
+
+
 class DataQualitySummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

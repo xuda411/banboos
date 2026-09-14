@@ -46,8 +46,10 @@ async function loadNodes() {
   $("overviewNodes").textContent = body.items.length;
   $("node").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
   $("curveNode").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
+  $("weatherNode").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
   if (!body.items.length) $("node").add(new Option("暂无节点", ""));
   if (!body.items.length) $("curveNode").add(new Option("暂无节点", ""));
+  if (!body.items.length) $("weatherNode").add(new Option("暂无节点", ""));
   await syncDateRange();
   let summaryAvailable = true;
   try { await refreshOperationsSummary(); } catch { summaryAvailable = false; }
@@ -106,6 +108,26 @@ async function loadCurves() {
     $("curveEmpty").hidden = curves.length > 0; $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; $("curveState").textContent = curves.length ? `${curves.length} 天` : "暂无数据"; $("curveState").className = `status ${curves.length ? "status-ok" : "status-muted"}`;
     if (!curves.length) dayList.innerHTML = '<div class="empty-state">数据库暂无完整 96 点曲线</div>'; drawCurves(curves);
   } catch (error) { $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
+}
+
+function drawWeather(series) {
+  const canvas = $("weatherChart"); const width = canvas.clientWidth || 760; const height = 330; const ratio = window.devicePixelRatio || 1;
+  canvas.width = width * ratio; canvas.height = height * ratio; const context = canvas.getContext("2d"); context.scale(ratio, ratio); context.clearRect(0, 0, width, height);
+  if (!series.length) return;
+  const ghi = series.map((row) => row.ghi_w_m2).filter((value) => value != null); const pv = series.map((row) => row.pv_predict_power_mw).filter((value) => value != null); const wind = series.map((row) => row.wind_speed_m_s).filter((value) => value != null); const maxGhi = Math.max(1, ...ghi); const maxPv = Math.max(1, ...pv); const maxWind = Math.max(1, ...wind); const pad = {left: 46, right: 20, top: 20, bottom: 30}; const x = (index) => pad.left + (width - pad.left - pad.right) * index / Math.max(1, series.length - 1);
+  const line = (key, color, max) => { context.strokeStyle = color; context.lineWidth = 2; context.beginPath(); series.forEach((row, index) => { const value = row[key]; if (value == null) return; const y = pad.top + (height - pad.top - pad.bottom) * (1 - value / max); index ? context.lineTo(x(index), y) : context.moveTo(x(index), y); }); context.stroke(); };
+  context.strokeStyle = "#dfe5e2"; context.lineWidth = 1; for (let step = 0; step <= 4; step += 1) { const y = pad.top + (height - pad.top - pad.bottom) * step / 4; context.beginPath(); context.moveTo(pad.left, y); context.lineTo(width - pad.right, y); context.stroke(); }
+  line("ghi_w_m2", "#d9a441", maxGhi); line("pv_predict_power_mw", "#f07832", maxPv); line("wind_speed_m_s", "#3c8b72", maxWind); line("wind_predict_power_mw", "#6d55b5", Math.max(1, ...series.map((row) => row.wind_predict_power_mw || 0)));
+  context.font = "11px Microsoft YaHei"; context.fillStyle = "#d9a441"; context.fillText("辐照度", pad.left, 13); context.fillStyle = "#f07832"; context.fillText("光伏功率（预计）", pad.left + 58, 13); context.fillStyle = "#3c8b72"; context.fillText("风速", pad.left + 168, 13); context.fillStyle = "#6d55b5"; context.fillText("风电功率（预计）", pad.left + 210, 13);
+}
+
+async function loadWeather() {
+  const nodeId = $("weatherNode").value; if (!nodeId) { $("weatherEmpty").textContent = "请选择节点"; return; }
+  try {
+    const series = await get("/api/v1/weather/series", { node_id: nodeId, start_time: $("weatherStart").value, end_time: $("weatherEnd").value, limit: 744 });
+    const mean = (key) => { const values = series.map((row) => row[key]).filter((value) => value != null); return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1) : "—"; };
+    $("weatherObservations").textContent = series.length; $("weatherGhi").textContent = mean("ghi_w_m2"); $("weatherWind").textContent = mean("wind_speed_m_s"); $("weatherTemp").textContent = mean("temp_c"); $("weatherSourceDetail").textContent = series.length ? `${series[0].source || "未标注来源"} · ${series[0].is_power_simulated ? "功率估算" : "功率实测"}` : "当前范围暂无气象观测"; $("weatherChartTitle").textContent = series.length ? `${series[0].data_time.slice(0, 10)} 至 ${series[series.length - 1].data_time.slice(0, 10)}` : "当前范围暂无观测"; $("weatherEmpty").hidden = series.length > 0; if (!series.length) $("weatherEmpty").textContent = "数据库暂无气象观测"; drawWeather(series);
+  } catch (error) { $("weatherEmpty").hidden = false; $("weatherEmpty").textContent = `读取失败：${error.message}`; }
 }
 
 function setSignal(id, value, fallback = "") {
@@ -249,6 +271,7 @@ $("market").addEventListener("change", () => syncDateRange().catch((error) => { 
 $("curveNode").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
 $("curveMarket").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
 $("loadCurves").addEventListener("click", loadCurves);
+$("loadWeather").addEventListener("click", loadWeather);
 $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
 $("powerMw").addEventListener("input", updateDurationHint);

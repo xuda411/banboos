@@ -23,6 +23,11 @@ the date filters from the actual database instead of a hard-coded date.
 the selected node, market and date range. In demo mode it returns an empty list;
 it never fabricates a price curve.
 
+`GET /api/v1/weather/series` returns up to 744 filtered meteorology observations
+(`ghi`, wind speed and temperature). Each row includes the source and an
+estimated 100 MW PV/wind output based on the weather values; the estimate is
+explicitly marked `is_power_simulated=true` and is not a financial input.
+
 Edge integration uses `POST /api/v1/telemetry/batches` for idempotent batch
 ingest, `POST /api/v1/telemetry/batches/{batch_id}/ack` after a successful
 upload, and `GET /api/v1/edge/{gateway_id}/heartbeat` for connection and spool

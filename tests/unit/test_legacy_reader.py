@@ -1,6 +1,8 @@
 import sqlite3
 from datetime import date
 
+import pytest
+
 from packages.application.readonly_service import ReadonlyService
 from packages.infrastructure.database_fields import PRICE_FIELDS
 from packages.infrastructure.legacy_sqlite import LegacySQLiteReader
@@ -66,3 +68,14 @@ def test_readonly_service_exposes_complete_daily_curves(tmp_path):
     assert curves[0].run_date == date(2026, 1, 1)
     assert len(curves[0].prices) == 96
     assert curves[0].prices[0] == 0
+
+
+def test_readonly_service_exposes_weather_and_estimated_power(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    make_fixture(path)
+    series = ReadonlyService(path).weather_series(1)
+    assert len(series) == 1
+    assert series[0].ghi_w_m2 == 500
+    assert series[0].pv_predict_power_mw == pytest.approx(49.0)
+    assert series[0].wind_predict_power_mw == pytest.approx(11.1111, rel=1e-3)
+    assert series[0].is_power_simulated is True
