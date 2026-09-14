@@ -106,6 +106,7 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
                 parameters = parameters.model_copy(update={"annual_revenue_yuan": annual_revenue})
             result = calculate_financials(parameters.financial())
             result["source_run_id"] = parameters.source_run_id
+            result["input_parameters"] = parameters.model_dump(exclude_none=True)
             registry.complete(item.run_id, "财务现金流测算完成", result)
         except FinancialError as error:
             registry.fail(item.run_id, f"财务测算失败：{error}", "FINANCIAL_INPUT_INVALID")

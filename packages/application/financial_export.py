@@ -23,6 +23,7 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
     overview = workbook.active
     overview.title = "项目概览"
     _write_overview(overview, result)
+    _write_parameters(workbook.create_sheet("测算参数"), result)
     _write_cashflow(workbook.create_sheet("年度现金流"), result)
     _write_debt(workbook.create_sheet("融资明细"), result)
     for sheet in workbook.worksheets:
@@ -109,6 +110,54 @@ def _write_cashflow(sheet, result: dict) -> None:
                 cell.number_format = "#,##0.00"
     if result.get("yearly"):
         sheet.auto_filter.ref = f"A4:{get_column_letter(len(headers))}{4 + len(result['yearly'])}"
+
+
+def _write_parameters(sheet, result: dict) -> None:
+    labels = {
+        "power_mw": ("额定功率", "MW"),
+        "capacity_mwh": ("额定容量", "MWh"),
+        "annual_revenue_yuan": ("首年电能量收入", "元"),
+        "capacity_lease_yuan": ("容量租赁收入", "元/年"),
+        "capacity_fee_yuan": ("容量电费收入", "元/年"),
+        "subsidy_yuan": ("补贴收入", "元/年"),
+        "primary_frequency_yuan": ("一次调频收入", "元/年"),
+        "secondary_frequency_yuan": ("二次调频收入", "元/年"),
+        "capex_yuan_per_wh": ("单位投资", "元/Wh"),
+        "operation_years": ("运营年限", "年"),
+        "om_rate": ("运维费率", "%"),
+        "om_growth": ("运维费增长率", "%"),
+        "first_year_eol": ("首年 EOL", "%"),
+        "final_eol": ("末年 EOL", "%"),
+        "residual_rate": ("残值率", "%"),
+        "income_tax_rate": ("所得税率", "%"),
+        "discount_rate": ("折现率", "%"),
+        "loan_ratio": ("贷款比例", "%"),
+        "loan_years": ("贷款期限", "年"),
+        "loan_rate": ("贷款利率", "%"),
+        "construction_years": ("建设期", "年"),
+        "construction_loan_rate": ("建设期贷款利率", "%"),
+        "replace_year": ("换电池年份", "年"),
+        "replace_capex_yuan": ("换电池投资", "元"),
+        "source_run_id": ("上游任务", "run_id"),
+    }
+    _title(sheet, "测算参数与口径", 4)
+    _header(sheet, 4, ["参数", "数值", "单位", "说明"])
+    parameters = result.get("input_parameters", {})
+    for row, (key, (label, unit)) in enumerate(labels.items(), start=5):
+        value = parameters.get(key)
+        cell_values = [label, value, unit, key]
+        for column, value in enumerate(cell_values, start=1):
+            cell = sheet.cell(row, column, value)
+            cell.font = Font(name="Microsoft YaHei", color=TEXT)
+            cell.fill = PatternFill("solid", fgColor=LIGHT_GREEN if row % 2 else "FFFFFF")
+            cell.border = Border(bottom=THIN)
+            if column == 2 and key.endswith("rate") or column == 2 and key in {
+                "om_rate", "om_growth", "first_year_eol", "final_eol", "residual_rate",
+                "income_tax_rate", "discount_rate", "loan_ratio",
+            }:
+                cell.number_format = "0.00%"
+            elif column == 2 and isinstance(value, (int, float)):
+                cell.number_format = "#,##0.00"
 
 
 def _write_debt(sheet, result: dict) -> None:
