@@ -37,6 +37,16 @@ class PriceRange(BaseModel):
     source_mode: str = "legacy-readonly"
 
 
+class PriceCurve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: int
+    market: str
+    run_date: date
+    prices: list[float] = Field(min_length=96, max_length=96)
+    source_mode: str = "legacy-readonly"
+
+
 class WeatherSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

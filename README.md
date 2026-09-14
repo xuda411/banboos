@@ -40,6 +40,6 @@ legacy/          1.6.6 迁移说明，不存放生产数据库
 - 运营展示：总览大屏、节点分析、测算任务和边缘接入导航。
 - 运营摘要：节点、任务、遥测和告警的一次性只读聚合 API，并保留不可用状态。
 
-交付记录见 [第一阶段](docs/phase-1-delivery.md)、[第二阶段基础](docs/phase-2-foundation.md)、[第三阶段任务执行链路](docs/phase-3-task-execution.md)、[严格调度](docs/strict-dispatch.md)、[财务测算](docs/financial-task.md)、[边缘网关](docs/edge-gateway.md)、[运营展示层](docs/operations-display.md) 和 [初步上线检查](docs/launch-readiness.md)。
+交付记录见 [第一阶段](docs/phase-1-delivery.md)、[第二阶段基础](docs/phase-2-foundation.md)、[第三阶段任务执行链路](docs/phase-3-task-execution.md)、[严格调度](docs/strict-dispatch.md)、[财务测算](docs/financial-task.md)、[边缘网关](docs/edge-gateway.md)、[运营展示层](docs/operations-display.md)、[Web 功能对齐路线](docs/web-parity-roadmap.md) 和 [初步上线检查](docs/launch-readiness.md)。
 
 完整约束见 [Banboos 2.0 开发宪法](DEVELOPMENT_CONSTITUTION.md)。

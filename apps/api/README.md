@@ -19,6 +19,10 @@ OpenAPI is available at `http://127.0.0.1:8000/docs`.
 boundary for a node and market. The Web client uses this boundary to initialize
 the date filters from the actual database instead of a hard-coded date.
 
+`GET /api/v1/price/curves` returns up to 31 complete daily 96-point curves for
+the selected node, market and date range. In demo mode it returns an empty list;
+it never fabricates a price curve.
+
 Edge integration uses `POST /api/v1/telemetry/batches` for idempotent batch
 ingest, `POST /api/v1/telemetry/batches/{batch_id}/ack` after a successful
 upload, and `GET /api/v1/edge/{gateway_id}/heartbeat` for connection and spool

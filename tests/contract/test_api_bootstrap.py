@@ -45,6 +45,11 @@ def test_readonly_demo_endpoints():
     response = client.get("/api/v1/price/range", params={"node_id": 1, "market": "实时"})
     assert response.status_code == 200
     assert response.json()["first_date"] is None
+    response = client.get("/api/v1/price/curves", params={
+        "node_id": 1, "market": "实时", "start_date": "2026-01-01", "end_date": "2026-01-31",
+    })
+    assert response.status_code == 200
+    assert response.json() == []
 
     response = client.get("/api/v1/quality/summary", params={
         "node_id": 1, "market": "实时", "start_date": "2026-01-01", "end_date": "2026-01-31",

@@ -1,6 +1,7 @@
 import sqlite3
 from datetime import date
 
+from packages.application.readonly_service import ReadonlyService
 from packages.infrastructure.database_fields import PRICE_FIELDS
 from packages.infrastructure.legacy_sqlite import LegacySQLiteReader
 
@@ -55,3 +56,13 @@ def test_quality_summary_counts_incomplete_cells(tmp_path):
     assert summary["complete_records"] == 0
     assert summary["missing_cells"] == 1
     assert summary["coverage_ratio"] == 0
+
+
+def test_readonly_service_exposes_complete_daily_curves(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    make_fixture(path)
+    curves = ReadonlyService(path).curves(1, "实时", date(2026, 1, 1), date(2026, 1, 2))
+    assert len(curves) == 1
+    assert curves[0].run_date == date(2026, 1, 1)
+    assert len(curves[0].prices) == 96
+    assert curves[0].prices[0] == 0

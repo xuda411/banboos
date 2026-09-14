@@ -27,6 +27,7 @@ from packages.contracts.financial import FinancialTaskParameters
 from packages.contracts.operations import OperationsSummary
 from packages.contracts.readonly import (
     DataQualitySummary,
+    PriceCurve,
     PriceRange,
     PriceSummary,
     RunStatus,
@@ -142,6 +143,16 @@ def price_summary(node_id: int = Query(gt=0), market: str = Query(...),
 def price_range(node_id: int = Query(gt=0), market: str = Query(...)) -> PriceRange:
     try:
         return readonly_service.price_range(node_id, market)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/v1/price/curves", response_model=list[PriceCurve], tags=["readonly"])
+def price_curves(node_id: int = Query(gt=0), market: str = Query(...),
+                 start_date: date = Query(...), end_date: date = Query(...),
+                 limit: int = Query(default=31, ge=1, le=31)) -> list[PriceCurve]:
+    try:
+        return readonly_service.curves(node_id, market, start_date, end_date, limit)
     except (ValueError, RuntimeError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
