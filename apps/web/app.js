@@ -10,6 +10,15 @@ async function get(path, params = {}) {
   return body;
 }
 
+async function post(path, body) {
+  const response = await fetch(apiBase + path, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.detail || `API ${response.status}`);
+  return result;
+}
+
 function setStatus(text, kind = "muted") {
   $("apiState").textContent = text;
   $("apiState").className = `status status-${kind}`;
@@ -53,8 +62,50 @@ async function refresh() {
   }
 }
 
+async function submitFinancial() {
+  const state = $("taskState");
+  const message = $("taskMessage");
+  const download = $("downloadReport");
+  download.hidden = true;
+  state.textContent = "提交中";
+  state.className = "status status-muted";
+  try {
+    const run = await post("/api/v1/runs", { kind: "financial", parameters: {
+      power_mw: Number($("powerMw").value), capacity_mwh: Number($("capacityMwh").value),
+      annual_revenue_yuan: Number($("annualRevenue").value),
+    }});
+    message.textContent = `任务 ${run.run_id} 已进入队列`;
+    await pollRun(run.run_id);
+  } catch (error) {
+    state.textContent = "提交失败";
+    state.className = "status status-error";
+    message.textContent = error.message;
+  }
+}
+
+async function pollRun(runId) {
+  const state = $("taskState");
+  const message = $("taskMessage");
+  const download = $("downloadReport");
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const run = await get(`/api/v1/runs/${runId}`);
+    state.textContent = `${run.status} ${run.progress}%`;
+    state.className = run.status === "succeeded" ? "status status-ok" : "status status-muted";
+    message.textContent = run.message || "任务执行中";
+    if (run.status === "succeeded") {
+      download.href = `${apiBase}/api/v1/runs/${runId}/export`;
+      download.hidden = false;
+      return;
+    }
+    if (["failed", "cancelled"].includes(run.status)) throw new Error(run.message || "任务未完成");
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error("任务轮询超时，请稍后按 run_id 查询");
+}
+
 $("province").addEventListener("change", () => loadNodes().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
 $("node").addEventListener("change", () => syncDateRange().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
 $("market").addEventListener("change", () => syncDateRange().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
 $("refresh").addEventListener("click", refresh);
+$("submitFinancial").addEventListener("click", submitFinancial);
 loadNodes().then(refresh).catch((error) => { $("notice").textContent = `无法连接 API：${error.message}`; setStatus("API 未连接", "error"); });

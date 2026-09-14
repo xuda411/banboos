@@ -28,6 +28,19 @@
         <label>结束日期<input id="endDate" type="date" value="2026-01-31" /></label>
         <button id="refresh" class="primary">刷新摘要</button>
       </section>
+      <section class="card task-panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">异步测算</p><h2>财务测算任务</h2></div>
+          <span id="taskState" class="status status-muted">未提交</span>
+        </div>
+        <div class="task-form">
+          <label>功率（MW）<input id="powerMw" type="number" min="0.01" step="0.01" value="100" /></label>
+          <label>容量（MWh）<input id="capacityMwh" type="number" min="0.01" step="0.01" value="200" /></label>
+          <label>首年收入（元）<input id="annualRevenue" type="number" min="0" step="1000" value="8000000" /></label>
+          <button id="submitFinancial" class="primary">提交财务测算</button>
+        </div>
+        <div class="task-progress"><span id="taskMessage">填写参数后提交，Worker 将异步执行。</span><a id="downloadReport" hidden>下载 XLSX 报表</a></div>
+      </section>
       <section class="metrics">
         <article class="metric card"><span>有效电价日</span><strong id="validDays">—</strong><small id="priceSource">等待查询</small></article>
         <article class="metric card"><span>96点数据量</span><strong id="dataPoints">—</strong><small id="priceRange">等待查询</small></article>
