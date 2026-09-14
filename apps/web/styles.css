@@ -17,6 +17,7 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; }
 .card { background: #fff; border: 1px solid #dfe5e2; border-radius: 12px; box-shadow: 0 2px 8px #243a300c; }
 .filters { display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)) auto; gap: 12px; padding: 16px; align-items: end; }
 label { display: grid; gap: 6px; color: #52635d; font-size: 12px; }
+label small { color: #176b50; font-size: 11px; }
 select, input, button { min-height: 38px; border: 1px solid #c6d2cb; border-radius: 7px; background: #fff; color: #243a30; padding: 0 10px; font: inherit; }
 button { cursor: pointer; font-weight: 700; }
 .primary { background: #176b50; color: #fff; border-color: #176b50; }

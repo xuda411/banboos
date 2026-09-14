@@ -67,11 +67,20 @@ async function submitFinancial() {
   const message = $("taskMessage");
   const download = $("downloadReport");
   download.hidden = true;
+  const power = Number($("powerMw").value);
+  const capacity = Number($("capacityMwh").value);
+  const duration = capacity / power;
+  if (!Number.isFinite(duration) || duration < 0.25 || duration > 24) {
+    state.textContent = "参数无效";
+    state.className = "status status-error";
+    message.textContent = "容量/功率时长须在 0.25 至 24 小时之间。2 小时、4 小时仅是常见配置，不锁死具体规模。";
+    return;
+  }
   state.textContent = "提交中";
   state.className = "status status-muted";
   try {
     const run = await post("/api/v1/runs", { kind: "financial", parameters: {
-      power_mw: Number($("powerMw").value), capacity_mwh: Number($("capacityMwh").value),
+      power_mw: power, capacity_mwh: capacity,
       annual_revenue_yuan: Number($("annualRevenue").value),
     }});
     message.textContent = `任务 ${run.run_id} 已进入队列`;
@@ -81,6 +90,13 @@ async function submitFinancial() {
     state.className = "status status-error";
     message.textContent = error.message;
   }
+}
+
+function updateDurationHint() {
+  const power = Number($("powerMw").value);
+  const capacity = Number($("capacityMwh").value);
+  const duration = capacity / power;
+  $("durationHint").textContent = Number.isFinite(duration) ? `时长：${duration.toFixed(2)} 小时` : "请输入有效功率和容量";
 }
 
 async function pollRun(runId) {
@@ -108,4 +124,6 @@ $("node").addEventListener("change", () => syncDateRange().catch((error) => { $(
 $("market").addEventListener("change", () => syncDateRange().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
 $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
+$("powerMw").addEventListener("input", updateDurationHint);
+$("capacityMwh").addEventListener("input", updateDurationHint);
 loadNodes().then(refresh).catch((error) => { $("notice").textContent = `无法连接 API：${error.message}`; setStatus("API 未连接", "error"); });

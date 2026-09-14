@@ -43,6 +43,9 @@ class FinancialParameters:
             raise FinancialError("财务参数必须为有限数值")
         if self.power_mw <= 0 or self.capacity_mwh <= 0:
             raise FinancialError("功率和容量必须为正")
+        duration = self.capacity_mwh / self.power_mw
+        if not 0.25 <= duration <= 24:
+            raise FinancialError("容量/功率时长必须在0.25至24小时之间")
         if any(value < 0 for value in (self.annual_revenue_yuan, self.capacity_lease_yuan,
                                        self.capacity_fee_yuan, self.subsidy_yuan,
                                        self.primary_frequency_yuan, self.secondary_frequency_yuan,

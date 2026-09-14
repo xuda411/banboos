@@ -42,6 +42,9 @@ class FinancialTaskParameters(BaseModel):
 
     @model_validator(mode="after")
     def validate_parameters(self):
+        duration = self.capacity_mwh / self.power_mw
+        if not 0.25 <= duration <= 24:
+            raise ValueError("容量/功率时长须在0.25至24小时之间")
         if self.annual_revenue_yuan is None and not self.source_run_id:
             raise ValueError("annual_revenue_yuan or source_run_id is required")
         if self.annual_revenue_yuan is not None:

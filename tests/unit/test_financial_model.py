@@ -52,3 +52,7 @@ def test_financial_model_rejects_invalid_ratio_inputs():
         calculate_financials(FinancialTaskParameters(power_mw=100, capacity_mwh=200,
                                                      annual_revenue_yuan=1,
                                                      discount_rate=-1).financial())
+    with pytest.raises(ValueError, match="时长"):
+        FinancialTaskParameters(power_mw=100, capacity_mwh=10, annual_revenue_yuan=1)
+    with pytest.raises(ValueError, match="时长"):
+        FinancialTaskParameters(power_mw=1, capacity_mwh=30, annual_revenue_yuan=1)
