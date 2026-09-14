@@ -94,3 +94,13 @@ class ReadonlyService:
             valid_days=len(daily_values), average_daily_revenue_yuan=average,
             annualized_revenue_yuan=average * 365, source_mode=source_mode,
         )
+
+    def dispatch_curves(self, node_id: int, market: str, start_date: date,
+                        end_date: date) -> list[dict]:
+        if market not in {"日前", "实时"}:
+            raise ValueError("market must be 日前 or 实时")
+        if end_date < start_date:
+            raise ValueError("end_date must be on or after start_date")
+        if not self._reader:
+            return []
+        return self._reader.price_curves(node_id, market, start_date, end_date)

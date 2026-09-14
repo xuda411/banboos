@@ -105,6 +105,15 @@ class RunRegistry:
                  result: dict | None = None) -> RunStatus | None:
         return self._transition(run_id, "succeeded", 100, message, result=result)
 
+    def update_progress(self, run_id: str, progress: int, message: str) -> RunStatus | None:
+        with self._lock:
+            item = self._store.get(run_id)
+            if item is None or item.status != "running":
+                return item
+            updated = item.model_copy(update={"progress": max(0, min(99, progress)), "message": message})
+            self._store.save(updated)
+            return updated
+
     def fail(self, run_id: str, message: str, error_code: str = "TASK_FAILED") -> RunStatus | None:
         return self._transition(run_id, "failed", 100, message, error_code)
 
@@ -122,7 +131,7 @@ class RunRegistry:
                     error_code: str | None = None, result: dict | None = None) -> RunStatus | None:
         with self._lock:
             item = self._store.get(run_id)
-            if item is None:
+            if item is None or item.status != "running":
                 return None
             updated = item.model_copy(update={"status": status, "progress": progress,
                                               "message": message, "error_code": error_code,

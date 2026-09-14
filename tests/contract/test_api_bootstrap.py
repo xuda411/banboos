@@ -54,6 +54,9 @@ def test_readonly_demo_endpoints():
     })
     assert response.status_code == 400
 
+    response = client.post("/api/v1/runs", json={"kind": "strict-dispatch", "parameters": {"node_id": 1}})
+    assert response.status_code == 422
+
     response = client.post("/api/v1/runs", params={"kind": "readonly-price-analysis"})
     assert response.status_code == 202
     run_id = response.json()["run_id"]

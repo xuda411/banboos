@@ -17,6 +17,7 @@ node_modules/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
+var/
 coverage.xml
 .coverage
 *.local.*

@@ -33,4 +33,6 @@ $env:BANBOOS2_REDIS_URL = "redis://127.0.0.1:6379/0"
 
 生产部署仍需在 PostgreSQL 任务记录落库后再开放多 Worker 扩展；本阶段 Redis 状态存储用于联调和故障恢复验证。
 
-`price-analysis` 当前采用可解释的“互斥低价充电/高价放电价差估算”，显式使用 `capacity_mwh / power_mw` 得到时长，并保留输入参数和来源模式。它用于上线前回放与接口验收；严格互斥 MILP、衰减成本和完整财务模型将在下一阶段接入领域服务。
+`price-analysis` 当前采用可解释的“互斥低价充电/高价放电价差估算”，显式使用 `capacity_mwh / power_mw` 得到时长，并保留输入参数和来源模式。严格调度已迁移为 `strict-dispatch` 领域服务，包含 SOC 守恒、日末复位、充放电互斥、循环上限、效率、门槛成本和可选衰减成本。
+
+严格调度任务会在 `BANBOOS2_SNAPSHOT_DIR` 下保存内容哈希输入快照。可用 `python scripts/replay_dispatch.py <snapshot_id>` 在无数据库环境下重算，核对 `algorithm_version`、有效日数和收益。所有调度结果仍标记为历史回放，不代表预测或实际运营收益。

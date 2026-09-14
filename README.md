@@ -33,6 +33,7 @@ legacy/          1.6.6 迁移说明，不存放生产数据库
 - 第二阶段基础：数据质量摘要、任务幂等键、PostgreSQL 模型和 Alembic 首次迁移。
 - 第三阶段：任务生命周期、Redis/内存队列适配、Worker 入口和取消/失败状态。
 - 上线基础：生产认证开关、就绪探针、请求追踪、容器镜像和 API/Worker 编排。
+- 业务调度：严格互斥历史调度、输入快照、结果回放和功率/容量时长校验。
 
 交付记录见 [第一阶段](docs/phase-1-delivery.md)、[第二阶段基础](docs/phase-2-foundation.md)、[第三阶段任务执行链路](docs/phase-3-task-execution.md) 和 [初步上线检查](docs/launch-readiness.md)。
 
