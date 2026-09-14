@@ -7,11 +7,13 @@ from uuid import uuid4
 
 import redis
 from fastapi import Body, FastAPI, Header, HTTPException, Query
+from fastapi import Path as APIPath
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from apps.api.security import configured_token, is_production, token_matches
+from apps.edge.gateway import TelemetrySpool
 from packages.application.financial_export import export_financial_xlsx
 from packages.application.readonly_service import ReadonlyService
 from packages.application.run_registry import RedisStateStore, RunRegistry
@@ -26,6 +28,7 @@ from packages.contracts.readonly import (
     WeatherSummary,
 )
 from packages.contracts.tasks import RunRequest
+from packages.contracts.telemetry import TelemetryBatch
 
 
 class HealthResponse(BaseModel):
@@ -40,6 +43,7 @@ readonly_service = ReadonlyService()
 redis_url = os.getenv("BANBOOS2_REDIS_URL")
 run_registry = RunRegistry(RedisTaskQueue(redis_url) if redis_url else None,
                            RedisStateStore(redis_url) if redis_url else None)
+edge_spool = TelemetrySpool(os.getenv("BANBOOS2_EDGE_SPOOL", "var/edge/telemetry.sqlite"))
 
 allowed_origins = [item.strip() for item in os.getenv(
     "BANBOOS2_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173"
@@ -134,6 +138,26 @@ def quality_summary(node_id: int = Query(gt=0), market: str = Query(...),
         return readonly_service.quality(node_id, market, start_date, end_date)
     except (ValueError, RuntimeError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/v1/telemetry/batches", tags=["edge"])
+def ingest_telemetry(batch: TelemetryBatch) -> dict:
+    accepted = edge_spool.ingest(batch)
+    return {"batch_id": batch.batch_id, "accepted_points": accepted,
+            "pending_points": edge_spool.pending_count(), "control_mode": "disabled"}
+
+
+@app.post("/api/v1/telemetry/batches/{batch_id}/ack", tags=["edge"])
+def acknowledge_telemetry(batch_id: str = APIPath(..., min_length=1, max_length=160)) -> dict:
+    acknowledged = edge_spool.ack(batch_id)
+    return {"batch_id": batch_id, "acknowledged_points": acknowledged,
+            "pending_points": edge_spool.pending_count(), "control_mode": "disabled"}
+
+
+@app.get("/api/v1/edge/{gateway_id}/heartbeat", tags=["edge"])
+def edge_heartbeat(gateway_id: str = APIPath(..., min_length=1, max_length=120),
+                   connected: bool = True) -> dict:
+    return edge_spool.heartbeat(gateway_id, connected)
 
 
 @app.post("/api/v1/runs", response_model=RunStatus, status_code=202, tags=["runs"])

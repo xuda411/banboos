@@ -19,6 +19,12 @@ OpenAPI is available at `http://127.0.0.1:8000/docs`.
 boundary for a node and market. The Web client uses this boundary to initialize
 the date filters from the actual database instead of a hard-coded date.
 
+Edge integration uses `POST /api/v1/telemetry/batches` for idempotent batch
+ingest, `POST /api/v1/telemetry/batches/{batch_id}/ack` after a successful
+upload, and `GET /api/v1/edge/{gateway_id}/heartbeat` for connection and spool
+status. These endpoints only accept telemetry; production control remains
+disabled.
+
 Set `BANBOOS2_REDIS_URL` on both API and Worker processes to share queued task
 state across processes. Without it, task execution is intentionally local to
 the current process for development.

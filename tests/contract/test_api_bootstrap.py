@@ -57,6 +57,18 @@ def test_readonly_demo_endpoints():
     })
     assert response.status_code == 400
 
+    from apps.edge.simulator import generate_batch
+    batch = generate_batch()
+    response = client.post("/api/v1/telemetry/batches", json=batch.model_dump(mode="json"))
+    assert response.status_code == 200
+    assert response.json()["accepted_points"] == 3
+    response = client.post("/api/v1/telemetry/batches", json=batch.model_dump(mode="json"))
+    assert response.json()["accepted_points"] == 0
+    response = client.get("/api/v1/edge/gw-demo/heartbeat", params={"connected": "false"})
+    assert response.json()["control_mode"] == "disabled"
+    response = client.post(f"/api/v1/telemetry/batches/{batch.batch_id}/ack")
+    assert response.json()["acknowledged_points"] == 3
+
     response = client.post("/api/v1/runs", json={"kind": "strict-dispatch", "parameters": {"node_id": 1}})
     assert response.status_code == 422
 
