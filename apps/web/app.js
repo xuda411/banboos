@@ -124,10 +124,25 @@ function drawWeather(series) {
 async function loadWeather() {
   const nodeId = $("weatherNode").value; if (!nodeId) { $("weatherEmpty").textContent = "请选择节点"; return; }
   try {
-    const series = await get("/api/v1/weather/series", { node_id: nodeId, start_time: $("weatherStart").value, end_time: $("weatherEnd").value, limit: 744 });
+    const rawSeries = await get("/api/v1/weather/series", { node_id: nodeId, start_time: $("weatherStart").value, end_time: $("weatherEnd").value, limit: 744 });
+    const series = aggregateWeather(rawSeries, $("weatherGranularity").value);
     const mean = (key) => { const values = series.map((row) => row[key]).filter((value) => value != null); return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1) : "—"; };
     $("weatherObservations").textContent = series.length; $("weatherGhi").textContent = mean("ghi_w_m2"); $("weatherWind").textContent = mean("wind_speed_m_s"); $("weatherTemp").textContent = mean("temp_c"); $("weatherSourceDetail").textContent = series.length ? `${series[0].source || "未标注来源"} · ${series[0].is_power_simulated ? "功率估算" : "功率实测"}` : "当前范围暂无气象观测"; $("weatherChartTitle").textContent = series.length ? `${series[0].data_time.slice(0, 10)} 至 ${series[series.length - 1].data_time.slice(0, 10)}` : "当前范围暂无观测"; $("weatherEmpty").hidden = series.length > 0; if (!series.length) $("weatherEmpty").textContent = "数据库暂无气象观测"; drawWeather(series);
   } catch (error) { $("weatherEmpty").hidden = false; $("weatherEmpty").textContent = `读取失败：${error.message}`; }
+}
+
+function aggregateWeather(series, granularity) {
+  if (granularity === "小时" || !series.length) return series;
+  const buckets = new Map();
+  series.forEach((row) => {
+    const date = row.data_time.slice(0, 10);
+    const key = granularity === "周" ? `${date.slice(0, 8)}W${Math.floor((Number(date.slice(8, 10)) - 1) / 7) + 1}` : date;
+    const bucket = buckets.get(key) || { ...row, _count: 0, data_time: `${date}T00:00:00` };
+    if (!buckets.has(key)) ["ghi_w_m2", "wind_speed_m_s", "temp_c", "pv_predict_power_mw", "wind_predict_power_mw"].forEach((field) => { bucket[field] = 0; });
+    ["ghi_w_m2", "wind_speed_m_s", "temp_c", "pv_predict_power_mw", "wind_predict_power_mw"].forEach((field) => { if (row[field] != null) bucket[field] = (bucket[field] || 0) + row[field]; });
+    bucket._count += 1; buckets.set(key, bucket);
+  });
+  return [...buckets.values()].map((row) => { const result = { ...row }; ["ghi_w_m2", "wind_speed_m_s", "temp_c", "pv_predict_power_mw", "wind_predict_power_mw"].forEach((field) => { if (result[field] != null) result[field] = result[field] / result._count; }); delete result._count; return result; });
 }
 
 function setSignal(id, value, fallback = "") {
