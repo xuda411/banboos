@@ -17,6 +17,7 @@ from apps.edge.gateway import TelemetrySpool
 from packages.application.financial_export import export_financial_xlsx
 from packages.application.readonly_service import ReadonlyService
 from packages.application.run_registry import RedisStateStore, RunRegistry
+from packages.application.sqlite_runtime import SQLiteRuntime, runtime_path
 from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.financial import FinancialTaskParameters
@@ -41,8 +42,9 @@ class HealthResponse(BaseModel):
 app = FastAPI(title="Banboos 2.0 API", version="2.0.0a0")
 readonly_service = ReadonlyService()
 redis_url = os.getenv("BANBOOS2_REDIS_URL")
-run_registry = RunRegistry(RedisTaskQueue(redis_url) if redis_url else None,
-                           RedisStateStore(redis_url) if redis_url else None)
+local_runtime = SQLiteRuntime(runtime_path()) if not redis_url else None
+run_registry = RunRegistry(RedisTaskQueue(redis_url) if redis_url else local_runtime,
+                           RedisStateStore(redis_url) if redis_url else local_runtime)
 edge_spool = TelemetrySpool(os.getenv("BANBOOS2_EDGE_SPOOL", "var/edge/telemetry.sqlite"))
 
 allowed_origins = [item.strip() for item in os.getenv(

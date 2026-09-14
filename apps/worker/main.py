@@ -11,7 +11,8 @@ from datetime import date
 
 from packages.application.readonly_service import ReadonlyService
 from packages.application.run_registry import RedisStateStore, RunRegistry
-from packages.application.task_queue import InMemoryTaskQueue, RedisTaskQueue
+from packages.application.sqlite_runtime import SQLiteRuntime, runtime_path
+from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.dispatch_result import DispatchDayResult, DispatchRunResult
 from packages.contracts.financial import FinancialTaskParameters
@@ -24,8 +25,9 @@ LOGGER = logging.getLogger("banboos2.worker")
 
 def build_registry() -> RunRegistry:
     redis_url = os.getenv("BANBOOS2_REDIS_URL")
-    return RunRegistry(RedisTaskQueue(redis_url) if redis_url else InMemoryTaskQueue(),
-                       RedisStateStore(redis_url) if redis_url else None)
+    local_runtime = SQLiteRuntime(runtime_path()) if not redis_url else None
+    return RunRegistry(RedisTaskQueue(redis_url) if redis_url else local_runtime,
+                       RedisStateStore(redis_url) if redis_url else local_runtime)
 
 
 def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = None) -> bool:

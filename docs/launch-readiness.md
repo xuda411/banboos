@@ -12,6 +12,22 @@ docker compose -f deploy/docker-compose.prod.yml run --rm api alembic upgrade he
 docker compose -f deploy/docker-compose.prod.yml up -d api worker
 ```
 
+## 本地人工检查
+
+没有 Docker 或 Redis 时，可用共享 SQLite 运行时启动 API、Worker 和 Web：
+
+```powershell
+Set-Location E:\Banboos2.0
+.\scripts\start_manual_check.ps1
+```
+
+浏览器打开 `http://127.0.0.1:5173`，提交一个财务测算任务并等待状态变为
+`succeeded`，随后点击下载报表。检查结束后执行：
+
+```powershell
+.\scripts\stop_manual_check.ps1
+```
+
 ## 必检项
 
 - `GET /health` 返回 `status=ok`。
