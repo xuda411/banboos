@@ -45,11 +45,67 @@ async function loadNodes() {
   renderStationList(body.items);
   $("overviewNodes").textContent = body.items.length;
   $("node").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
+  $("curveNode").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
   if (!body.items.length) $("node").add(new Option("暂无节点", ""));
+  if (!body.items.length) $("curveNode").add(new Option("暂无节点", ""));
   await syncDateRange();
   let summaryAvailable = true;
   try { await refreshOperationsSummary(); } catch { summaryAvailable = false; }
   setStatus(summaryAvailable ? `API 已连接 · ${body.data_mode}` : "运营摘要暂不可用", summaryAvailable ? "ok" : "error");
+}
+
+async function syncCurveDateRange() {
+  const nodeId = $("curveNode").value;
+  if (!nodeId) return;
+  const range = await get("/api/v1/price/range", { node_id: nodeId, market: $("curveMarket").value });
+  if (range.first_date) $("curveStart").value = range.first_date;
+  if (range.last_date) $("curveEnd").value = range.last_date;
+}
+
+function drawCurves(curves, selectedIndex = 0) {
+  const canvas = $("curveChart");
+  const width = canvas.clientWidth || 700;
+  const height = 340;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = width * ratio; canvas.height = height * ratio;
+  const context = canvas.getContext("2d"); context.scale(ratio, ratio);
+  context.clearRect(0, 0, width, height);
+  if (!curves.length) return;
+  const values = curves.flatMap((curve) => curve.prices);
+  const min = Math.min(...values); const max = Math.max(...values); const span = max - min || 1;
+  const pad = { left: 42, right: 14, top: 18, bottom: 30 };
+  context.strokeStyle = "#dfe5e2"; context.lineWidth = 1;
+  for (let step = 0; step <= 4; step += 1) {
+    const y = pad.top + (height - pad.top - pad.bottom) * step / 4;
+    context.beginPath(); context.moveTo(pad.left, y); context.lineTo(width - pad.right, y); context.stroke();
+    context.fillStyle = "#5f7068"; context.font = "11px Microsoft YaHei"; context.fillText((max - span * step / 4).toFixed(1), 4, y + 4);
+  }
+  curves.forEach((curve, curveIndex) => {
+    context.strokeStyle = curveIndex === selectedIndex ? "#176b50" : "#9fc5b1";
+    context.lineWidth = curveIndex === selectedIndex ? 2.4 : 1.2;
+    context.beginPath();
+    curve.prices.forEach((value, index) => {
+      const x = pad.left + (width - pad.left - pad.right) * index / 95;
+      const y = pad.top + (height - pad.top - pad.bottom) * (max - value) / span;
+      index ? context.lineTo(x, y) : context.moveTo(x, y);
+    });
+    context.stroke();
+  });
+  context.fillStyle = "#5f7068"; context.font = "11px Microsoft YaHei";
+  context.fillText("00:15", pad.left, height - 8); context.fillText("12:00", width / 2 - 18, height - 8); context.fillText("24:00", width - 48, height - 8);
+}
+
+async function loadCurves() {
+  const nodeId = $("curveNode").value;
+  if (!nodeId) { $("curveState").textContent = "请选择节点"; return; }
+  $("curveState").textContent = "加载中"; $("curveState").className = "status status-muted";
+  try {
+    const curves = await get("/api/v1/price/curves", { node_id: nodeId, market: $("curveMarket").value, start_date: $("curveStart").value, end_date: $("curveEnd").value, limit: $("curveLimit").value });
+    const dayList = $("curveDays"); dayList.replaceChildren();
+    curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); drawCurves(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
+    $("curveEmpty").hidden = curves.length > 0; $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; $("curveState").textContent = curves.length ? `${curves.length} 天` : "暂无数据"; $("curveState").className = `status ${curves.length ? "status-ok" : "status-muted"}`;
+    if (!curves.length) dayList.innerHTML = '<div class="empty-state">数据库暂无完整 96 点曲线</div>'; drawCurves(curves);
+  } catch (error) { $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
 }
 
 function setSignal(id, value, fallback = "") {
@@ -167,6 +223,9 @@ async function pollRun(runId) {
 $("province").addEventListener("change", () => loadNodes().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
 $("node").addEventListener("change", () => syncDateRange().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
 $("market").addEventListener("change", () => syncDateRange().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
+$("curveNode").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
+$("curveMarket").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
+$("loadCurves").addEventListener("click", loadCurves);
 $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
 $("powerMw").addEventListener("input", updateDurationHint);

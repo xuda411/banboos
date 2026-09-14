@@ -57,6 +57,8 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; }
 .hero-badge { padding: 8px 12px; color: #176b50; background: #eaf4ee; border: 1px solid #c6d2cb; border-radius: 8px; font-size: 13px; }
 .card { background: #fff; border: 1px solid #dfe5e2; border-radius: 12px; box-shadow: 0 2px 8px #243a300c; }
 .filters { display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)) auto; gap: 12px; padding: 16px; align-items: end; }
+.curve-filters { grid-template-columns: repeat(5, minmax(130px, 1fr)) auto; }
+.curve-layout { display: grid; grid-template-columns: 1fr 230px; gap: 16px; margin-top: 16px; }.curve-card { padding: 20px; min-height: 450px; }.curve-card h2, .curve-days h2 { margin: 0; font-size: 20px; }.curve-card canvas { display: block; width: 100%; height: 340px; margin-top: 18px; }.curve-days { padding: 20px; }.curve-day-list { display: grid; gap: 6px; margin-top: 14px; max-height: 380px; overflow: auto; }.curve-day { padding: 9px 10px; border: 1px solid #dfe5e2; border-radius: 7px; background: #f8fbf9; color: #52635d; font-size: 12px; cursor: pointer; }.curve-day.active, .curve-day:hover { border-color: #176b50; color: #176b50; background: #eaf4ee; }
 label { display: grid; gap: 6px; color: #52635d; font-size: 12px; }
 label small { color: #176b50; font-size: 11px; }
 select, input, button { min-height: 38px; border: 1px solid #c6d2cb; border-radius: 7px; background: #fff; color: #243a30; padding: 0 10px; font: inherit; }
@@ -74,6 +76,6 @@ button { cursor: pointer; font-weight: 700; }
 .task-form { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)) auto; gap: 12px; align-items: end; margin-top: 16px; }
 .task-progress { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 14px; color: #52635d; font-size: 13px; }
 .task-progress a { color: #176b50; font-weight: 700; }
-@media (max-width: 1080px) { .metrics, .overview-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .overview-signals { grid-template-columns: 1fr; } .overview-grid { grid-template-columns: 1fr; } }
+@media (max-width: 1080px) { .metrics, .overview-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .overview-signals { grid-template-columns: 1fr; } .overview-grid, .curve-layout { grid-template-columns: 1fr; } }
 @media (max-width: 860px) { .topbar { flex-wrap: wrap; gap: 8px; padding: 10px 20px 0; } .main-nav { order: 3; width: 100%; height: 42px; } .nav-item { flex: 1; } .page { padding: 20px; } .filters, .task-form { grid-template-columns: repeat(2, 1fr); } .filters button, .task-form button { grid-column: span 2; } .overview-hero { padding: 32px; } }
 @media (max-width: 560px) { .topbar { padding: 10px 16px 0; } .topbar > .status { margin-left: auto; } .page { padding: 14px; } .overview-hero { min-height: 210px; padding: 26px 22px; } .hero-orbit { width: 100px; height: 100px; } .overview-kpis, .quick-actions { grid-template-columns: 1fr; } .hero { display: block; } .hero-badge { display: inline-block; margin-top: 16px; } .metrics { grid-template-columns: 1fr; } .task-progress { align-items: start; flex-direction: column; } }
