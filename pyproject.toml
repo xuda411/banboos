@@ -26,6 +26,11 @@ dev = [
 line-length = 100
 target-version = "py312"
 
+[tool.ruff.lint]
+# FastAPI dependency declarations intentionally use Query in defaults; C408
+# would also obscure the compact row-mapping style used by the SQLite adapter.
+ignore = ["B008", "C408"]
+
 [tool.setuptools.packages.find]
 include = ["apps*", "packages*"]
 exclude = ["deploy*", "legacy*", "tests*"]

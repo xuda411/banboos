@@ -1,0 +1,29 @@
+:root { color-scheme: light; font-family: "Microsoft YaHei", system-ui, sans-serif; color: #243a30; background: #f3f6f4; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.topbar { height: 58px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; background: #fff; border-bottom: 1px solid #dfe5e2; }
+.brand-mark { display: flex; align-items: center; gap: 10px; font-weight: 700; color: #176b50; }
+.bamboo { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #176b50; border-radius: 9px 4px 9px 4px; font-size: 16px; }
+.status { padding: 5px 10px; border-radius: 999px; font-size: 12px; }
+.status-muted { background: #eef3ef; color: #52635d; }
+.status-ok { background: #e4f4ea; color: #176b50; }
+.status-error { background: #fce9e7; color: #a43c32; }
+.page { max-width: 1280px; margin: 0 auto; padding: 32px; }
+.hero { display: flex; justify-content: space-between; align-items: end; margin-bottom: 24px; }
+.eyebrow { margin: 0 0 8px; color: #176b50; font-size: 13px; font-weight: 700; }
+h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; }
+.hero p:last-child { margin: 12px 0 0; color: #52635d; }
+.hero-badge { padding: 8px 12px; color: #176b50; background: #eaf4ee; border: 1px solid #c6d2cb; border-radius: 8px; font-size: 13px; }
+.card { background: #fff; border: 1px solid #dfe5e2; border-radius: 12px; box-shadow: 0 2px 8px #243a300c; }
+.filters { display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)) auto; gap: 12px; padding: 16px; align-items: end; }
+label { display: grid; gap: 6px; color: #52635d; font-size: 12px; }
+select, input, button { min-height: 38px; border: 1px solid #c6d2cb; border-radius: 7px; background: #fff; color: #243a30; padding: 0 10px; font: inherit; }
+button { cursor: pointer; font-weight: 700; }
+.primary { background: #176b50; color: #fff; border-color: #176b50; }
+.metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+.metric { padding: 18px; display: grid; gap: 8px; }
+.metric span, .metric small { color: #52635d; font-size: 13px; }
+.metric strong { font-size: 32px; color: #176b50; }
+.notice { margin-top: 16px; padding: 16px; color: #52635d; line-height: 1.6; }
+@media (max-width: 860px) { .page { padding: 20px; } .filters { grid-template-columns: repeat(2, 1fr); } .filters button { grid-column: span 2; } }
+@media (max-width: 560px) { .topbar { padding: 0 16px; } .hero { display: block; } .hero-badge { display: inline-block; margin-top: 16px; } .metrics { grid-template-columns: 1fr; } }

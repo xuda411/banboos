@@ -1,8 +1,14 @@
 """Minimal API bootstrap for the Banboos 2.0 foundation milestone."""
-from datetime import datetime, timezone
+import os
+from datetime import UTC, date, datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+from packages.application.readonly_service import ReadonlyService
+from packages.application.run_registry import RunRegistry
+from packages.contracts.readonly import PriceSummary, RunStatus, WeatherSummary
 
 
 class HealthResponse(BaseModel):
@@ -13,6 +19,14 @@ class HealthResponse(BaseModel):
 
 
 app = FastAPI(title="Banboos 2.0 API", version="2.0.0a0")
+readonly_service = ReadonlyService()
+run_registry = RunRegistry()
+
+allowed_origins = [item.strip() for item in os.getenv(
+    "BANBOOS2_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173"
+).split(",") if item.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=allowed_origins,
+                   allow_methods=["GET", "POST"], allow_headers=["*"])
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
@@ -21,10 +35,48 @@ def health() -> HealthResponse:
         status="ok",
         service="banboos2-api",
         version=app.version,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 
 @app.get("/api/v1/meta", tags=["system"])
 def meta() -> dict[str, str]:
-    return {"product": "Banboos", "platform": "server-web-operations", "api_version": "v1"}
+    return {"product": "Banboos", "platform": "server-web-operations", "api_version": "v1",
+            "data_mode": readonly_service.data_mode}
+
+
+@app.get("/api/v1/nodes", tags=["readonly"])
+def nodes(province: str | None = None, q: str | None = Query(default=None, max_length=80)) -> dict:
+    return {"items": [item.model_dump(mode="json") for item in readonly_service.nodes(province, q)],
+            "data_mode": readonly_service.data_mode}
+
+
+@app.get("/api/v1/price/summary", response_model=PriceSummary, tags=["readonly"])
+def price_summary(node_id: int = Query(gt=0), market: str = Query(...),
+                  start_date: date = Query(...), end_date: date = Query(...)) -> PriceSummary:
+    try:
+        return readonly_service.price(node_id, market, start_date, end_date)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/v1/weather/summary", response_model=WeatherSummary, tags=["readonly"])
+def weather_summary(node_id: int = Query(gt=0), start_time: datetime | None = None,
+                    end_time: datetime | None = None) -> WeatherSummary:
+    try:
+        return readonly_service.weather(node_id, start_time, end_time)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/v1/runs", response_model=RunStatus, status_code=202, tags=["runs"])
+def submit_run(kind: str = Query(..., min_length=1, max_length=80)) -> RunStatus:
+    return run_registry.submit(kind)
+
+
+@app.get("/api/v1/runs/{run_id}", response_model=RunStatus, tags=["runs"])
+def get_run(run_id: str) -> RunStatus:
+    item = run_registry.get(run_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return item
