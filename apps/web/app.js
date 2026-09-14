@@ -24,8 +24,26 @@ function setStatus(text, kind = "muted") {
   $("apiState").className = `status status-${kind}`;
 }
 
+function activateView(viewId) {
+  document.querySelectorAll(".view").forEach((view) => { view.hidden = view.id !== viewId; });
+  document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === viewId));
+}
+
+function renderStationList(items) {
+  const list = $("stationList");
+  if (!items.length) { list.innerHTML = '<div class="empty-state">当前筛选没有节点</div>'; return; }
+  list.replaceChildren(...items.map((item) => {
+    const row = document.createElement("div");
+    row.className = "station-row";
+    row.innerHTML = `<span class="station-mark">${item.province.slice(0, 1) || "站"}</span><span class="station-name"><b>${item.name}</b><small>${item.province || "未配置省份"}</small></span><span class="station-state"><i></i>只读在线</span>`;
+    return row;
+  }));
+}
+
 async function loadNodes() {
   const body = await get("/api/v1/nodes", { province: $("province").value });
+  renderStationList(body.items);
+  $("overviewNodes").textContent = body.items.length;
   $("node").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
   if (!body.items.length) $("node").add(new Option("暂无节点", ""));
   await syncDateRange();
@@ -55,6 +73,10 @@ async function refresh() {
     $("priceSource").textContent = price.sources.length ? price.sources.join("、") : "演示/暂无来源文件";
     $("priceRange").textContent = price.first_date ? `${price.first_date} 至 ${price.last_date}` : "所选范围暂无有效日";
     $("weatherSource").textContent = weather.source || "暂无气象观测";
+    $("overviewValidDays").textContent = price.valid_days;
+    $("overviewDataPoints").textContent = price.data_points.toLocaleString();
+    $("overviewCoverage").textContent = `${(quality.coverage_ratio * 100).toFixed(1)}%`;
+    $("overviewRange").textContent = price.first_date ? `${price.first_date} 至 ${price.last_date}` : "所选范围暂无有效日";
     $("notice").textContent = "只读结果已更新。正式分析、控制指令和生产数据接入将在后续阶段开放。";
   } catch (error) {
     $("notice").textContent = `读取失败：${error.message}`;
@@ -126,4 +148,6 @@ $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
 $("powerMw").addEventListener("input", updateDurationHint);
 $("capacityMwh").addEventListener("input", updateDurationHint);
+document.querySelectorAll("[data-view]").forEach((item) => item.addEventListener("click", () => activateView(item.dataset.view)));
+activateView("overviewView");
 loadNodes().then(refresh).catch((error) => { $("notice").textContent = `无法连接 API：${error.message}`; setStatus("API 未连接", "error"); });
