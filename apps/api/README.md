@@ -36,6 +36,14 @@ traceable and read-only; it never issues a device command.
 `GET /api/v1/telemetry/recent` returns recent telemetry points with optional
 `station_id`, `device_id` and `point_id` filters for station detail pages.
 
+`GET /api/v1/operations/summary` is the read-only operations-center snapshot.
+It combines the configured node count, task totals by status, telemetry spool
+totals and alert totals in one response. The response is marked
+`Cache-Control: no-store` because it is a live view; if one backing store is unavailable the
+endpoint returns `503` with a safe component code and `Retry-After: 5` instead
+of presenting zeroes as if they were real data. Its `control_mode` is always
+`disabled` in this milestone.
+
 Set `BANBOOS2_REDIS_URL` on both API and Worker processes to share queued task
 state across processes. Without it, task execution is intentionally local to
 the current process for development.

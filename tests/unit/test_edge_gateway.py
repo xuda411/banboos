@@ -29,13 +29,37 @@ def test_spool_replays_batches_in_event_time_order_and_reports_safe_mode(tmp_pat
     spool.ingest(later)
     spool.ingest(earlier)
 
-    pending = spool.pending(limit=6)
+    pending = spool.pending(limit=2)
     assert [item.points[0].event_time for item in pending] == sorted(
         item.points[0].event_time for item in pending
     )
     heartbeat = spool.heartbeat("gw-01", connected=False)
     assert heartbeat["pending_points"] == 6
     assert heartbeat["control_mode"] == "disabled"
+
+
+def test_pending_limit_keeps_whole_batches_and_ack_preserves_other_batches(tmp_path):
+    path = tmp_path / "edge-spool.sqlite"
+    spool = TelemetrySpool(path)
+    early = generate_batch(at=datetime(2026, 1, 2, 3, 4, tzinfo=UTC))
+    later = generate_batch(at=datetime(2026, 1, 2, 3, 5, tzinfo=UTC))
+    spool.ingest(later)
+    spool.ingest(early)
+
+    first = spool.pending(limit=1)
+    assert len(first) == 1
+    assert first[0].batch_id == early.batch_id
+    assert {point.raw_message_id for point in first[0].points} == {
+        point.raw_message_id for point in early.points
+    }
+    assert spool.ack(first[0].batch_id) == 3
+
+    reopened = TelemetrySpool(path)
+    remaining = reopened.pending(limit=1)
+    assert len(remaining) == 1
+    assert remaining[0].batch_id == later.batch_id
+    assert len(remaining[0].points) == reopened.pending_count() == 3
+    assert reopened.ack(early.batch_id) == 0
 
 
 def test_telemetry_alerts_are_structured_and_do_not_control_devices():

@@ -1,4 +1,5 @@
 """Minimal API bootstrap for the Banboos 2.0 foundation milestone."""
+import logging
 import os
 import re
 from datetime import UTC, date, datetime
@@ -7,7 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import redis
-from fastapi import Body, FastAPI, Header, HTTPException, Query
+from fastapi import Body, FastAPI, Header, HTTPException, Query, Response
 from fastapi import Path as APIPath
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -16,12 +17,14 @@ from pydantic import BaseModel
 from apps.api.security import configured_token, is_production, token_matches
 from apps.edge.gateway import TelemetrySpool
 from packages.application.financial_export import export_financial_xlsx
+from packages.application.operations_service import OperationsService, OperationsUnavailable
 from packages.application.readonly_service import ReadonlyService
 from packages.application.run_registry import RedisStateStore, RunRegistry
 from packages.application.sqlite_runtime import SQLiteRuntime, runtime_path
 from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.financial import FinancialTaskParameters
+from packages.contracts.operations import OperationsSummary
 from packages.contracts.readonly import (
     DataQualitySummary,
     PriceRange,
@@ -109,6 +112,23 @@ def nodes(province: str | None = None, q: str | None = Query(default=None, max_l
             "data_mode": readonly_service.data_mode}
 
 
+@app.get("/api/v1/operations/summary", response_model=OperationsSummary, tags=["operations"])
+def operations_summary(response: Response) -> OperationsSummary:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return OperationsService(readonly_service, run_registry, edge_spool).summary()
+    except OperationsUnavailable as error:
+        logging.getLogger("banboos2.api").warning(
+            "operations summary unavailable", extra={"component": error.component}
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "OPERATIONS_SUMMARY_UNAVAILABLE", "component": error.component,
+                    "message": "运营摘要暂不可用，请稍后重试"},
+            headers={"Retry-After": "5", "Cache-Control": "no-store"},
+        ) from error
+
+
 @app.get("/api/v1/price/summary", response_model=PriceSummary, tags=["readonly"])
 def price_summary(node_id: int = Query(gt=0), market: str = Query(...),
                   start_date: date = Query(...), end_date: date = Query(...)) -> PriceSummary:
@@ -178,7 +198,9 @@ def acknowledge_telemetry(batch_id: str = APIPath(..., min_length=1, max_length=
 
 
 @app.get("/api/v1/telemetry/pending", tags=["edge"])
-def pending_telemetry(limit: int = Query(default=50, ge=1, le=200)) -> dict:
+def pending_telemetry(
+    limit: int = Query(default=50, ge=1, le=200, description="Maximum number of complete batches"),
+) -> dict:
     batches = edge_spool.pending(limit=limit)
     return {"items": [{"batch_id": batch.batch_id, "points": len(batch.points),
                        "first_event_time": min(point.event_time for point in batch.points),

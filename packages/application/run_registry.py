@@ -6,7 +6,10 @@ backed by Redis/Celery without changing the HTTP shape.
 """
 from __future__ import annotations
 
+import json
+from collections import Counter
 from datetime import UTC, datetime
+from itertools import batched
 from threading import Lock
 from typing import Protocol
 from uuid import uuid4
@@ -22,6 +25,7 @@ class StateStore(Protocol):
     def get(self, run_id: str) -> RunStatus | None: ...
     def get_by_key(self, kind: str, key: str) -> RunStatus | None: ...
     def set_key(self, kind: str, key: str, run_id: str) -> None: ...
+    def status_counts(self) -> dict[str, int]: ...
     def list(self, kind: str | None = None, status: str | None = None,
              limit: int = 50) -> list[RunStatus]: ...
 
@@ -43,6 +47,9 @@ class InMemoryStateStore:
 
     def set_key(self, kind: str, key: str, run_id: str) -> None:
         self._idempotency[(kind, key)] = run_id
+
+    def status_counts(self) -> dict[str, int]:
+        return dict(Counter(item.status for item in self._items.values()))
 
     def list(self, kind: str | None = None, status: str | None = None,
              limit: int = 50) -> list[RunStatus]:
@@ -68,6 +75,27 @@ class RedisStateStore:
 
     def set_key(self, kind: str, key: str, run_id: str) -> None:
         self._client.set(f"banboos2:idempotency:{kind}:{key}", run_id)
+
+    def status_counts(self) -> dict[str, int]:
+        # Existing Redis installations need no new index or payload migration.
+        # SCAN may repeat keys; count each run once and bound each MGET request.
+        counts: Counter[str] = Counter()
+        seen: set[str] = set()
+        for batch in batched(self._client.scan_iter(match="banboos2:run:*", count=128), 128):
+            keys = []
+            for key in batch:
+                if key not in seen:
+                    keys.append(key)
+                    seen.add(key)
+            if not keys:
+                continue
+            for payload in self._client.mget(keys):
+                if payload is not None:
+                    status = json.loads(payload)["status"]
+                    if not isinstance(status, str) or not status:
+                        raise ValueError("invalid stored run status")
+                    counts[status] += 1
+        return dict(counts)
 
     def list(self, kind: str | None = None, status: str | None = None,
              limit: int = 50) -> list[RunStatus]:
@@ -107,6 +135,12 @@ class RunRegistry:
     def get(self, run_id: str) -> RunStatus | None:
         with self._lock:
             return self._store.get(run_id)
+
+    def status_counts(self) -> dict[str, int]:
+        with self._lock:
+            counts = dict.fromkeys(("queued", "running", "succeeded", "failed", "cancelled"), 0)
+            counts.update(self._store.status_counts())
+            return counts
 
     def list(self, kind: str | None = None, status: str | None = None,
              limit: int = 50) -> list[RunStatus]:

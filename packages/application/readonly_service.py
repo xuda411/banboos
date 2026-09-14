@@ -30,6 +30,9 @@ class ReadonlyService:
         demo = [NodeSummary(id=1, name="演示储能节点", province="湖北"), NodeSummary(id=2, name="演示储能节点-广东", province="广东")]
         return [row for row in demo if (not province or row.province == province) and (not query or query in row.name)]
 
+    def node_count(self) -> int:
+        return self._reader.node_count() if self._reader else len(self.nodes())
+
     def price(self, node_id: int, market: str, start_date: date, end_date: date) -> PriceSummary:
         if market not in {"日前", "实时"}:
             raise ValueError("market must be 日前 or 实时")

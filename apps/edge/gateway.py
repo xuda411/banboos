@@ -8,9 +8,11 @@ control path.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
+from packages.contracts.operations import AlertCounts, EdgeCounts, TelemetryCounts
 from packages.contracts.telemetry import TelemetryAlert, TelemetryBatch, TelemetryPoint
 
 
@@ -51,12 +53,21 @@ class TelemetrySpool:
         return accepted
 
     def pending(self, limit: int = 100) -> list[TelemetryBatch]:
+        """Read up to ``limit`` complete batches, never a truncated batch.
+
+        Acknowledgements apply to whole batches, so a point-level LIMIT here
+        could acknowledge points that the uploader had never received.
+        """
         if limit < 1:
             raise ValueError("limit must be positive")
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             rows = connection.execute(
-                "SELECT batch_id, payload FROM telemetry_spool WHERE acked=0 "
-                "ORDER BY event_time, batch_id LIMIT ?", (limit,)
+                "WITH selected AS ("
+                "SELECT batch_id, MIN(event_time) AS first_event FROM telemetry_spool "
+                "WHERE acked=0 GROUP BY batch_id ORDER BY first_event, batch_id LIMIT ?) "
+                "SELECT t.batch_id, t.payload FROM telemetry_spool t "
+                "JOIN selected s ON s.batch_id=t.batch_id WHERE t.acked=0 "
+                "ORDER BY s.first_event, s.batch_id, t.event_time, t.raw_message_id", (limit,)
             ).fetchall()
         grouped: dict[str, list] = {}
         for batch_id, payload in rows:
@@ -79,6 +90,35 @@ class TelemetrySpool:
                 "SELECT COUNT(*) FROM telemetry_spool WHERE acked=0"
             ).fetchone()
         return int(row[0])
+
+    def operations_counts(self) -> EdgeCounts:
+        # Both aggregates share one SQLite read snapshot. No history list limit
+        # and no payload deserialization are involved in these totals.
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM ("
+                "SELECT COUNT(*) AS total_points, "
+                "COUNT(CASE WHEN acked=0 THEN 1 END) AS pending_points, "
+                "COUNT(CASE WHEN acked<>0 THEN 1 END) AS acknowledged_points, "
+                "COUNT(DISTINCT CASE WHEN acked=0 THEN batch_id END) AS pending_batches "
+                "FROM telemetry_spool) CROSS JOIN ("
+                "SELECT COUNT(*) AS total_alerts, "
+                "COUNT(CASE WHEN acknowledged=0 THEN 1 END) AS unacknowledged_alerts, "
+                "COUNT(CASE WHEN acknowledged<>0 THEN 1 END) AS acknowledged_alerts, "
+                "COUNT(CASE WHEN acknowledged=0 AND json_extract(payload, '$.severity')='critical' "
+                "THEN 1 END) AS unacknowledged_critical, "
+                "COUNT(CASE WHEN acknowledged=0 AND json_extract(payload, '$.severity')='warning' "
+                "THEN 1 END) AS unacknowledged_warning FROM telemetry_alerts)"
+            ).fetchone()
+        return EdgeCounts(
+            telemetry=TelemetryCounts(**{key: row[key] for key in TelemetryCounts.model_fields}),
+            alerts=AlertCounts(
+                total=row["total_alerts"], unacknowledged=row["unacknowledged_alerts"],
+                acknowledged=row["acknowledged_alerts"],
+                unacknowledged_critical=row["unacknowledged_critical"],
+                unacknowledged_warning=row["unacknowledged_warning"],
+            ),
+        )
 
     def recent(self, station_id: str | None = None, device_id: str | None = None,
                point_id: str | None = None, limit: int = 100) -> list[TelemetryPoint]:

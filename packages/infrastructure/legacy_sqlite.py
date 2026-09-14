@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,10 @@ class LegacySQLiteReader:
                 params,
             ).fetchall()
         return [dict(id=row["id"], name=row["node_name"], province=row["province"] or "") for row in rows]
+
+    def node_count(self) -> int:
+        with closing(self._connect()) as connection:
+            return int(connection.execute("SELECT COUNT(*) FROM nodes").fetchone()[0])
 
     def price_summary(self, node_id: int, market: str, start_date: date, end_date: date) -> dict[str, Any]:
         if market not in {"日前", "实时"}:

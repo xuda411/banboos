@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from contextlib import closing
 from pathlib import Path
 
 from packages.application.task_queue import TaskEnvelope
@@ -43,6 +44,19 @@ class SQLiteRuntime:
                 "SELECT payload FROM runtime_runs WHERE run_id=?", (run_id,)
             ).fetchone()
         return RunStatus.model_validate_json(row[0]) if row else None
+
+    def status_counts(self) -> dict[str, int]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT json_extract(payload, '$.status') AS status, COUNT(*) AS total "
+                "FROM runtime_runs GROUP BY status"
+            ).fetchall()
+        counts = {}
+        for row in rows:
+            if not isinstance(row["status"], str) or not row["status"]:
+                raise ValueError("invalid stored run status")
+            counts[row["status"]] = int(row["total"])
+        return counts
 
     def get_by_key(self, kind: str, key: str) -> RunStatus | None:
         with self._connect() as connection:
