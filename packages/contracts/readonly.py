@@ -27,6 +27,16 @@ class PriceSummary(BaseModel):
     source_mode: str = "legacy-readonly"
 
 
+class PriceRange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: int
+    market: str
+    first_date: date | None = None
+    last_date: date | None = None
+    source_mode: str = "legacy-readonly"
+
+
 class WeatherSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

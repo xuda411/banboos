@@ -15,6 +15,10 @@ SQLite file before starting the server. The adapter rejects the old default
 
 OpenAPI is available at `http://127.0.0.1:8000/docs`.
 
+`GET /api/v1/price/range?node_id=...&market=实时` returns the valid data
+boundary for a node and market. The Web client uses this boundary to initialize
+the date filters from the actual database instead of a hard-coded date.
+
 Set `BANBOOS2_REDIS_URL` on both API and Worker processes to share queued task
 state across processes. Without it, task execution is intentionally local to
 the current process for development.

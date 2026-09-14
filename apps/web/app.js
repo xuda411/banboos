@@ -19,7 +19,16 @@ async function loadNodes() {
   const body = await get("/api/v1/nodes", { province: $("province").value });
   $("node").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
   if (!body.items.length) $("node").add(new Option("暂无节点", ""));
+  await syncDateRange();
   setStatus(`API 已连接 · ${body.data_mode}`, "ok");
+}
+
+async function syncDateRange() {
+  const nodeId = $("node").value;
+  if (!nodeId) return;
+  const range = await get("/api/v1/price/range", { node_id: nodeId, market: $("market").value });
+  if (range.first_date) $("startDate").value = range.first_date;
+  if (range.last_date) $("endDate").value = range.last_date;
 }
 
 async function refresh() {
@@ -45,5 +54,7 @@ async function refresh() {
 }
 
 $("province").addEventListener("change", () => loadNodes().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
+$("node").addEventListener("change", () => syncDateRange().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
+$("market").addEventListener("change", () => syncDateRange().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
 $("refresh").addEventListener("click", refresh);
 loadNodes().then(refresh).catch((error) => { $("notice").textContent = `无法连接 API：${error.message}`; setStatus("API 未连接", "error"); });

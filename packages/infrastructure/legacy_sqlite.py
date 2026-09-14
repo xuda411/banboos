@@ -75,6 +75,25 @@ class LegacySQLiteReader:
             source_mode="legacy-readonly",
         )
 
+    def price_range(self, node_id: int, market: str) -> dict[str, Any]:
+        if market not in {"日前", "实时"}:
+            raise ValueError("market must be 日前 or 实时")
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT run_date, " + ",".join(PRICE_FIELDS) +
+                " FROM price_data WHERE node_id=? AND case_type=? ORDER BY run_date, id",
+                (node_id, market),
+            ).fetchall()
+        dates: list[date] = []
+        for row in rows:
+            values = row[1:]
+            if all(value is not None and _is_finite(value) for value in values):
+                dates.append(date.fromisoformat(str(row[0])[:10]))
+        return dict(node_id=node_id, market=market,
+                    first_date=min(dates) if dates else None,
+                    last_date=max(dates) if dates else None,
+                    source_mode="legacy-readonly")
+
     def weather_summary(self, node_id: int, start_time: datetime | None = None,
                         end_time: datetime | None = None) -> dict[str, Any]:
         start_text = start_time.isoformat(sep=" ") if start_time else "0000-01-01"

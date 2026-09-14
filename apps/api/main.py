@@ -18,7 +18,13 @@ from packages.application.run_registry import RedisStateStore, RunRegistry
 from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.financial import FinancialTaskParameters
-from packages.contracts.readonly import DataQualitySummary, PriceSummary, RunStatus, WeatherSummary
+from packages.contracts.readonly import (
+    DataQualitySummary,
+    PriceRange,
+    PriceSummary,
+    RunStatus,
+    WeatherSummary,
+)
 from packages.contracts.tasks import RunRequest
 
 
@@ -100,6 +106,14 @@ def price_summary(node_id: int = Query(gt=0), market: str = Query(...),
                   start_date: date = Query(...), end_date: date = Query(...)) -> PriceSummary:
     try:
         return readonly_service.price(node_id, market, start_date, end_date)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/v1/price/range", response_model=PriceRange, tags=["readonly"])
+def price_range(node_id: int = Query(gt=0), market: str = Query(...)) -> PriceRange:
+    try:
+        return readonly_service.price_range(node_id, market)
     except (ValueError, RuntimeError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

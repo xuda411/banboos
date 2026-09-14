@@ -8,6 +8,7 @@ from packages.contracts.analysis import PriceAnalysisResult
 from packages.contracts.readonly import (
     DataQualitySummary,
     NodeSummary,
+    PriceRange,
     PriceSummary,
     WeatherSummary,
 )
@@ -38,6 +39,13 @@ class ReadonlyService:
             return PriceSummary.model_validate(self._reader.price_summary(node_id, market, start_date, end_date))
         return PriceSummary(node_id=node_id, market=market, start_date=start_date, end_date=end_date,
                             valid_days=0, data_points=0, source_mode="demo")
+
+    def price_range(self, node_id: int, market: str) -> PriceRange:
+        if market not in {"日前", "实时"}:
+            raise ValueError("market must be 日前 or 实时")
+        if self._reader:
+            return PriceRange.model_validate(self._reader.price_range(node_id, market))
+        return PriceRange(node_id=node_id, market=market, source_mode="demo")
 
     def weather(self, node_id: int, start_time: datetime | None = None,
                 end_time: datetime | None = None) -> WeatherSummary:
