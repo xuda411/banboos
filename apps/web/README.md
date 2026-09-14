@@ -7,3 +7,5 @@ python -m http.server 5173 --directory E:\Banboos2.0\apps\web
 ```
 
 浏览器访问 `http://127.0.0.1:5173`。后续进入正式 Web 开发时，将保持 `/api/v1` 契约不变，迁移到 React + TypeScript + ECharts。
+
+约束回放页复用 1.6.6 严格互斥调度任务，提交前校验功率/容量时长，结果展示有效历史日、净收益和输入快照；演示数据没有完整电价曲线时会返回明确的 `NO_VALID_PRICE_DAYS` 原因。

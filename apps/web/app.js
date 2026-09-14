@@ -47,9 +47,11 @@ async function loadNodes() {
   $("node").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
   $("curveNode").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
   $("weatherNode").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
+  $("dispatchNode").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
   if (!body.items.length) $("node").add(new Option("暂无节点", ""));
   if (!body.items.length) $("curveNode").add(new Option("暂无节点", ""));
   if (!body.items.length) $("weatherNode").add(new Option("暂无节点", ""));
+  if (!body.items.length) $("dispatchNode").add(new Option("暂无节点", ""));
   await syncDateRange();
   let summaryAvailable = true;
   try { await refreshOperationsSummary(); } catch { summaryAvailable = false; }
@@ -129,6 +131,26 @@ async function loadWeather() {
     const mean = (key) => { const values = series.map((row) => row[key]).filter((value) => value != null); return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1) : "—"; };
     $("weatherObservations").textContent = series.length; $("weatherGhi").textContent = mean("ghi_w_m2"); $("weatherWind").textContent = mean("wind_speed_m_s"); $("weatherTemp").textContent = mean("temp_c"); $("weatherSourceDetail").textContent = series.length ? `${series[0].source || "未标注来源"} · ${series[0].is_power_simulated ? "功率估算" : "功率实测"}` : "当前范围暂无气象观测"; $("weatherChartTitle").textContent = series.length ? `${series[0].data_time.slice(0, 10)} 至 ${series[series.length - 1].data_time.slice(0, 10)}` : "当前范围暂无观测"; $("weatherEmpty").hidden = series.length > 0; if (!series.length) $("weatherEmpty").textContent = "数据库暂无气象观测"; drawWeather(series);
   } catch (error) { $("weatherEmpty").hidden = false; $("weatherEmpty").textContent = `读取失败：${error.message}`; }
+}
+
+async function submitDispatch() {
+  const nodeId = $("dispatchNode").value; const state = $("dispatchState"); const message = $("dispatchMessage");
+  if (!nodeId) { message.textContent = "请选择节点"; return; }
+  const power = Number($("dispatchPower").value); const capacity = Number($("dispatchCapacity").value);
+  if (!Number.isFinite(power) || !Number.isFinite(capacity) || power <= 0 || capacity <= 0 || capacity / power < 0.25 || capacity / power > 24) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
+  state.textContent = "提交中"; state.className = "status status-muted"; $("dispatchResult").hidden = true;
+  const parameters = { node_id: Number(nodeId), market: $("dispatchMarket").value, start_date: $("dispatchStart").value, end_date: $("dispatchEnd").value, power_mw: power, capacity_mwh: capacity, eta_charge: Number($("dispatchEta").value) / 100, eta_discharge: Number($("dispatchEta").value) / 100, max_daily_cycles: Number($("dispatchCycles").value), hurdle_yuan_per_mwh: Number($("dispatchHurdle").value) };
+  try { const run = await post("/api/v1/runs", { kind: "strict-dispatch", parameters }); $("dispatchRunId").textContent = run.run_id; const finished = await pollDispatch(run.run_id); renderDispatchResult(finished.result); } catch (error) { state.textContent = "回放失败"; state.className = "status status-error"; message.textContent = error.message; }
+}
+
+async function pollDispatch(runId) {
+  const state = $("dispatchState"); const message = $("dispatchMessage");
+  for (let attempt = 0; attempt < 300; attempt += 1) { const run = await get(`/api/v1/runs/${runId}`); state.textContent = `${run.status} ${run.progress}%`; state.className = run.status === "succeeded" ? "status status-ok" : "status status-muted"; message.textContent = run.message || "任务执行中"; if (run.status === "succeeded") return run; if (["failed", "cancelled"].includes(run.status)) throw new Error(`${run.message || "任务未完成"}${run.error_code ? `（${run.error_code}）` : ""}`); await new Promise((resolve) => setTimeout(resolve, 1000)); }
+  throw new Error("回放轮询超时，请稍后按 run_id 查询");
+}
+
+function renderDispatchResult(result) {
+  if (!result) return; const money = (value) => value == null ? "—" : `${(Number(value) / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元`; $("dispatchValidDays").textContent = result.valid_days ?? "—"; $("dispatchTotalRevenue").textContent = money(result.total_net_revenue_yuan); $("dispatchAnnualRevenue").textContent = money(result.annualized_net_revenue_yuan); $("dispatchSnapshot").textContent = result.snapshot_id ? `${result.snapshot_id.slice(0, 8)}…` : "—"; $("dispatchResult").hidden = false;
 }
 
 function aggregateWeather(series, granularity) {
@@ -287,6 +309,7 @@ $("curveNode").addEventListener("change", () => syncCurveDateRange().catch(() =>
 $("curveMarket").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
 $("loadCurves").addEventListener("click", loadCurves);
 $("loadWeather").addEventListener("click", loadWeather);
+$("submitDispatch").addEventListener("click", submitDispatch);
 $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
 $("powerMw").addEventListener("input", updateDurationHint);
