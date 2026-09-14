@@ -35,6 +35,7 @@ legacy/          1.6.6 迁移说明，不存放生产数据库
 - 上线基础：生产认证开关、就绪探针、请求追踪、容器镜像和 API/Worker 编排。
 - 业务调度：严格互斥历史调度、输入快照、结果回放和功率/容量时长校验。
 - 财务测算：现金流、EOL、税费、NPV、IRR、回收期、调度结果链路和结构化 XLSX 报表导出。
+- Web 联调：节点日期自动校准、财务任务提交、进度轮询和结果下载。
 
 交付记录见 [第一阶段](docs/phase-1-delivery.md)、[第二阶段基础](docs/phase-2-foundation.md)、[第三阶段任务执行链路](docs/phase-3-task-execution.md)、[严格调度](docs/strict-dispatch.md)、[财务测算](docs/financial-task.md) 和 [初步上线检查](docs/launch-readiness.md)。
 
