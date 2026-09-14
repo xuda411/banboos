@@ -145,7 +145,7 @@ async function submitAnalysis() {
   const duration = capacity / power;
   if (!nodeId) { resultBox.hidden = false; state.textContent = "请选择节点"; state.className = "status status-error"; return; }
   if (!Number.isFinite(duration) || duration < 0.25 || duration > 24) { resultBox.hidden = false; state.textContent = "参数无效"; state.className = "status status-error"; $("analysisMessage").textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
-  resultBox.hidden = false; state.textContent = "提交中"; state.className = "status status-muted"; $("analysisMessage").textContent = "正在读取完整历史日并计算价差…"; $("analysisAnnual").textContent = "—"; $("analysisDays").textContent = "—"; analysisSourceRunId = null; analysisAnnualRevenueYuan = null; $("submitAnalysis").disabled = true;
+  resultBox.hidden = false; $("analysisMonthly").hidden = true; state.textContent = "提交中"; state.className = "status status-muted"; $("analysisMessage").textContent = "正在读取完整历史日并计算价差…"; $("analysisAnnual").textContent = "—"; $("analysisDays").textContent = "—"; analysisSourceRunId = null; analysisAnnualRevenueYuan = null; $("submitAnalysis").disabled = true;
   try {
     const run = await post("/api/v1/runs", { kind: "price-analysis", parameters: { node_id: Number(nodeId), market: $("market").value, start_date: $("startDate").value, end_date: $("endDate").value, power_mw: power, capacity_mwh: capacity, round_trip_efficiency: Number($("analysisEta").value) / 100 } });
     const finished = await pollAnalysis(run.run_id); const data = finished.result || {};
@@ -154,6 +154,7 @@ async function submitAnalysis() {
     $("analysisMessage").textContent = `连续低/高均价 ${Number(data.charge_price_yuan_per_mwh).toFixed(2)} / ${Number(data.discharge_price_yuan_per_mwh).toFixed(2)} 元/MWh；均价差 ${Number(data.spread_yuan_per_mwh).toFixed(2)}`;
     $("analysisAnnual").textContent = `${(analysisAnnualRevenueYuan / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元/年（估算）`;
     $("analysisDays").textContent = `${data.baseline_policy === "latest_complete_year" ? "最近完整年度" : "不足完整年度，全部有效日"}：${data.start_date} 至 ${data.end_date}，${data.valid_days} 天；快照 ${data.snapshot_id.slice(0, 12)}`;
+    renderAnalysisMonthly(data.monthly);
     $("useAnalysisForFinance").disabled = false;
   } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; $("analysisMessage").textContent = error.message; } finally { $("submitAnalysis").disabled = false; }
 }
@@ -161,6 +162,17 @@ async function submitAnalysis() {
 async function pollAnalysis(runId) {
   for (let attempt = 0; attempt < 300; attempt += 1) { const run = await get(`/api/v1/runs/${runId}`); if (run.status === "succeeded") return run; if (["failed", "cancelled"].includes(run.status)) throw new Error(`${run.message || "价差分析未完成"}${run.error_code ? `（${run.error_code}）` : ""}`); await new Promise((resolve) => setTimeout(resolve, 1000)); }
   throw new Error("价差分析轮询超时，请稍后按 run_id 查询");
+}
+
+function renderAnalysisMonthly(rows) {
+  const section = $("analysisMonthly"); const body = $("analysisMonthlyBody"); body.replaceChildren();
+  if (!rows?.length) { section.hidden = true; return; }
+  rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    [row.month, row.valid_days, Number(row.charge_price_yuan_per_mwh).toFixed(2), Number(row.discharge_price_yuan_per_mwh).toFixed(2), Number(row.spread_yuan_per_mwh).toFixed(2)].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; tr.appendChild(cell); });
+    body.appendChild(tr);
+  });
+  section.hidden = false;
 }
 
 function useAnalysisForFinance() {
@@ -173,7 +185,7 @@ function useAnalysisForFinance() {
 }
 
 function invalidateAnalysisSelection() {
-  analysisSourceRunId = null; analysisAnnualRevenueYuan = null; analysisScale = null; $("useAnalysisForFinance").disabled = true;
+  analysisSourceRunId = null; analysisAnnualRevenueYuan = null; analysisScale = null; $("useAnalysisForFinance").disabled = true; $("analysisResult").hidden = true; $("analysisMonthly").hidden = true;
 }
 
 async function submitDispatch() {

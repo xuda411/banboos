@@ -45,12 +45,24 @@ def annual_window_average(records: list[dict], slots: int) -> dict:
         for curve in sorted(grouped[day]):
             means = [sum(curve[i:i + slots]) / slots for i in range(97 - slots)]
             source_stats.append((min(means), max(means)))
-        daily.append(tuple(sum(values[index] for values in source_stats) / len(source_stats)
-                           for index in (0, 1)))
-    low, high = (sum(values[index] for values in daily) / len(daily) for index in (0, 1))
+        daily.append((day, *(sum(values[index] for values in source_stats) / len(source_stats)
+                             for index in (0, 1))))
+    low, high = (sum(values[index] for values in daily) / len(daily) for index in (1, 2))
+    monthly_groups = defaultdict(list)
+    for day, day_low, day_high in daily:
+        monthly_groups[day.strftime("%Y-%m")].append((day_low, day_high))
+    monthly = []
+    for month, values in sorted(monthly_groups.items()):
+        month_low = sum(value[0] for value in values) / len(values)
+        month_high = sum(value[1] for value in values) / len(values)
+        monthly.append({"month": month, "valid_days": len(values),
+                        "charge_price_yuan_per_mwh": month_low,
+                        "discharge_price_yuan_per_mwh": month_high,
+                        "spread_yuan_per_mwh": month_high - month_low})
     return {"charge_price_yuan_per_mwh": low, "discharge_price_yuan_per_mwh": high,
             "spread_yuan_per_mwh": high - low, "valid_days": len(selected),
             "available_days": len(days), "start_date": start.isoformat(),
             "end_date": end.isoformat(), "excluded_records": excluded,
             "multiple_source_days": sum(len(grouped[day]) > 1 for day in selected),
-            "baseline_policy": "latest_complete_year" if complete else "all_valid_days"}
+            "baseline_policy": "latest_complete_year" if complete else "all_valid_days",
+            "monthly": monthly}

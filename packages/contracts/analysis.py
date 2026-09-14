@@ -6,6 +6,16 @@ from datetime import date
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class PriceBaselineMonth(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    month: str = Field(min_length=7, max_length=7)
+    valid_days: int = Field(ge=0)
+    charge_price_yuan_per_mwh: float
+    discharge_price_yuan_per_mwh: float
+    spread_yuan_per_mwh: float
+
+
 class PriceAnalysisResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -28,4 +38,5 @@ class PriceAnalysisResult(BaseModel):
     multiple_source_days: int = Field(ge=0)
     baseline_policy: str
     snapshot_id: str
+    monthly: list[PriceBaselineMonth] = Field(default_factory=list)
     method: str = "annual_valid_day_window_mean_v1"
