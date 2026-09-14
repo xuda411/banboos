@@ -43,3 +43,13 @@ def test_readonly_demo_endpoints():
     first = client.post("/api/v1/runs?kind=readonly-price-analysis", headers={"Idempotency-Key": "demo-1"})
     second = client.post("/api/v1/runs?kind=readonly-price-analysis", headers={"Idempotency-Key": "demo-1"})
     assert first.json()["run_id"] == second.json()["run_id"]
+
+    request = {
+        "kind": "price-summary",
+        "parameters": {
+            "node_id": 1, "market": "实时", "start_date": "2026-01-01", "end_date": "2026-01-31",
+        },
+    }
+    response = client.post("/api/v1/runs", json=request)
+    assert response.status_code == 202
+    assert response.json()["parameters"] == request["parameters"]

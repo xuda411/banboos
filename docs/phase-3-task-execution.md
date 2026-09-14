@@ -21,11 +21,12 @@ $env:BANBOOS2_REDIS_URL = "redis://127.0.0.1:6379/0"
 & .venv\Scripts\python.exe -m apps.worker.main
 ```
 
-当前 Worker 已支持 `noop` 验证任务闭环；尚未接入真实 LP、财务或控制执行器，未知任务会明确失败并返回 `EXECUTOR_NOT_IMPLEMENTED`。
+当前 Worker 已支持 `noop` 验证任务闭环，以及 `price-summary` 节点电价摘要任务。`price-summary` 会调用同一只读服务并把结果写入任务状态的 `result` 字段，可通过 `run_id` 回放。LP、财务或控制执行器尚未接入，未知任务会明确失败并返回 `EXECUTOR_NOT_IMPLEMENTED`。
 
 ## API
 
 - `POST /api/v1/runs?kind=noop`
+- `POST /api/v1/runs`，JSON：`{"kind":"price-summary","parameters":{"node_id":1,"market":"实时","start_date":"2026-01-01","end_date":"2026-01-31"}}`
 - `GET /api/v1/runs/{run_id}`
 - `POST /api/v1/runs/{run_id}/cancel`
 

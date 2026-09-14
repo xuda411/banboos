@@ -68,7 +68,8 @@ class RunRegistry:
         self._lock = Lock()
         self._queue = queue or InMemoryTaskQueue()
 
-    def submit(self, kind: str, idempotency_key: str | None = None) -> RunStatus:
+    def submit(self, kind: str, idempotency_key: str | None = None,
+               parameters: dict | None = None) -> RunStatus:
         with self._lock:
             if idempotency_key:
                 existing = self._store.get_by_key(kind, idempotency_key)
@@ -76,7 +77,7 @@ class RunRegistry:
                     return existing
             now = datetime.now(UTC)
             item = RunStatus(run_id=str(uuid4()), kind=kind, status="queued", created_at=now,
-                             message="已进入任务队列，执行器将在后续阶段接入")
+                             message="已进入任务队列", parameters=parameters or {})
             self._store.save(item)
             if idempotency_key:
                 self._store.set_key(kind, idempotency_key, item.run_id)
@@ -100,8 +101,9 @@ class RunRegistry:
             self._store.save(updated)
             return updated
 
-    def complete(self, run_id: str, message: str = "任务完成") -> RunStatus | None:
-        return self._transition(run_id, "succeeded", 100, message)
+    def complete(self, run_id: str, message: str = "任务完成",
+                 result: dict | None = None) -> RunStatus | None:
+        return self._transition(run_id, "succeeded", 100, message, result=result)
 
     def fail(self, run_id: str, message: str, error_code: str = "TASK_FAILED") -> RunStatus | None:
         return self._transition(run_id, "failed", 100, message, error_code)
@@ -112,17 +114,18 @@ class RunRegistry:
             if item is None or item.status not in {"queued", "running"}:
                 return item
             updated = item.model_copy(update={"status": "cancelled", "progress": item.progress,
-                                              "message": "任务已取消"})
+                                              "message": "任务已取消", "completed_at": datetime.now(UTC)})
             self._store.save(updated)
             return updated
 
     def _transition(self, run_id: str, status: str, progress: int, message: str,
-                    error_code: str | None = None) -> RunStatus | None:
+                    error_code: str | None = None, result: dict | None = None) -> RunStatus | None:
         with self._lock:
             item = self._store.get(run_id)
             if item is None:
                 return None
             updated = item.model_copy(update={"status": status, "progress": progress,
-                                              "message": message, "error_code": error_code})
+                                              "message": message, "error_code": error_code,
+                                              "result": result, "completed_at": datetime.now(UTC)})
             self._store.save(updated)
             return updated

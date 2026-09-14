@@ -2,7 +2,7 @@
 import os
 from datetime import UTC, date, datetime
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -10,6 +10,7 @@ from packages.application.readonly_service import ReadonlyService
 from packages.application.run_registry import RedisStateStore, RunRegistry
 from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.readonly import DataQualitySummary, PriceSummary, RunStatus, WeatherSummary
+from packages.contracts.tasks import RunRequest
 
 
 class HealthResponse(BaseModel):
@@ -82,10 +83,15 @@ def quality_summary(node_id: int = Query(gt=0), market: str = Query(...),
 
 
 @app.post("/api/v1/runs", response_model=RunStatus, status_code=202, tags=["runs"])
-def submit_run(kind: str = Query(..., min_length=1, max_length=80),
+def submit_run(kind: str | None = Query(default=None, min_length=1, max_length=80),
+               request: RunRequest | None = Body(default=None),
                idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",
                                                     max_length=160)) -> RunStatus:
-    return run_registry.submit(kind, idempotency_key)
+    resolved_kind = request.kind if request else kind
+    if not resolved_kind:
+        raise HTTPException(status_code=422, detail="kind is required")
+    return run_registry.submit(resolved_kind, idempotency_key,
+                               request.parameters if request else {})
 
 
 @app.get("/api/v1/runs/{run_id}", response_model=RunStatus, tags=["runs"])

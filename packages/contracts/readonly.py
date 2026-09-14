@@ -66,5 +66,7 @@ class RunStatus(BaseModel):
     progress: int = Field(default=0, ge=0, le=100)
     message: str = ""
     error_code: str | None = None
+    parameters: dict = Field(default_factory=dict)
+    result: dict | None = None
     created_at: datetime
     completed_at: datetime | None = None
