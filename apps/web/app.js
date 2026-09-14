@@ -27,10 +27,13 @@ async function refresh() {
     const nodeId = $("node").value;
     if (!nodeId) throw new Error("请选择节点");
     const price = await get("/api/v1/price/summary", { node_id: nodeId, market: $("market").value, start_date: $("startDate").value, end_date: $("endDate").value });
+    const quality = await get("/api/v1/quality/summary", { node_id: nodeId, market: $("market").value, start_date: $("startDate").value, end_date: $("endDate").value });
     const weather = await get("/api/v1/weather/summary", { node_id: nodeId });
     $("validDays").textContent = price.valid_days;
     $("dataPoints").textContent = price.data_points.toLocaleString();
     $("weatherRows").textContent = weather.observations;
+    $("coverage").textContent = `${(quality.coverage_ratio * 100).toFixed(1)}%`;
+    $("qualityDetail").textContent = quality.total_records ? `${quality.complete_records}/${quality.total_records} 条完整记录` : "暂无记录";
     $("priceSource").textContent = price.sources.length ? price.sources.join("、") : "演示/暂无来源文件";
     $("priceRange").textContent = price.first_date ? `${price.first_date} 至 ${price.last_date}` : "所选范围暂无有效日";
     $("weatherSource").textContent = weather.source || "暂无气象观测";

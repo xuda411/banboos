@@ -41,6 +41,22 @@ class WeatherSummary(BaseModel):
     source_mode: str = "legacy-readonly"
 
 
+class DataQualitySummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: int
+    market: str
+    start_date: date
+    end_date: date
+    total_records: int = Field(ge=0)
+    complete_records: int = Field(ge=0)
+    incomplete_records: int = Field(ge=0)
+    missing_cells: int = Field(ge=0)
+    non_finite_cells: int = Field(ge=0)
+    coverage_ratio: float = Field(ge=0, le=1)
+    source_mode: str = "legacy-readonly"
+
+
 class RunStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

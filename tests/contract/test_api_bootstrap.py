@@ -22,6 +22,12 @@ def test_readonly_demo_endpoints():
     assert response.status_code == 200
     assert response.json()["source_mode"] == "demo"
 
+    response = client.get("/api/v1/quality/summary", params={
+        "node_id": 1, "market": "实时", "start_date": "2026-01-01", "end_date": "2026-01-31",
+    })
+    assert response.status_code == 200
+    assert response.json()["coverage_ratio"] == 0
+
     response = client.get("/api/v1/price/summary", params={
         "node_id": 1, "market": "未知", "start_date": "2026-01-01", "end_date": "2026-01-31",
     })
@@ -33,3 +39,7 @@ def test_readonly_demo_endpoints():
     response = client.get(f"/api/v1/runs/{run_id}")
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
+
+    first = client.post("/api/v1/runs?kind=readonly-price-analysis", headers={"Idempotency-Key": "demo-1"})
+    second = client.post("/api/v1/runs?kind=readonly-price-analysis", headers={"Idempotency-Key": "demo-1"})
+    assert first.json()["run_id"] == second.json()["run_id"]

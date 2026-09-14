@@ -42,3 +42,16 @@ def test_legacy_reader_is_read_only_and_returns_contracts(tmp_path):
         raise AssertionError("legacy reader must expose a read-only connection")
     finally:
         connection.close()
+
+
+def test_quality_summary_counts_incomplete_cells(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    make_fixture(path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE price_data SET p0015=NULL WHERE node_id=1")
+        connection.commit()
+    summary = LegacySQLiteReader(path).quality_summary(1, "实时", date(2026, 1, 1), date(2026, 1, 2))
+    assert summary["total_records"] == 1
+    assert summary["complete_records"] == 0
+    assert summary["missing_cells"] == 1
+    assert summary["coverage_ratio"] == 0

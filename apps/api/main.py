@@ -2,13 +2,13 @@
 import os
 from datetime import UTC, date, datetime
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from packages.application.readonly_service import ReadonlyService
 from packages.application.run_registry import RunRegistry
-from packages.contracts.readonly import PriceSummary, RunStatus, WeatherSummary
+from packages.contracts.readonly import DataQualitySummary, PriceSummary, RunStatus, WeatherSummary
 
 
 class HealthResponse(BaseModel):
@@ -69,9 +69,20 @@ def weather_summary(node_id: int = Query(gt=0), start_time: datetime | None = No
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+@app.get("/api/v1/quality/summary", response_model=DataQualitySummary, tags=["readonly"])
+def quality_summary(node_id: int = Query(gt=0), market: str = Query(...),
+                   start_date: date = Query(...), end_date: date = Query(...)) -> DataQualitySummary:
+    try:
+        return readonly_service.quality(node_id, market, start_date, end_date)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @app.post("/api/v1/runs", response_model=RunStatus, status_code=202, tags=["runs"])
-def submit_run(kind: str = Query(..., min_length=1, max_length=80)) -> RunStatus:
-    return run_registry.submit(kind)
+def submit_run(kind: str = Query(..., min_length=1, max_length=80),
+               idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",
+                                                    max_length=160)) -> RunStatus:
+    return run_registry.submit(kind, idempotency_key)
 
 
 @app.get("/api/v1/runs/{run_id}", response_model=RunStatus, tags=["runs"])

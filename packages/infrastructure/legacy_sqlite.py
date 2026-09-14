@@ -107,6 +107,45 @@ class LegacySQLiteReader:
             source_mode="legacy-readonly",
         )
 
+    def quality_summary(self, node_id: int, market: str, start_date: date,
+                        end_date: date) -> dict[str, Any]:
+        if market not in {"日前", "实时"}:
+            raise ValueError("market must be 日前 or 实时")
+        if end_date < start_date:
+            raise ValueError("end_date must not precede start_date")
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT " + ",".join(PRICE_FIELDS) +
+                " FROM price_data WHERE node_id=? AND case_type=? AND run_date>=? AND run_date<=?",
+                (node_id, market, start_date.isoformat(), end_date.isoformat()),
+            ).fetchall()
+        missing = non_finite = complete = 0
+        for row in rows:
+            row_missing = row_non_finite = 0
+            for value in row:
+                if value is None:
+                    row_missing += 1
+                elif not _is_finite(value):
+                    row_non_finite += 1
+            missing += row_missing
+            non_finite += row_non_finite
+            if row_missing == 0 and row_non_finite == 0:
+                complete += 1
+        total = len(rows)
+        return {
+            "node_id": node_id,
+            "market": market,
+            "start_date": start_date,
+            "end_date": end_date,
+            "total_records": total,
+            "complete_records": complete,
+            "incomplete_records": total - complete,
+            "missing_cells": missing,
+            "non_finite_cells": non_finite,
+            "coverage_ratio": complete / total if total else 0.0,
+            "source_mode": "legacy-readonly",
+        }
+
 
 def _is_finite(value: Any) -> bool:
     try:
