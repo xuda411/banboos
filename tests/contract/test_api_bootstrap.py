@@ -82,6 +82,9 @@ def test_readonly_demo_endpoints():
         "power_mw": 100, "capacity_mwh": 200, "annual_revenue_yuan": 8_000_000,
     }})
     assert response.status_code == 202
+    financial_run_id = response.json()["run_id"]
+    assert client.get(f"/api/v1/runs/{financial_run_id}/export").status_code == 409
+    assert client.get("/api/v1/runs/not-a-uuid/export").status_code == 400
     response = client.post("/api/v1/runs", json={"kind": "financial", "parameters": {
         "power_mw": 100, "capacity_mwh": 200,
     }})
