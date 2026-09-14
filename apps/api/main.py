@@ -2,6 +2,7 @@
 import os
 import re
 from datetime import UTC, date, datetime
+from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
@@ -29,7 +30,7 @@ from packages.contracts.readonly import (
     WeatherSummary,
 )
 from packages.contracts.tasks import RunRequest
-from packages.contracts.telemetry import TelemetryBatch
+from packages.contracts.telemetry import TelemetryAlert, TelemetryBatch
 from packages.domain.telemetry_alerts import evaluate_alerts
 
 
@@ -146,10 +147,26 @@ def quality_summary(node_id: int = Query(gt=0), market: str = Query(...),
 @app.post("/api/v1/telemetry/batches", tags=["edge"])
 def ingest_telemetry(batch: TelemetryBatch) -> dict:
     accepted = edge_spool.ingest(batch)
-    alerts = evaluate_alerts(batch)
+    alerts = [alert.model_copy(update={
+        "alert_id": sha256(f"{batch.batch_id}:{alert.code}:{alert.device_id}:{alert.point_id}".encode()).hexdigest(),
+        "batch_id": batch.batch_id, "created_at": datetime.now(UTC),
+    }) for alert in evaluate_alerts(batch)]
+    edge_spool.record_alerts(alerts)
     return {"batch_id": batch.batch_id, "accepted_points": accepted,
             "pending_points": edge_spool.pending_count(),
             "alerts": [alert.model_dump(mode="json") for alert in alerts],
+            "control_mode": "disabled"}
+
+
+@app.get("/api/v1/alerts", response_model=list[TelemetryAlert], tags=["edge"])
+def list_alerts(unacknowledged_only: bool = False,
+                limit: int = Query(default=100, ge=1, le=200)) -> list[TelemetryAlert]:
+    return edge_spool.alerts(limit=limit, unacknowledged_only=unacknowledged_only)
+
+
+@app.post("/api/v1/alerts/{alert_id}/ack", tags=["edge"])
+def acknowledge_alert(alert_id: str = APIPath(..., min_length=8, max_length=128)) -> dict:
+    return {"alert_id": alert_id, "acknowledged": edge_spool.ack_alert(alert_id),
             "control_mode": "disabled"}
 
 

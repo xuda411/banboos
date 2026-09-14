@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from apps.edge.gateway import TelemetrySpool
 from apps.edge.simulator import generate_batch
+from packages.contracts.telemetry import TelemetryAlert
 from packages.domain.telemetry_alerts import evaluate_alerts
 
 
@@ -44,3 +45,15 @@ def test_telemetry_alerts_are_structured_and_do_not_control_devices():
     alerts = evaluate_alerts(batch)
     assert {alert.code for alert in alerts} == {"SOC_OUT_OF_RANGE", "TEMPERATURE_HIGH"}
     assert all(alert.severity == "critical" for alert in alerts)
+
+
+def test_alerts_are_persisted_and_can_be_acknowledged(tmp_path):
+    spool = TelemetrySpool(tmp_path / "edge-spool.sqlite")
+    alert = TelemetryAlert(alert_id="alert-001", batch_id="batch-001", code="SOC_OUT_OF_RANGE",
+                           severity="critical", station_id="demo", device_id="pcs",
+                           point_id="soc", event_time=datetime.now(UTC), message="SOC 越界")
+    assert spool.record_alerts([alert]) == 1
+    assert spool.record_alerts([alert]) == 0
+    assert spool.alerts(unacknowledged_only=True)[0].alert_id == "alert-001"
+    assert spool.ack_alert("alert-001")
+    assert spool.alerts(unacknowledged_only=True) == []

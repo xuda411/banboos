@@ -11,7 +11,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from packages.contracts.telemetry import TelemetryBatch
+from packages.contracts.telemetry import TelemetryAlert, TelemetryBatch
 
 
 class TelemetrySpool:
@@ -29,6 +29,11 @@ class TelemetrySpool:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS ix_spool_pending_event "
                 "ON telemetry_spool(acked, event_time, batch_id)"
+            )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS telemetry_alerts ("
+                "alert_id TEXT PRIMARY KEY, payload TEXT NOT NULL, "
+                "acknowledged INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)"
             )
 
     def ingest(self, batch: TelemetryBatch) -> int:
@@ -74,6 +79,40 @@ class TelemetrySpool:
                 "SELECT COUNT(*) FROM telemetry_spool WHERE acked=0"
             ).fetchone()
         return int(row[0])
+
+    def record_alerts(self, alerts: list[TelemetryAlert]) -> int:
+        stored = 0
+        with self._connect() as connection:
+            for alert in alerts:
+                cursor = connection.execute(
+                    "INSERT OR IGNORE INTO telemetry_alerts "
+                    "(alert_id, payload, acknowledged, created_at) VALUES (?, ?, ?, ?)",
+                    (alert.alert_id, alert.model_dump_json(), int(alert.acknowledged),
+                     (alert.created_at or datetime.now(UTC)).isoformat()),
+                )
+                stored += cursor.rowcount
+        return stored
+
+    def alerts(self, limit: int = 100, unacknowledged_only: bool = False) -> list[TelemetryAlert]:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        where = " WHERE acknowledged=0" if unacknowledged_only else ""
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT payload, acknowledged FROM telemetry_alerts{where} "
+                "ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [TelemetryAlert.model_validate_json(row[0]).model_copy(
+            update={"acknowledged": bool(row[1])}
+        ) for row in rows]
+
+    def ack_alert(self, alert_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE telemetry_alerts SET acknowledged=1 WHERE alert_id=? AND acknowledged=0",
+                (alert_id,),
+            )
+        return cursor.rowcount > 0
 
     def heartbeat(self, gateway_id: str, connected: bool) -> dict:
         return {

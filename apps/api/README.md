@@ -29,6 +29,10 @@ disabled.
 operations center. `GET /api/v1/telemetry/pending` exposes batch metadata and
 pending point counts without returning telemetry values.
 
+`GET /api/v1/alerts?unacknowledged_only=true` lists persisted telemetry alerts;
+`POST /api/v1/alerts/{alert_id}/ack` acknowledges one alert. Alert handling is
+traceable and read-only; it never issues a device command.
+
 Set `BANBOOS2_REDIS_URL` on both API and Worker processes to share queued task
 state across processes. Without it, task execution is intentionally local to
 the current process for development.

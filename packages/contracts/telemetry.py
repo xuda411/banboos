@@ -37,3 +37,7 @@ class TelemetryAlert(BaseModel):
     point_id: str
     event_time: datetime
     message: str
+    alert_id: str = ""
+    batch_id: str = ""
+    acknowledged: bool = False
+    created_at: datetime | None = None
