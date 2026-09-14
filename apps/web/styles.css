@@ -20,10 +20,11 @@ label { display: grid; gap: 6px; color: #52635d; font-size: 12px; }
 select, input, button { min-height: 38px; border: 1px solid #c6d2cb; border-radius: 7px; background: #fff; color: #243a30; padding: 0 10px; font: inherit; }
 button { cursor: pointer; font-weight: 700; }
 .primary { background: #176b50; color: #fff; border-color: #176b50; }
-.metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
 .metric { padding: 18px; display: grid; gap: 8px; }
 .metric span, .metric small { color: #52635d; font-size: 13px; }
 .metric strong { font-size: 32px; color: #176b50; }
 .notice { margin-top: 16px; padding: 16px; color: #52635d; line-height: 1.6; }
+@media (max-width: 1080px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 860px) { .page { padding: 20px; } .filters { grid-template-columns: repeat(2, 1fr); } .filters button { grid-column: span 2; } }
 @media (max-width: 560px) { .topbar { padding: 0 16px; } .hero { display: block; } .hero-badge { display: inline-block; margin-top: 16px; } .metrics { grid-template-columns: 1fr; } }
