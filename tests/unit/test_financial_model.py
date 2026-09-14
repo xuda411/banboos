@@ -34,7 +34,8 @@ def test_financial_task_is_traceable_to_upstream_run():
     registry = RunRegistry()
     upstream = registry.submit("strict-dispatch")
     assert registry.claim_next(timeout=0)
-    registry.complete(upstream.run_id, result={"annualized_net_revenue_yuan": 6_000_000})
+    registry.complete(upstream.run_id, result={"annualized_net_revenue_yuan": 6_000_000,
+                                             "power_mw": 50, "capacity_mwh": 200})
     item = registry.submit("financial", parameters={
         "power_mw": 50, "capacity_mwh": 200, "source_run_id": upstream.run_id,
     })
@@ -43,6 +44,23 @@ def test_financial_task_is_traceable_to_upstream_run():
     assert result.status == "succeeded"
     assert result.result["duration_hours"] == 4
     assert result.result["source_run_id"] == upstream.run_id
+
+
+def test_financial_source_supports_price_baseline_and_rejects_scale_mismatch():
+    registry = RunRegistry()
+    upstream = registry.submit("price-analysis")
+    registry.claim_next(timeout=0)
+    registry.complete(upstream.run_id, result={"annualized_revenue_yuan": 8_000_000,
+                                             "power_mw": 100, "capacity_mwh": 200})
+    matching = registry.submit("financial", parameters={
+        "power_mw": 100, "capacity_mwh": 200, "source_run_id": upstream.run_id})
+    run_once(registry)
+    assert registry.get(matching.run_id).result["input_parameters"]["annual_revenue_yuan"] == 8_000_000
+    mismatch = registry.submit("financial", parameters={
+        "power_mw": 50, "capacity_mwh": 200, "source_run_id": upstream.run_id})
+    run_once(registry)
+    assert registry.get(mismatch.run_id).status == "failed"
+    assert "规模一致" in registry.get(mismatch.run_id).message
 
 
 def test_financial_model_rejects_invalid_ratio_inputs():

@@ -1,5 +1,9 @@
 const apiBase = window.BANBOOS_API_BASE || "http://127.0.0.1:8000";
 const $ = (id) => document.getElementById(id);
+let analysisSourceRunId = null;
+let analysisAnnualRevenueYuan = null;
+let analysisScale = null;
+let financialSourceRunId = null;
 
 async function get(path, params = {}) {
   const url = new URL(apiBase + path);
@@ -133,6 +137,45 @@ async function loadWeather() {
   } catch (error) { $("weatherEmpty").hidden = false; $("weatherEmpty").textContent = `读取失败：${error.message}`; }
 }
 
+async function submitAnalysis() {
+  const nodeId = $("node").value; const state = $("analysisState"); const resultBox = $("analysisResult");
+  analysisSourceRunId = null; analysisAnnualRevenueYuan = null; analysisScale = null;
+  $("useAnalysisForFinance").disabled = true;
+  const power = Number($("analysisPower").value); const capacity = Number($("analysisCapacity").value);
+  const duration = capacity / power;
+  if (!nodeId) { resultBox.hidden = false; state.textContent = "请选择节点"; state.className = "status status-error"; return; }
+  if (!Number.isFinite(duration) || duration < 0.25 || duration > 24) { resultBox.hidden = false; state.textContent = "参数无效"; state.className = "status status-error"; $("analysisMessage").textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
+  resultBox.hidden = false; state.textContent = "提交中"; state.className = "status status-muted"; $("analysisMessage").textContent = "正在读取完整历史日并计算价差…"; $("analysisAnnual").textContent = "—"; $("analysisDays").textContent = "—"; analysisSourceRunId = null; analysisAnnualRevenueYuan = null; $("submitAnalysis").disabled = true;
+  try {
+    const run = await post("/api/v1/runs", { kind: "price-analysis", parameters: { node_id: Number(nodeId), market: $("market").value, start_date: $("startDate").value, end_date: $("endDate").value, power_mw: power, capacity_mwh: capacity, round_trip_efficiency: Number($("analysisEta").value) / 100 } });
+    const finished = await pollAnalysis(run.run_id); const data = finished.result || {};
+    analysisSourceRunId = run.run_id; analysisAnnualRevenueYuan = Number(data.annualized_revenue_yuan); analysisScale = { power: data.power_mw, capacity: data.capacity_mwh };
+    state.textContent = "计算完成"; state.className = "status status-ok";
+    $("analysisMessage").textContent = `连续低/高均价 ${Number(data.charge_price_yuan_per_mwh).toFixed(2)} / ${Number(data.discharge_price_yuan_per_mwh).toFixed(2)} 元/MWh；均价差 ${Number(data.spread_yuan_per_mwh).toFixed(2)}`;
+    $("analysisAnnual").textContent = `${(analysisAnnualRevenueYuan / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元/年（估算）`;
+    $("analysisDays").textContent = `${data.baseline_policy === "latest_complete_year" ? "最近完整年度" : "不足完整年度，全部有效日"}：${data.start_date} 至 ${data.end_date}，${data.valid_days} 天；快照 ${data.snapshot_id.slice(0, 12)}`;
+    $("useAnalysisForFinance").disabled = false;
+  } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; $("analysisMessage").textContent = error.message; } finally { $("submitAnalysis").disabled = false; }
+}
+
+async function pollAnalysis(runId) {
+  for (let attempt = 0; attempt < 300; attempt += 1) { const run = await get(`/api/v1/runs/${runId}`); if (run.status === "succeeded") return run; if (["failed", "cancelled"].includes(run.status)) throw new Error(`${run.message || "价差分析未完成"}${run.error_code ? `（${run.error_code}）` : ""}`); await new Promise((resolve) => setTimeout(resolve, 1000)); }
+  throw new Error("价差分析轮询超时，请稍后按 run_id 查询");
+}
+
+function useAnalysisForFinance() {
+  if (!analysisSourceRunId || !analysisScale || !Number.isFinite(analysisAnnualRevenueYuan)) return;
+  const value = analysisAnnualRevenueYuan;
+  if (Number.isFinite(value)) $("annualRevenue").value = Math.round(value);
+  $("powerMw").value = analysisScale.power; $("capacityMwh").value = analysisScale.capacity;
+  financialSourceRunId = analysisSourceRunId; updateDurationHint();
+  activateView("taskView"); $("taskMessage").textContent = `已带入节点价差结果（run_id: ${analysisSourceRunId}）`; $("taskState").textContent = "待提交"; $("taskState").className = "status status-muted";
+}
+
+function invalidateAnalysisSelection() {
+  analysisSourceRunId = null; analysisAnnualRevenueYuan = null; analysisScale = null; $("useAnalysisForFinance").disabled = true;
+}
+
 async function submitDispatch() {
   const nodeId = $("dispatchNode").value; const state = $("dispatchState"); const message = $("dispatchMessage");
   if (!nodeId) { message.textContent = "请选择节点"; return; }
@@ -243,10 +286,10 @@ async function submitFinancial() {
     const percent = (id) => Number($(id).value) / 100;
     const optionalNumber = (id) => $(id).value === "" ? null : Number($(id).value);
     const parameters = {
-      power_mw: power, capacity_mwh: capacity, annual_revenue_yuan: Number($("annualRevenue").value),
+      power_mw: power, capacity_mwh: capacity, annual_revenue_yuan: financialSourceRunId ? null : Number($("annualRevenue").value),
       capacity_lease_yuan: Number($("capacityLease").value), capacity_fee_yuan: Number($("capacityFee").value),
       subsidy_yuan: Number($("subsidy").value), primary_frequency_yuan: Number($("primaryFrequency").value),
-      secondary_frequency_yuan: Number($("secondaryFrequency").value), capex_yuan_per_wh: Number($("capex").value),
+      secondary_frequency_yuan: Number($("secondaryFrequency").value), capex_yuan_per_wh: Number($("capex").value), source_run_id: financialSourceRunId || undefined,
       operation_years: Number($("operationYears").value), om_rate: percent("omRate"), om_growth: percent("omGrowth"),
       first_year_eol: percent("firstEol"), final_eol: percent("finalEol"), residual_rate: percent("residualRate"),
       income_tax_rate: percent("incomeTaxRate"), discount_rate: percent("discountRate"), loan_ratio: percent("loanRatio"),
@@ -302,18 +345,24 @@ async function pollRun(runId) {
   throw new Error("任务轮询超时，请稍后按 run_id 查询");
 }
 
-$("province").addEventListener("change", () => loadNodes().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
-$("node").addEventListener("change", () => syncDateRange().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
-$("market").addEventListener("change", () => syncDateRange().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }));
+$("province").addEventListener("change", () => { invalidateAnalysisSelection(); loadNodes().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }); });
+$("node").addEventListener("change", () => { invalidateAnalysisSelection(); syncDateRange().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }); });
+$("market").addEventListener("change", () => { invalidateAnalysisSelection(); syncDateRange().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }); });
 $("curveNode").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
 $("curveMarket").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
 $("loadCurves").addEventListener("click", loadCurves);
 $("loadWeather").addEventListener("click", loadWeather);
+$("submitAnalysis").addEventListener("click", submitAnalysis);
+$("useAnalysisForFinance").addEventListener("click", useAnalysisForFinance);
 $("submitDispatch").addEventListener("click", submitDispatch);
 $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
 $("powerMw").addEventListener("input", updateDurationHint);
 $("capacityMwh").addEventListener("input", updateDurationHint);
+["powerMw", "capacityMwh", "annualRevenue"].forEach((id) => $(id).addEventListener("input", () => {
+  if (financialSourceRunId) $("taskMessage").textContent = "已修改规模或收入，当前使用手动财务假设；可重新从节点分析带入。";
+  financialSourceRunId = null;
+}));
 document.querySelectorAll("[data-view]").forEach((item) => item.addEventListener("click", () => activateView(item.dataset.view)));
 activateView("overviewView");
 loadNodes().then(refresh).catch((error) => { $("notice").textContent = `无法连接 API：${error.message}`; setStatus("API 未连接", "error"); });

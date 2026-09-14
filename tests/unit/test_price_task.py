@@ -17,7 +17,8 @@ def test_price_summary_worker_returns_traceable_result():
     assert result.result["source_mode"] == "demo"
 
 
-def test_price_analysis_worker_uses_power_capacity_ratio(tmp_path):
+def test_price_analysis_worker_uses_power_capacity_ratio(tmp_path, monkeypatch):
+    monkeypatch.setenv("BANBOOS2_SNAPSHOT_DIR", str(tmp_path / "snapshots"))
     path = tmp_path / "legacy.sqlite3"
     make_fixture(path)
     registry = RunRegistry()
@@ -31,6 +32,19 @@ def test_price_analysis_worker_uses_power_capacity_ratio(tmp_path):
     assert result.result["duration_hours"] == 2.0
     assert result.result["valid_days"] == 1
     assert result.result["annualized_revenue_yuan"] > 0
+    assert result.result["method"] == "annual_valid_day_window_mean_v1"
+    assert len(result.result["snapshot_id"]) == 64
+
+
+def test_price_analysis_without_valid_days_fails_instead_of_publishing_zero():
+    registry = RunRegistry()
+    item = registry.submit("price-analysis", parameters={
+        "node_id": 1, "market": "实时", "start_date": "2026-01-01", "end_date": "2026-01-01",
+        "power_mw": 50, "capacity_mwh": 200,
+    })
+    run_once(registry, ReadonlyService())
+    assert registry.get(item.run_id).status == "failed"
+    assert registry.get(item.run_id).result is None
 
 
 def test_strict_dispatch_worker_persists_input_snapshot(tmp_path, monkeypatch):

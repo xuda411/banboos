@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import date
+from math import isclose
 
 from packages.application.readonly_service import ReadonlyService
 from packages.application.run_registry import RedisStateStore, RunRegistry
@@ -58,6 +59,8 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
                 date.fromisoformat(str(parameters["end_date"])), float(parameters["power_mw"]),
                 float(parameters["capacity_mwh"]), float(parameters.get("round_trip_efficiency", 0.92)),
             ).model_dump(mode="json")
+            if result["valid_days"] == 0:
+                raise ValueError("指定范围没有完整的96点有效日")
             registry.complete(item.run_id, "节点价差分析完成", result)
         except (KeyError, TypeError, ValueError, RuntimeError) as error:
             registry.fail(item.run_id, f"节点价差分析失败：{error}", "PRICE_ANALYSIS_FAILED")
@@ -102,9 +105,16 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
             parameters = FinancialTaskParameters.model_validate(item.parameters)
             if parameters.annual_revenue_yuan is None and parameters.source_run_id:
                 upstream = registry.get(parameters.source_run_id)
-                if not upstream or upstream.status != "succeeded" or not upstream.result:
-                    raise FinancialError("上游调度任务尚未成功，不能开始财务测算")
-                annual_revenue = upstream.result.get("annualized_net_revenue_yuan")
+                if (not upstream or upstream.status != "succeeded" or not upstream.result
+                        or upstream.kind not in {"strict-dispatch", "price-analysis"}):
+                    raise FinancialError("上游价差或调度任务尚未成功，不能开始财务测算")
+                for field in ("power_mw", "capacity_mwh"):
+                    if not isclose(float(upstream.result.get(field, 0)), getattr(parameters, field),
+                                   rel_tol=1e-9, abs_tol=1e-6):
+                        raise FinancialError("财务功率和容量必须与上游分析规模一致，请重新分析或输入手动收益")
+                revenue_key = ("annualized_revenue_yuan" if upstream.kind == "price-analysis"
+                               else "annualized_net_revenue_yuan")
+                annual_revenue = upstream.result.get(revenue_key)
                 parameters = parameters.model_copy(update={"annual_revenue_yuan": annual_revenue})
             result = calculate_financials(parameters.financial())
             result["source_run_id"] = parameters.source_run_id

@@ -193,6 +193,18 @@ class LegacySQLiteReader:
             "source_mode": "legacy-readonly",
         }
 
+    def baseline_curves(self, node_id: int, market: str) -> list[dict[str, Any]]:
+        """All source candidates for annual baselines; quality labels do not select a winner."""
+        if market not in {"日前", "实时"}:
+            raise ValueError("market must be 日前 or 实时")
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT run_date, " + ",".join(PRICE_FIELDS) +
+                " FROM price_data WHERE node_id=? AND case_type=? ORDER BY run_date, id",
+                (node_id, market),
+            ).fetchall()
+        return [{"run_date": str(row[0])[:10], "prices": list(row[1:])} for row in rows]
+
     def price_curves(self, node_id: int, market: str, start_date: date,
                      end_date: date) -> list[dict[str, Any]]:
         """Return complete daily 96-point curves for an analysis worker."""

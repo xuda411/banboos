@@ -2,7 +2,9 @@
 
 `financial` Worker 任务使用纯领域现金流模型，不读取 Qt 控件，也不生成 Excel 专属公式。输入金额统一为元，容量为 MWh，投资单价为元/Wh。
 
-任务可以直接传入 `annual_revenue_yuan`，也可以传入 `source_run_id`，由 Worker 读取已成功的 `strict-dispatch` 结果中的 `annualized_net_revenue_yuan`。后者保证价差调度与财务测算来自同一条可回放任务链路。
+任务可以直接传入 `annual_revenue_yuan`，也可以传入 `source_run_id`，由 Worker 读取已成功的 `strict-dispatch` 或 `price-analysis` 结果。后者保证价差分析与财务测算来自同一条可回放任务链路，并校验功率、容量与上游分析规模一致。
+
+`price-analysis` 的财务基准使用每天连续低价/高价窗口的均价差：有连续完整 12 个月时取最近完整年度，不足时取全部有效日；同一日期的重复来源曲线先去重，不用 `OK` 或 `missing` 决定市场类型。结果包含 `baseline_policy`、有效日数量、统计区间和输入 `snapshot_id`。
 
 模型目前包含：单位投资、运营年限、EOL 线性衰减、运维费率及增长、容量租赁、容量电费、补贴、一次/二次调频、残值率、所得税、折现率、贷款比例/期限/利率、建设期利息、换电池投资、项目和资本金现金流、NPV、唯一 IRR 和静态回收期。每个结果都保留 `source_run_id`、`model_version`、年度现金流和功率/容量时长。
 

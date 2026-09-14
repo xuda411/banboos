@@ -15,6 +15,9 @@ from packages.contracts.readonly import (
     WeatherObservation,
     WeatherSummary,
 )
+from packages.domain.annual_spread import ALGORITHM_VERSION as BASELINE_VERSION
+from packages.domain.annual_spread import annual_window_average
+from packages.infrastructure.dispatch_snapshots import DispatchSnapshots
 from packages.infrastructure.legacy_sqlite import LegacySQLiteReader
 
 
@@ -117,6 +120,10 @@ class ReadonlyService:
     def analyze_price(self, node_id: int, market: str, start_date: date, end_date: date,
                       power_mw: float, capacity_mwh: float,
                       round_trip_efficiency: float = 0.92) -> PriceAnalysisResult:
+        if market not in {"日前", "实时"}:
+            raise ValueError("market must be 日前 or 实时")
+        if not all(isfinite(value) for value in (power_mw, capacity_mwh, round_trip_efficiency)):
+            raise ValueError("功率、容量和效率必须是有限数值")
         if power_mw <= 0 or capacity_mwh <= 0:
             raise ValueError("power_mw and capacity_mwh must be positive")
         duration = capacity_mwh / power_mw
@@ -124,28 +131,32 @@ class ReadonlyService:
             raise ValueError("capacity_mwh / power_mw must be between 0.25 and 24 hours")
         if not 0 < round_trip_efficiency <= 1:
             raise ValueError("round_trip_efficiency must be in (0, 1]")
+        slots = round(duration * 4)
+        if abs(duration * 4 - slots) > 1e-6:
+            raise ValueError("连续均价差时长须为15分钟的整数倍")
         if self._reader:
-            curves = self._reader.price_curves(node_id, market, start_date, end_date)
+            curves = self._reader.baseline_curves(node_id, market)
             source_mode = "legacy-readonly"
         else:
             curves = []
             source_mode = "demo"
-        slots = max(1, min(96, round(duration * 4)))
-        daily_values: list[float] = []
-        slot_energy = power_mw * 0.25
-        for curve in curves:
-            prices = curve["prices"]
-            low_indices = sorted(range(96), key=lambda index: prices[index])[:slots]
-            remaining = [index for index in range(96) if index not in low_indices]
-            high_indices = sorted(remaining, key=lambda index: prices[index], reverse=True)[:slots]
-            spread = sum(prices[index] for index in high_indices) * round_trip_efficiency
-            spread -= sum(prices[index] for index in low_indices)
-            daily_values.append(max(0.0, spread * slot_energy))
-        average = sum(daily_values) / len(daily_values) if daily_values else 0.0
+        baseline = annual_window_average(curves, slots)
+        # One equivalent daily cycle is an explicit investment assumption, not dispatch revenue.
+        average = max(0.0, baseline["discharge_price_yuan_per_mwh"] * round_trip_efficiency
+                      - baseline["charge_price_yuan_per_mwh"]) * capacity_mwh
+        # Invalid points remain represented as null for a JSON-safe replay input.
+        snapshot_curves = [{"run_date": row["run_date"],
+                            "prices": [_finite_or_none(value) for value in row["prices"]]}
+                           for row in curves]
+        snapshot_id = DispatchSnapshots().put({
+            "kind": "price-analysis", "algorithm_version": BASELINE_VERSION,
+            "parameters": {"node_id": node_id, "market": market, "power_mw": power_mw,
+                           "capacity_mwh": capacity_mwh, "round_trip_efficiency": round_trip_efficiency},
+            "curves": snapshot_curves})
         return PriceAnalysisResult(
-            node_id=node_id, market=market, start_date=start_date, end_date=end_date,
+            node_id=node_id, market=market, **baseline,
             power_mw=power_mw, capacity_mwh=capacity_mwh, duration_hours=duration,
-            valid_days=len(daily_values), average_daily_revenue_yuan=average,
+            average_daily_revenue_yuan=average, snapshot_id=snapshot_id,
             annualized_revenue_yuan=average * 365, source_mode=source_mode,
         )
 

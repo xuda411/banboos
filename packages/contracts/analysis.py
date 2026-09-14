@@ -20,4 +20,12 @@ class PriceAnalysisResult(BaseModel):
     average_daily_revenue_yuan: float = Field(ge=0)
     annualized_revenue_yuan: float = Field(ge=0)
     source_mode: str
-    method: str = "disjoint-low-high-spread-estimate"
+    charge_price_yuan_per_mwh: float
+    discharge_price_yuan_per_mwh: float
+    spread_yuan_per_mwh: float
+    available_days: int = Field(ge=0)
+    excluded_records: int = Field(ge=0)
+    multiple_source_days: int = Field(ge=0)
+    baseline_policy: str
+    snapshot_id: str
+    method: str = "annual_valid_day_window_mean_v1"
