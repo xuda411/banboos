@@ -146,6 +146,32 @@ class LegacySQLiteReader:
             "source_mode": "legacy-readonly",
         }
 
+    def price_curves(self, node_id: int, market: str, start_date: date,
+                     end_date: date) -> list[dict[str, Any]]:
+        """Return complete daily 96-point curves for an analysis worker."""
+        if market not in {"日前", "实时"}:
+            raise ValueError("market must be 日前 or 实时")
+        if end_date < start_date:
+            raise ValueError("end_date must not precede start_date")
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT run_date, " + ",".join(PRICE_FIELDS) +
+                " FROM price_data WHERE node_id=? AND case_type=? AND run_date>=? AND run_date<=?"
+                " ORDER BY run_date, id",
+                (node_id, market, start_date.isoformat(), end_date.isoformat()),
+            ).fetchall()
+        curves: list[dict[str, Any]] = []
+        seen_dates: set[str] = set()
+        for row in rows:
+            values = list(row[1:])
+            run_date = str(row[0])[:10]
+            if run_date in seen_dates or len(values) != len(PRICE_FIELDS):
+                continue
+            if all(value is not None and _is_finite(value) for value in values):
+                curves.append({"run_date": run_date, "prices": [float(value) for value in values]})
+                seen_dates.add(run_date)
+        return curves
+
 
 def _is_finite(value: Any) -> bool:
     try:

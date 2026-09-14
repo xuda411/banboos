@@ -40,6 +40,19 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
             registry.complete(item.run_id, "节点电价摘要计算完成", result)
         except (KeyError, TypeError, ValueError, RuntimeError) as error:
             registry.fail(item.run_id, f"节点电价摘要计算失败：{error}", "PRICE_SUMMARY_FAILED")
+    elif item.kind == "price-analysis":
+        try:
+            parameters = item.parameters
+            service = readonly_service or ReadonlyService()
+            result = service.analyze_price(
+                int(parameters["node_id"]), str(parameters["market"]),
+                date.fromisoformat(str(parameters["start_date"])),
+                date.fromisoformat(str(parameters["end_date"])), float(parameters["power_mw"]),
+                float(parameters["capacity_mwh"]), float(parameters.get("round_trip_efficiency", 0.92)),
+            ).model_dump(mode="json")
+            registry.complete(item.run_id, "节点价差分析完成", result)
+        except (KeyError, TypeError, ValueError, RuntimeError) as error:
+            registry.fail(item.run_id, f"节点价差分析失败：{error}", "PRICE_ANALYSIS_FAILED")
     else:
         registry.fail(item.run_id, "该任务类型尚未接入执行器", "EXECUTOR_NOT_IMPLEMENTED")
     return True

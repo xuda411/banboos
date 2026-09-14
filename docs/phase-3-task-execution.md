@@ -27,7 +27,10 @@ $env:BANBOOS2_REDIS_URL = "redis://127.0.0.1:6379/0"
 
 - `POST /api/v1/runs?kind=noop`
 - `POST /api/v1/runs`，JSON：`{"kind":"price-summary","parameters":{"node_id":1,"market":"实时","start_date":"2026-01-01","end_date":"2026-01-31"}}`
+- `POST /api/v1/runs`，JSON：`{"kind":"price-analysis","parameters":{"node_id":1,"market":"实时","start_date":"2026-01-01","end_date":"2026-01-31","power_mw":100,"capacity_mwh":200}}`
 - `GET /api/v1/runs/{run_id}`
 - `POST /api/v1/runs/{run_id}/cancel`
 
 生产部署仍需在 PostgreSQL 任务记录落库后再开放多 Worker 扩展；本阶段 Redis 状态存储用于联调和故障恢复验证。
+
+`price-analysis` 当前采用可解释的“互斥低价充电/高价放电价差估算”，显式使用 `capacity_mwh / power_mw` 得到时长，并保留输入参数和来源模式。它用于上线前回放与接口验收；严格互斥 MILP、衰减成本和完整财务模型将在下一阶段接入领域服务。
