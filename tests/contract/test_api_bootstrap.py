@@ -6,6 +6,27 @@ def test_api_bootstrap_contract():
     assert any(route.path == "/api/v1/meta" for route in app.routes)
 
 
+def test_readiness_and_optional_api_token(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from apps.api import main
+
+    client = TestClient(main.app)
+    response = client.get("/readyz")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert response.headers["X-Request-ID"]
+
+    monkeypatch.setenv("BANBOOS2_API_TOKEN", "t" * 32)
+    assert client.get("/api/v1/meta").status_code == 401
+    response = client.get("/api/v1/meta", headers={"X-API-Key": "t" * 32})
+    assert response.status_code == 200
+
+    monkeypatch.delenv("BANBOOS2_API_TOKEN")
+    monkeypatch.setenv("BANBOOS2_ENV", "production")
+    assert client.get("/readyz").status_code == 503
+
+
 def test_readonly_demo_endpoints():
     from fastapi.testclient import TestClient
 

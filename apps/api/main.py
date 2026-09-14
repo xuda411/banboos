@@ -1,11 +1,15 @@
 """Minimal API bootstrap for the Banboos 2.0 foundation milestone."""
 import os
 from datetime import UTC, date, datetime
+from uuid import uuid4
 
+import redis
 from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from apps.api.security import configured_token, is_production, token_matches
 from packages.application.readonly_service import ReadonlyService
 from packages.application.run_registry import RedisStateStore, RunRegistry
 from packages.application.task_queue import RedisTaskQueue
@@ -33,6 +37,20 @@ app.add_middleware(CORSMiddleware, allow_origins=allowed_origins,
                    allow_methods=["GET", "POST"], allow_headers=["*"])
 
 
+@app.middleware("http")
+async def request_guard(request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid4())
+    protected = request.url.path.startswith("/api/")
+    candidate = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if protected and configured_token() and not token_matches(candidate or request.headers.get("X-API-Key")):
+        response = JSONResponse({"detail": "authentication required"}, status_code=401)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
 @app.get("/health", response_model=HealthResponse, tags=["system"])
 def health() -> HealthResponse:
     return HealthResponse(
@@ -41,6 +59,23 @@ def health() -> HealthResponse:
         version=app.version,
         timestamp=datetime.now(UTC),
     )
+
+
+@app.get("/readyz", tags=["system"])
+def ready() -> dict:
+    checks = {"api": "ok", "redis": "not-configured", "auth": "ok"}
+    if is_production() and (not configured_token() or len(configured_token() or "") < 32):
+        checks["auth"] = "production token must be at least 32 characters"
+    if redis_url:
+        try:
+            redis.Redis.from_url(redis_url, decode_responses=True).ping()
+            checks["redis"] = "ok"
+        except redis.RedisError:
+            checks["redis"] = "unavailable"
+    ready_state = all(value in {"ok", "not-configured"} for value in checks.values())
+    if not ready_state:
+        raise HTTPException(status_code=503, detail={"status": "not-ready", "checks": checks})
+    return {"status": "ready", "checks": checks}
 
 
 @app.get("/api/v1/meta", tags=["system"])
