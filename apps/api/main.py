@@ -30,7 +30,7 @@ from packages.contracts.readonly import (
     WeatherSummary,
 )
 from packages.contracts.tasks import RunRequest
-from packages.contracts.telemetry import TelemetryAlert, TelemetryBatch
+from packages.contracts.telemetry import TelemetryAlert, TelemetryBatch, TelemetryPoint
 from packages.domain.telemetry_alerts import evaluate_alerts
 
 
@@ -185,6 +185,14 @@ def pending_telemetry(limit: int = Query(default=50, ge=1, le=200)) -> dict:
                        "last_event_time": max(point.event_time for point in batch.points)}
                       for batch in batches],
             "pending_points": edge_spool.pending_count(), "control_mode": "disabled"}
+
+
+@app.get("/api/v1/telemetry/recent", response_model=list[TelemetryPoint], tags=["edge"])
+def recent_telemetry(station_id: str | None = Query(default=None, max_length=120),
+                     device_id: str | None = Query(default=None, max_length=120),
+                     point_id: str | None = Query(default=None, max_length=120),
+                     limit: int = Query(default=100, ge=1, le=500)) -> list[TelemetryPoint]:
+    return edge_spool.recent(station_id, device_id, point_id, limit)
 
 
 @app.get("/api/v1/edge/{gateway_id}/heartbeat", tags=["edge"])

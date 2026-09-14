@@ -11,7 +11,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from packages.contracts.telemetry import TelemetryAlert, TelemetryBatch
+from packages.contracts.telemetry import TelemetryAlert, TelemetryBatch, TelemetryPoint
 
 
 class TelemetrySpool:
@@ -79,6 +79,26 @@ class TelemetrySpool:
                 "SELECT COUNT(*) FROM telemetry_spool WHERE acked=0"
             ).fetchone()
         return int(row[0])
+
+    def recent(self, station_id: str | None = None, device_id: str | None = None,
+               point_id: str | None = None, limit: int = 100) -> list[TelemetryPoint]:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        clauses: list[str] = []
+        params: list[str | int] = []
+        for field, value in (("station_id", station_id), ("device_id", device_id),
+                             ("point_id", point_id)):
+            if value:
+                clauses.append(f"json_extract(payload, '$.{field}')=?")
+                params.append(value)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT payload FROM telemetry_spool{where} "
+                "ORDER BY event_time DESC LIMIT ?", params
+            ).fetchall()
+        return [TelemetryPoint.model_validate_json(row[0]) for row in rows]
 
     def record_alerts(self, alerts: list[TelemetryAlert]) -> int:
         stored = 0

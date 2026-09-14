@@ -17,6 +17,7 @@ def test_spool_deduplicates_replays_and_acknowledges(tmp_path):
     assert len(pending) == 1
     assert pending[0].batch_id == batch.batch_id
     assert spool.pending_count() == 3
+    assert len(spool.recent(station_id="demo-station", point_id="soc")) == 1
     assert spool.ack(batch.batch_id) == 3
     assert spool.pending_count() == 0
 

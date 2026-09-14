@@ -33,6 +33,9 @@ pending point counts without returning telemetry values.
 `POST /api/v1/alerts/{alert_id}/ack` acknowledges one alert. Alert handling is
 traceable and read-only; it never issues a device command.
 
+`GET /api/v1/telemetry/recent` returns recent telemetry points with optional
+`station_id`, `device_id` and `point_id` filters for station detail pages.
+
 Set `BANBOOS2_REDIS_URL` on both API and Worker processes to share queued task
 state across processes. Without it, task execution is intentionally local to
 the current process for development.
