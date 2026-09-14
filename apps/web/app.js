@@ -167,6 +167,7 @@ async function submitFinancial() {
   const state = $("taskState");
   const message = $("taskMessage");
   const download = $("downloadReport");
+  $("financeResult").hidden = true;
   download.hidden = true;
   const power = Number($("powerMw").value);
   const capacity = Number($("capacityMwh").value);
@@ -180,17 +181,39 @@ async function submitFinancial() {
   state.textContent = "提交中";
   state.className = "status status-muted";
   try {
-    const run = await post("/api/v1/runs", { kind: "financial", parameters: {
-      power_mw: power, capacity_mwh: capacity,
-      annual_revenue_yuan: Number($("annualRevenue").value),
-    }});
+    const percent = (id) => Number($(id).value) / 100;
+    const optionalNumber = (id) => $(id).value === "" ? null : Number($(id).value);
+    const parameters = {
+      power_mw: power, capacity_mwh: capacity, annual_revenue_yuan: Number($("annualRevenue").value),
+      capacity_lease_yuan: Number($("capacityLease").value), capacity_fee_yuan: Number($("capacityFee").value),
+      subsidy_yuan: Number($("subsidy").value), primary_frequency_yuan: Number($("primaryFrequency").value),
+      secondary_frequency_yuan: Number($("secondaryFrequency").value), capex_yuan_per_wh: Number($("capex").value),
+      operation_years: Number($("operationYears").value), om_rate: percent("omRate"), om_growth: percent("omGrowth"),
+      first_year_eol: percent("firstEol"), final_eol: percent("finalEol"), residual_rate: percent("residualRate"),
+      income_tax_rate: percent("incomeTaxRate"), discount_rate: percent("discountRate"), loan_ratio: percent("loanRatio"),
+      loan_years: Number($("loanYears").value), loan_rate: percent("loanRate"), construction_years: Number($("constructionYears").value),
+      construction_loan_rate: percent("constructionLoanRate"), replace_year: optionalNumber("replaceYear"), replace_capex_yuan: Number($("replaceCapex").value),
+    };
+    const run = await post("/api/v1/runs", { kind: "financial", parameters });
     message.textContent = `任务 ${run.run_id} 已进入队列`;
-    await pollRun(run.run_id);
+    const finished = await pollRun(run.run_id);
+    renderFinancialResult(finished.result);
   } catch (error) {
     state.textContent = "提交失败";
     state.className = "status status-error";
     message.textContent = error.message;
   }
+}
+
+function renderFinancialResult(result) {
+  if (!result) return;
+  const money = (value) => value == null ? "—" : `${(Number(value) / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元`;
+  const rate = (value) => value == null ? "—" : `${(Number(value) * 100).toFixed(2)}%`;
+  $("resultInvestment").textContent = money(result.total_investment_yuan);
+  $("resultIrr").textContent = rate(result.full_irr);
+  $("resultNpv").textContent = money(result.full_npv_yuan);
+  $("resultPayback").textContent = result.payback_year == null ? "—" : `${Number(result.payback_year).toFixed(2)} 年`;
+  $("financeResult").hidden = false;
 }
 
 function updateDurationHint() {
@@ -212,7 +235,7 @@ async function pollRun(runId) {
     if (run.status === "succeeded") {
       download.href = `${apiBase}/api/v1/runs/${runId}/export`;
       download.hidden = false;
-      return;
+      return run;
     }
     if (["failed", "cancelled"].includes(run.status)) throw new Error(run.message || "任务未完成");
     await new Promise((resolve) => setTimeout(resolve, 1000));
