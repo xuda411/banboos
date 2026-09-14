@@ -47,7 +47,29 @@ async function loadNodes() {
   $("node").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
   if (!body.items.length) $("node").add(new Option("暂无节点", ""));
   await syncDateRange();
-  setStatus(`API 已连接 · ${body.data_mode}`, "ok");
+  let summaryAvailable = true;
+  try { await refreshOperationsSummary(); } catch { summaryAvailable = false; }
+  setStatus(summaryAvailable ? `API 已连接 · ${body.data_mode}` : "运营摘要暂不可用", summaryAvailable ? "ok" : "error");
+}
+
+function setSignal(id, value, fallback = "") {
+  $(id).textContent = value == null ? "暂不可用" : value;
+  if (fallback) $(id).nextElementSibling.textContent = fallback;
+}
+
+async function refreshOperationsSummary() {
+  try {
+    const summary = await get("/api/v1/operations/summary");
+    const queued = summary.task_counts.by_status.queued || 0;
+    setSignal("overviewQueued", queued, `共 ${summary.task_counts.total} 个任务`);
+    setSignal("overviewPendingTelemetry", summary.telemetry.pending_points, `共 ${summary.telemetry.total_points} 个数据点`);
+    setSignal("overviewUnackAlerts", summary.alerts.unacknowledged, `共 ${summary.alerts.total} 条告警`);
+  } catch (error) {
+    setSignal("overviewQueued", null, "运营摘要暂不可用");
+    setSignal("overviewPendingTelemetry", null, "运营摘要暂不可用");
+    setSignal("overviewUnackAlerts", null, "运营摘要暂不可用");
+    throw error;
+  }
 }
 
 async function syncDateRange() {
@@ -77,6 +99,7 @@ async function refresh() {
     $("overviewDataPoints").textContent = price.data_points.toLocaleString();
     $("overviewCoverage").textContent = `${(quality.coverage_ratio * 100).toFixed(1)}%`;
     $("overviewRange").textContent = price.first_date ? `${price.first_date} 至 ${price.last_date}` : "所选范围暂无有效日";
+    await refreshOperationsSummary();
     $("notice").textContent = "只读结果已更新。正式分析、控制指令和生产数据接入将在后续阶段开放。";
   } catch (error) {
     $("notice").textContent = `读取失败：${error.message}`;
