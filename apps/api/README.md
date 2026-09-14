@@ -14,3 +14,7 @@ SQLite file before starting the server. The adapter rejects the old default
 `data\price_analysis.db` path by design.
 
 OpenAPI is available at `http://127.0.0.1:8000/docs`.
+
+Set `BANBOOS2_REDIS_URL` on both API and Worker processes to share queued task
+state across processes. Without it, task execution is intentionally local to
+the current process for development.

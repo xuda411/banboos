@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from packages.application.readonly_service import ReadonlyService
-from packages.application.run_registry import RunRegistry
+from packages.application.run_registry import RedisStateStore, RunRegistry
+from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.readonly import DataQualitySummary, PriceSummary, RunStatus, WeatherSummary
 
 
@@ -20,7 +21,9 @@ class HealthResponse(BaseModel):
 
 app = FastAPI(title="Banboos 2.0 API", version="2.0.0a0")
 readonly_service = ReadonlyService()
-run_registry = RunRegistry()
+redis_url = os.getenv("BANBOOS2_REDIS_URL")
+run_registry = RunRegistry(RedisTaskQueue(redis_url) if redis_url else None,
+                           RedisStateStore(redis_url) if redis_url else None)
 
 allowed_origins = [item.strip() for item in os.getenv(
     "BANBOOS2_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173"
@@ -88,6 +91,14 @@ def submit_run(kind: str = Query(..., min_length=1, max_length=80),
 @app.get("/api/v1/runs/{run_id}", response_model=RunStatus, tags=["runs"])
 def get_run(run_id: str) -> RunStatus:
     item = run_registry.get(run_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return item
+
+
+@app.post("/api/v1/runs/{run_id}/cancel", response_model=RunStatus, tags=["runs"])
+def cancel_run(run_id: str) -> RunStatus:
+    item = run_registry.cancel(run_id)
     if item is None:
         raise HTTPException(status_code=404, detail="run not found")
     return item

@@ -31,7 +31,8 @@ legacy/          1.6.6 迁移说明，不存放生产数据库
 
 - 第一阶段：FastAPI 只读接口、Web 只读端、1.6.6 隔离数据回放和电站模拟器。
 - 第二阶段基础：数据质量摘要、任务幂等键、PostgreSQL 模型和 Alembic 首次迁移。
+- 第三阶段：任务生命周期、Redis/内存队列适配、Worker 入口和取消/失败状态。
 
-交付记录见 [第一阶段](docs/phase-1-delivery.md) 和 [第二阶段基础](docs/phase-2-foundation.md)。
+交付记录见 [第一阶段](docs/phase-1-delivery.md)、[第二阶段基础](docs/phase-2-foundation.md) 和 [第三阶段任务执行链路](docs/phase-3-task-execution.md)。
 
 完整约束见 [Banboos 2.0 开发宪法](DEVELOPMENT_CONSTITUTION.md)。
