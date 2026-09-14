@@ -15,3 +15,4 @@ def test_sqlite_runtime_shares_queue_and_state_between_registries(tmp_path):
     worker_registry.complete(submitted.run_id, "完成")
     assert api_registry.get(submitted.run_id).status == "succeeded"
     assert api_registry.submit("noop", idempotency_key="manual-check").run_id == submitted.run_id
+    assert api_registry.list(status="succeeded")[0].run_id == submitted.run_id

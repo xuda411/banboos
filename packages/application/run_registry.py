@@ -22,6 +22,8 @@ class StateStore(Protocol):
     def get(self, run_id: str) -> RunStatus | None: ...
     def get_by_key(self, kind: str, key: str) -> RunStatus | None: ...
     def set_key(self, kind: str, key: str, run_id: str) -> None: ...
+    def list(self, kind: str | None = None, status: str | None = None,
+             limit: int = 50) -> list[RunStatus]: ...
 
 
 class InMemoryStateStore:
@@ -42,6 +44,12 @@ class InMemoryStateStore:
     def set_key(self, kind: str, key: str, run_id: str) -> None:
         self._idempotency[(kind, key)] = run_id
 
+    def list(self, kind: str | None = None, status: str | None = None,
+             limit: int = 50) -> list[RunStatus]:
+        items = list(self._items.values())
+        return [item for item in reversed(items)
+                if (kind is None or item.kind == kind) and (status is None or item.status == status)][:limit]
+
 
 class RedisStateStore:
     def __init__(self, url: str) -> None:
@@ -60,6 +68,18 @@ class RedisStateStore:
 
     def set_key(self, kind: str, key: str, run_id: str) -> None:
         self._client.set(f"banboos2:idempotency:{kind}:{key}", run_id)
+
+    def list(self, kind: str | None = None, status: str | None = None,
+             limit: int = 50) -> list[RunStatus]:
+        items: list[RunStatus] = []
+        for key in self._client.scan_iter(match="banboos2:run:*"):
+            payload = self._client.get(key)
+            if not payload:
+                continue
+            item = RunStatus.model_validate_json(payload)
+            if (kind is None or item.kind == kind) and (status is None or item.status == status):
+                items.append(item)
+        return sorted(items, key=lambda item: item.created_at, reverse=True)[:limit]
 
 
 class RunRegistry:
@@ -87,6 +107,13 @@ class RunRegistry:
     def get(self, run_id: str) -> RunStatus | None:
         with self._lock:
             return self._store.get(run_id)
+
+    def list(self, kind: str | None = None, status: str | None = None,
+             limit: int = 50) -> list[RunStatus]:
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        with self._lock:
+            return self._store.list(kind, status, limit)
 
     def claim_next(self, timeout: int = 1) -> RunStatus | None:
         task = self._queue.claim(timeout)

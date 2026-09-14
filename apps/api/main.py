@@ -156,6 +156,16 @@ def acknowledge_telemetry(batch_id: str = APIPath(..., min_length=1, max_length=
             "pending_points": edge_spool.pending_count(), "control_mode": "disabled"}
 
 
+@app.get("/api/v1/telemetry/pending", tags=["edge"])
+def pending_telemetry(limit: int = Query(default=50, ge=1, le=200)) -> dict:
+    batches = edge_spool.pending(limit=limit)
+    return {"items": [{"batch_id": batch.batch_id, "points": len(batch.points),
+                       "first_event_time": min(point.event_time for point in batch.points),
+                       "last_event_time": max(point.event_time for point in batch.points)}
+                      for batch in batches],
+            "pending_points": edge_spool.pending_count(), "control_mode": "disabled"}
+
+
 @app.get("/api/v1/edge/{gateway_id}/heartbeat", tags=["edge"])
 def edge_heartbeat(gateway_id: str = APIPath(..., min_length=1, max_length=120),
                    connected: bool = True) -> dict:
@@ -182,6 +192,13 @@ def submit_run(kind: str | None = Query(default=None, min_length=1, max_length=8
             raise HTTPException(status_code=422, detail=str(error)) from error
     return run_registry.submit(resolved_kind, idempotency_key,
                                request.parameters if request else {})
+
+
+@app.get("/api/v1/runs", response_model=list[RunStatus], tags=["runs"])
+def list_runs(kind: str | None = Query(default=None, max_length=80),
+              status: str | None = Query(default=None, max_length=24),
+              limit: int = Query(default=50, ge=1, le=100)) -> list[RunStatus]:
+    return run_registry.list(kind=kind, status=status, limit=limit)
 
 
 @app.get("/api/v1/runs/{run_id}", response_model=RunStatus, tags=["runs"])

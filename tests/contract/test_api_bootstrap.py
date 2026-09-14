@@ -69,6 +69,10 @@ def test_readonly_demo_endpoints():
     response = client.post(f"/api/v1/telemetry/batches/{batch.batch_id}/ack")
     assert response.json()["acknowledged_points"] == 3
 
+    response = client.get("/api/v1/runs", params={"kind": "financial", "limit": 5})
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
     response = client.post("/api/v1/runs", json={"kind": "strict-dispatch", "parameters": {"node_id": 1}})
     assert response.status_code == 422
 

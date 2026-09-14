@@ -59,6 +59,25 @@ class SQLiteRuntime:
                 (kind, key, run_id),
             )
 
+    def list(self, kind: str | None = None, status: str | None = None,
+             limit: int = 50) -> list[RunStatus]:
+        clauses: list[str] = []
+        params: list[str | int] = []
+        if kind:
+            clauses.append("json_extract(payload, '$.kind')=?")
+            params.append(kind)
+        if status:
+            clauses.append("json_extract(payload, '$.status')=?")
+            params.append(status)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT payload FROM runtime_runs{where} "
+                "ORDER BY json_extract(payload, '$.created_at') DESC LIMIT ?", params
+            ).fetchall()
+        return [RunStatus.model_validate_json(row[0]) for row in rows]
+
     def enqueue(self, task: TaskEnvelope) -> None:
         with self._connect() as connection:
             connection.execute(

@@ -25,6 +25,10 @@ upload, and `GET /api/v1/edge/{gateway_id}/heartbeat` for connection and spool
 status. These endpoints only accept telemetry; production control remains
 disabled.
 
+`GET /api/v1/runs?kind=financial&status=succeeded` lists recent tasks for the
+operations center. `GET /api/v1/telemetry/pending` exposes batch metadata and
+pending point counts without returning telemetry values.
+
 Set `BANBOOS2_REDIS_URL` on both API and Worker processes to share queued task
 state across processes. Without it, task execution is intentionally local to
 the current process for development.
