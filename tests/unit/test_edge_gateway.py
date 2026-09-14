@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from apps.edge.gateway import TelemetrySpool
 from apps.edge.simulator import generate_batch
+from packages.domain.telemetry_alerts import evaluate_alerts
 
 
 def test_spool_deduplicates_replays_and_acknowledges(tmp_path):
@@ -33,3 +34,13 @@ def test_spool_replays_batches_in_event_time_order_and_reports_safe_mode(tmp_pat
     heartbeat = spool.heartbeat("gw-01", connected=False)
     assert heartbeat["pending_points"] == 6
     assert heartbeat["control_mode"] == "disabled"
+
+
+def test_telemetry_alerts_are_structured_and_do_not_control_devices():
+    batch = generate_batch().model_copy(update={"points": [
+        generate_batch().points[0].model_copy(update={"value": 106}),
+        generate_batch().points[2].model_copy(update={"value": 66}),
+    ]})
+    alerts = evaluate_alerts(batch)
+    assert {alert.code for alert in alerts} == {"SOC_OUT_OF_RANGE", "TEMPERATURE_HIGH"}
+    assert all(alert.severity == "critical" for alert in alerts)

@@ -30,6 +30,7 @@ from packages.contracts.readonly import (
 )
 from packages.contracts.tasks import RunRequest
 from packages.contracts.telemetry import TelemetryBatch
+from packages.domain.telemetry_alerts import evaluate_alerts
 
 
 class HealthResponse(BaseModel):
@@ -145,8 +146,11 @@ def quality_summary(node_id: int = Query(gt=0), market: str = Query(...),
 @app.post("/api/v1/telemetry/batches", tags=["edge"])
 def ingest_telemetry(batch: TelemetryBatch) -> dict:
     accepted = edge_spool.ingest(batch)
+    alerts = evaluate_alerts(batch)
     return {"batch_id": batch.batch_id, "accepted_points": accepted,
-            "pending_points": edge_spool.pending_count(), "control_mode": "disabled"}
+            "pending_points": edge_spool.pending_count(),
+            "alerts": [alert.model_dump(mode="json") for alert in alerts],
+            "control_mode": "disabled"}
 
 
 @app.post("/api/v1/telemetry/batches/{batch_id}/ack", tags=["edge"])

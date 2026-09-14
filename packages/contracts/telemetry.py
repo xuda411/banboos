@@ -1,5 +1,6 @@
 """Canonical telemetry contract for the edge simulator and future gateways."""
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -24,3 +25,15 @@ class TelemetryBatch(BaseModel):
 
     batch_id: str
     points: list[TelemetryPoint] = Field(min_length=1)
+
+
+class TelemetryAlert(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    severity: Literal["warning", "critical"]
+    station_id: str
+    device_id: str
+    point_id: str
+    event_time: datetime
+    message: str

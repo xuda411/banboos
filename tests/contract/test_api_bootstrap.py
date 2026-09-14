@@ -62,6 +62,7 @@ def test_readonly_demo_endpoints():
     response = client.post("/api/v1/telemetry/batches", json=batch.model_dump(mode="json"))
     assert response.status_code == 200
     assert response.json()["accepted_points"] == 3
+    assert response.json()["alerts"] == []
     response = client.post("/api/v1/telemetry/batches", json=batch.model_dump(mode="json"))
     assert response.json()["accepted_points"] == 0
     response = client.get("/api/v1/edge/gw-demo/heartbeat", params={"connected": "false"})
