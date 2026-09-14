@@ -1,15 +1,18 @@
 """Minimal API bootstrap for the Banboos 2.0 foundation milestone."""
 import os
+import re
 from datetime import UTC, date, datetime
+from pathlib import Path
 from uuid import uuid4
 
 import redis
 from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from apps.api.security import configured_token, is_production, token_matches
+from packages.application.financial_export import export_financial_xlsx
 from packages.application.readonly_service import ReadonlyService
 from packages.application.run_registry import RedisStateStore, RunRegistry
 from packages.application.task_queue import RedisTaskQueue
@@ -155,3 +158,18 @@ def cancel_run(run_id: str) -> RunStatus:
     if item is None:
         raise HTTPException(status_code=404, detail="run not found")
     return item
+
+
+@app.get("/api/v1/runs/{run_id}/export", tags=["reports"])
+def export_run(run_id: str):
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", run_id):
+        raise HTTPException(status_code=400, detail="invalid run id")
+    item = run_registry.get(run_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    if item.kind != "financial" or item.status != "succeeded" or not item.result:
+        raise HTTPException(status_code=409, detail="financial run must succeed before export")
+    destination = Path(os.getenv("BANBOOS2_EXPORT_DIR", "var/exports")) / f"financial-{run_id}.xlsx"
+    path = export_financial_xlsx(item.result, destination)
+    return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        filename=path.name)
