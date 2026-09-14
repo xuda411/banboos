@@ -14,6 +14,8 @@ from packages.application.run_registry import RedisStateStore, RunRegistry
 from packages.application.task_queue import InMemoryTaskQueue, RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.dispatch_result import DispatchDayResult, DispatchRunResult
+from packages.contracts.financial import FinancialTaskParameters
+from packages.domain.financial_model import FinancialError, calculate_financials
 from packages.domain.storage_dispatch import ALGORITHM_VERSION, DispatchError, solve_day
 from packages.infrastructure.dispatch_snapshots import DispatchSnapshots
 
@@ -93,6 +95,22 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
             registry.fail(item.run_id, f"严格调度失败：{error}", error.code)
         except (KeyError, TypeError, ValueError, RuntimeError) as error:
             registry.fail(item.run_id, f"严格调度失败：{error}", "DISPATCH_FAILED")
+    elif item.kind == "financial":
+        try:
+            parameters = FinancialTaskParameters.model_validate(item.parameters)
+            if parameters.annual_revenue_yuan is None and parameters.source_run_id:
+                upstream = registry.get(parameters.source_run_id)
+                if not upstream or upstream.status != "succeeded" or not upstream.result:
+                    raise FinancialError("上游调度任务尚未成功，不能开始财务测算")
+                annual_revenue = upstream.result.get("annualized_net_revenue_yuan")
+                parameters = parameters.model_copy(update={"annual_revenue_yuan": annual_revenue})
+            result = calculate_financials(parameters.financial())
+            result["source_run_id"] = parameters.source_run_id
+            registry.complete(item.run_id, "财务现金流测算完成", result)
+        except FinancialError as error:
+            registry.fail(item.run_id, f"财务测算失败：{error}", "FINANCIAL_INPUT_INVALID")
+        except (TypeError, ValueError, RuntimeError) as error:
+            registry.fail(item.run_id, f"财务测算失败：{error}", "FINANCIAL_FAILED")
     else:
         registry.fail(item.run_id, "该任务类型尚未接入执行器", "EXECUTOR_NOT_IMPLEMENTED")
     return True

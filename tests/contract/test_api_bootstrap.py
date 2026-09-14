@@ -77,3 +77,16 @@ def test_readonly_demo_endpoints():
     response = client.post("/api/v1/runs", json=request)
     assert response.status_code == 202
     assert response.json()["parameters"] == request["parameters"]
+
+    response = client.post("/api/v1/runs", json={"kind": "financial", "parameters": {
+        "power_mw": 100, "capacity_mwh": 200, "annual_revenue_yuan": 8_000_000,
+    }})
+    assert response.status_code == 202
+    response = client.post("/api/v1/runs", json={"kind": "financial", "parameters": {
+        "power_mw": 100, "capacity_mwh": 200,
+    }})
+    assert response.status_code == 422
+    response = client.post("/api/v1/runs", json={"kind": "financial", "parameters": {
+        "power_mw": 100, "capacity_mwh": 200, "source_run_id": "dispatch-run-1",
+    }})
+    assert response.status_code == 202
