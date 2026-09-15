@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 from openpyxl import Workbook
+from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -26,10 +27,27 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
     _write_parameters(workbook.create_sheet("测算参数"), result)
     _write_cashflow(workbook.create_sheet("年度现金流"), result)
     _write_debt(workbook.create_sheet("融资明细"), result)
+    _write_timeline(workbook.create_sheet("全周期现金流"), result)
     for sheet in workbook.worksheets:
         sheet.sheet_view.showGridLines = False
-        sheet.freeze_panes = "A4"
+        sheet.freeze_panes = "B5"
         _fit_columns(sheet)
+        sheet.print_title_rows = "1:4"
+        sheet.print_options.horizontalCentered = True
+        sheet.page_setup.orientation = "landscape" if sheet.max_column > 6 else "portrait"
+        sheet.page_setup.paperSize = sheet.PAPERSIZE_A3 if sheet.max_column > 6 else sheet.PAPERSIZE_A4
+        sheet.page_setup.fitToWidth = 1
+        sheet.page_setup.fitToHeight = 0
+        sheet.sheet_properties.pageSetUpPr.fitToPage = True
+        sheet.print_area = f"A1:{get_column_letter(sheet.max_column)}{sheet.max_row}"
+        sheet.row_dimensions[1].height = 32
+        sheet.row_dimensions[2].height = 30
+        sheet.row_dimensions[4].height = 38
+        for cells in sheet.iter_rows(min_row=4):
+            sheet.row_dimensions[cells[0].row].height = 30
+            for cell in cells:
+                cell.alignment = Alignment(vertical="center", wrap_text=True)
+        sheet.oddFooter.center.text = "Banboos 2.0 · 第 &P 页 / 共 &N 页"
     with tempfile.NamedTemporaryFile(prefix=f".{target.stem}-", suffix=".xlsx",
                                      dir=target.parent, delete=False) as stream:
         temporary = Path(stream.name)
@@ -46,7 +64,7 @@ def _title(sheet, title: str, columns: int) -> None:
     sheet.cell(1, 1, title)
     sheet.cell(1, 1).font = Font(name="Microsoft YaHei", size=16, bold=True, color=TEXT)
     sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=columns)
-    sheet.cell(2, 1, "Banboos 2.0 · 结果来自已完成任务，可通过 run_id 回放")
+    sheet.cell(2, 1, "Banboos 2.0 · 已完成任务结果快照；修改参数请在软件重新测算后导出")
     sheet.cell(2, 1).font = Font(name="Microsoft YaHei", italic=True, color="5B756E")
     sheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=columns)
 
@@ -77,6 +95,8 @@ def _write_overview(sheet, result: dict) -> None:
         ("全投资回收期", result.get("payback_year"), "年", "静态回收期"),
         ("资本金 IRR", result.get("equity_irr"), "%", "含贷款还本付息"),
         ("资本金 NPV", result.get("equity_npv_yuan"), "元", "含贷款还本付息"),
+        ("本次任务 ID", result.get("run_id"), "", "对应导出任务，区别于上游任务"),
+        ("计算完成时间", result.get("completed_at"), "UTC", "任务快照时间"),
     ]
     for row, values in enumerate(rows, start=5):
         for column, value in enumerate(values, start=1):
@@ -92,13 +112,14 @@ def _write_cashflow(sheet, result: dict) -> None:
     headers = ["年度", "EOL", "电能量收入（元）", "容量电费（元）", "补贴（元）",
                "容量租赁（元）", "一次调频（元）", "二次调频（元）", "总收入（元）",
                "运营成本（元）", "折旧（元）", "所得税（元）", "换电池投资（元）",
-               "项目现金流（元）", "资本金现金流（元）"]
+               "项目现金流（元）", "资本金现金流（元）", "应纳税利润（元）", "净利润（元）", "资本金所得税（元）"]
     _title(sheet, "年度现金流", len(headers))
     _header(sheet, 4, headers)
     keys = ["year", "eol", "energy_revenue_yuan", "capacity_fee_yuan", "subsidy_yuan",
             "capacity_lease_yuan", "primary_frequency_yuan", "secondary_frequency_yuan",
             "revenue_yuan", "operating_cost_yuan", "depreciation_yuan", "income_tax_yuan",
-            "replacement_capex_yuan", "project_cashflow_yuan", "equity_cashflow_yuan"]
+            "replacement_capex_yuan", "project_cashflow_yuan", "equity_cashflow_yuan",
+            "taxable_profit_yuan", "net_profit_yuan", "equity_tax_yuan"]
     for row, item in enumerate(result.get("yearly", []), start=5):
         for column, key in enumerate(keys, start=1):
             cell = sheet.cell(row, column, item.get(key))
@@ -177,5 +198,32 @@ def _write_debt(sheet, result: dict) -> None:
 def _fit_columns(sheet) -> None:
     for column_cells in sheet.columns:
         letter = get_column_letter(column_cells[0].column)
-        longest = max(len(str(cell.value or "")) for cell in column_cells)
-        sheet.column_dimensions[letter].width = min(max(longest + 2, 12), 26)
+        longest = max((sum(2 if ord(char) > 127 else 1 for char in str(cell.value or ""))
+                       for cell in column_cells if cell.row >= 4), default=12)
+        sheet.column_dimensions[letter].width = min(max(longest + 2, 16), 48)
+
+
+def _write_timeline(sheet, result: dict) -> None:
+    _title(sheet, "建设期与全周期现金流", 5)
+    _header(sheet, 4, ["年度", "项目现金流（元）", "资本金现金流（元）", "累计项目现金流（元）", "累计资本金现金流（元）"])
+    cumulative_project = cumulative_equity = 0.0
+    for year, (project, equity) in enumerate(zip(result.get("cashflows_yuan", []),
+                                               result.get("equity_cashflows_yuan", []), strict=True)):
+        cumulative_project += project
+        cumulative_equity += equity
+        sheet.append([year, project, equity, cumulative_project, cumulative_equity])
+        for cell in sheet[sheet.max_row]:
+            cell.number_format = "#,##0.00;[Red](#,##0.00);0.00"
+            cell.font = Font(name="Microsoft YaHei", color=TEXT)
+        sheet.cell(sheet.max_row, 1).number_format = '0" 年"'
+    if sheet.max_row > 4:
+        chart = LineChart()
+        chart.title = "累计现金流（含建设期）"
+        chart.y_axis.title = "元"
+        chart.x_axis.title = "年度（0 为建设期）"
+        chart.add_data(Reference(sheet, min_col=4, max_col=5, min_row=4, max_row=sheet.max_row), titles_from_data=True)
+        chart.set_categories(Reference(sheet, min_col=1, min_row=5, max_row=sheet.max_row))
+        chart.width, chart.height = 26, 12
+        sheet.add_chart(chart, f"A{sheet.max_row + 3}")
+        # Include the embedded chart in the print area.
+        sheet.cell(sheet.max_row + 27, 5, "期初投资计入第 0 年；金额为任务快照值。")

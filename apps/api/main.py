@@ -19,6 +19,12 @@ from apps.edge.gateway import TelemetrySpool
 from packages.application.financial_export import export_financial_xlsx
 from packages.application.operations_service import OperationsService, OperationsUnavailable
 from packages.application.readonly_service import ReadonlyService
+from packages.application.report_export import (
+    SUPPORTED_TASKS,
+    export_price_xlsx,
+    export_task_xlsx,
+    export_weather_xlsx,
+)
 from packages.application.run_registry import RedisStateStore, RunRegistry
 from packages.application.sqlite_runtime import SQLiteRuntime, runtime_path
 from packages.application.task_queue import RedisTaskQueue
@@ -303,9 +309,42 @@ def export_run(run_id: str):
     item = run_registry.get(run_id)
     if item is None:
         raise HTTPException(status_code=404, detail="run not found")
-    if item.kind != "financial" or item.status != "succeeded" or not item.result:
-        raise HTTPException(status_code=409, detail="financial run must succeed before export")
+    if item.kind not in SUPPORTED_TASKS or item.status != "succeeded" or not item.result:
+        raise HTTPException(status_code=409, detail="支持的任务必须计算成功后才能导出")
+    if item.kind != "financial":
+        return xlsx_response(export_task_xlsx(item), f"{item.kind}-{run_id}.xlsx")
     destination = Path(os.getenv("BANBOOS2_EXPORT_DIR", "var/exports")) / f"financial-{run_id}.xlsx"
-    path = export_financial_xlsx(item.result, destination)
+    path = export_financial_xlsx(item.result | {"run_id": run_id, "completed_at": str(item.completed_at)}, destination)
     return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         filename=path.name)
+
+
+def xlsx_response(content: bytes, filename: str):
+    return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"',
+                             "Cache-Control": "no-store"})
+
+
+@app.get("/api/v1/price/export", tags=["reports"])
+def export_price(node_id: int = Query(gt=0), market: str = Query(...),
+                 start_date: date = Query(...), end_date: date = Query(...),
+                 limit: int = Query(default=31, ge=1, le=31)):
+    try:
+        curves = readonly_service.curves(node_id, market, start_date, end_date, limit)
+        content = export_price_xlsx(curves, {"节点 ID": node_id, "市场": market,
+            "查询开始日期": start_date, "查询结束日期": end_date, "最大曲线日数": limit})
+        return xlsx_response(content, f"price-{node_id}-{start_date}-{end_date}.xlsx")
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/v1/weather/export", tags=["reports"])
+def export_weather(node_id: int = Query(gt=0), start_time: datetime | None = None,
+                   end_time: datetime | None = None, limit: int = Query(default=744, ge=1, le=744)):
+    try:
+        series = readonly_service.weather_series(node_id, start_time, end_time, limit)
+        content = export_weather_xlsx(series, {"节点 ID": node_id, "查询开始": str(start_time),
+            "查询结束": str(end_time), "最大观测数": limit})
+        return xlsx_response(content, f"weather-{node_id}.xlsx")
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error

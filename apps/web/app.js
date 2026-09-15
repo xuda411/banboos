@@ -127,6 +127,7 @@ function drawCurves(curves, selectedIndex = 0) {
 }
 
 let loadedCurves = [];
+function downloadCanvas(canvas, name) { if (!canvas || canvas.width < 2) return; const link = document.createElement("a"); link.download = `${name}-${Date.now()}.png`; link.href = canvas.toDataURL("image/png"); link.click(); }
 function updateCurveStats(curves) {
   const stats = $("curveStats");
   if (!curves.length) { stats.hidden = true; stats.textContent = ""; return; }
@@ -151,12 +152,12 @@ async function loadCurves() {
   $("curveState").textContent = "加载中"; $("curveState").className = "status status-muted";
   try {
     const curves = await get("/api/v1/price/curves", { node_id: nodeId, market: $("curveMarket").value, start_date: $("curveStart").value, end_date: $("curveEnd").value, limit: $("curveLimit").value });
-    loadedCurves = curves; $("exportCurves").disabled = curves.length === 0; updateCurveStats(curves);
+    loadedCurves = curves; $("exportCurves").disabled = curves.length === 0; $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
     const dayList = $("curveDays"); dayList.replaceChildren();
     curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); drawCurves(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
     $("curveEmpty").hidden = curves.length > 0; $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; $("curveState").textContent = curves.length ? `${curves.length} 天` : "暂无数据"; $("curveState").className = `status ${curves.length ? "status-ok" : "status-muted"}`;
     if (!curves.length) dayList.innerHTML = '<div class="empty-state">数据库暂无完整 96 点曲线</div>'; drawCurves(curves);
-  } catch (error) { loadedCurves = []; $("exportCurves").disabled = true; updateCurveStats([]); $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
+  } catch (error) { loadedCurves = []; $("exportCurves").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
 }
 
 function drawWeather(series) {
@@ -176,7 +177,7 @@ async function loadWeather() {
     const rawSeries = await get("/api/v1/weather/series", { node_id: nodeId, start_time: $("weatherStart").value, end_time: $("weatherEnd").value, limit: 744 });
     const series = aggregateWeather(rawSeries, $("weatherGranularity").value);
     const mean = (key) => { const values = series.map((row) => row[key]).filter((value) => value != null); return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1) : "—"; };
-    $("weatherObservations").textContent = series.length; $("weatherGhi").textContent = mean("ghi_w_m2"); $("weatherWind").textContent = mean("wind_speed_m_s"); $("weatherTemp").textContent = mean("temp_c"); $("weatherSourceDetail").textContent = series.length ? `${series[0].source || "未标注来源"} · ${series[0].is_power_simulated ? "功率估算" : "功率实测"}` : "当前范围暂无气象观测"; $("weatherChartTitle").textContent = series.length ? `${series[0].data_time.slice(0, 10)} 至 ${series[series.length - 1].data_time.slice(0, 10)}` : "当前范围暂无观测"; $("weatherEmpty").hidden = series.length > 0; if (!series.length) $("weatherEmpty").textContent = "数据库暂无气象观测"; drawWeather(series);
+    $("weatherObservations").textContent = series.length; $("weatherGhi").textContent = mean("ghi_w_m2"); $("weatherWind").textContent = mean("wind_speed_m_s"); $("weatherTemp").textContent = mean("temp_c"); $("weatherSourceDetail").textContent = series.length ? `${series[0].source || "未标注来源"} · ${series[0].is_power_simulated ? "功率估算" : "功率实测"}` : "当前范围暂无气象观测"; $("weatherChartTitle").textContent = series.length ? `${series[0].data_time.slice(0, 10)} 至 ${series[series.length - 1].data_time.slice(0, 10)}` : "当前范围暂无观测"; $("weatherEmpty").hidden = series.length > 0; if (!series.length) $("weatherEmpty").textContent = "数据库暂无气象观测"; $("exportWeatherPng").disabled = !series.length; $("exportWeatherXlsx").disabled = !series.length; drawWeather(series);
   } catch (error) { $("weatherEmpty").hidden = false; $("weatherEmpty").textContent = `读取失败：${error.message}`; }
 }
 
@@ -431,6 +432,13 @@ $("curveNode").addEventListener("change", () => syncCurveDateRange().catch(() =>
 $("curveMarket").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
 $("loadCurves").addEventListener("click", loadCurves);
 $("exportCurves").addEventListener("click", exportCurves);
+$("exportCurvePng").addEventListener("click", () => downloadCanvas($("curveChart"), "price-curve"));
+$("exportCurveXlsx").addEventListener("click", () => { const params = new URLSearchParams({ node_id: $("curveNode").value, market: $("curveMarket").value, start_date: $("curveStart").value, end_date: $("curveEnd").value, limit: $("curveLimit").value }); window.open(`${apiBase}/api/v1/price/export?${params}`, "_blank"); });
+$("exportWeatherPng").addEventListener("click", () => downloadCanvas($("weatherChart"), "weather-power"));
+$("exportWeatherXlsx").addEventListener("click", () => {
+  const params = new URLSearchParams({ node_id: $("weatherNode").value, start_time: $("weatherStart").value, end_time: $("weatherEnd").value, limit: "744" });
+  window.open(`${apiBase}/api/v1/weather/export?${params}`, "_blank");
+});
 $("loadWeather").addEventListener("click", loadWeather);
 $("submitAnalysis").addEventListener("click", submitAnalysis);
 $("useAnalysisForFinance").addEventListener("click", useAnalysisForFinance);
