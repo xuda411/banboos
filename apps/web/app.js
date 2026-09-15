@@ -78,6 +78,12 @@ async function loadPortfolio() {
   } catch (error) { state.textContent = "加载失败"; state.className = "status status-error"; body.innerHTML = `<tr><td colspan="6">${error.message}</td></tr>`; }
 }
 
+async function refreshSystem() {
+  const health = $("systemHealth"); const ready = $("systemReady"); const checks = $("systemChecks");
+  try { const [healthBody, meta] = await Promise.all([get("/health"), get("/api/v1/meta")]); health.textContent = healthBody.status || "正常"; health.className = "value-ok"; $("systemHealthDetail").textContent = `版本 ${healthBody.version || "—"}`; $("systemMode").textContent = meta.data_mode || "—"; } catch (error) { health.textContent = "异常"; health.className = "value-error"; $("systemHealthDetail").textContent = error.message; }
+  try { const body = await get("/readyz"); ready.textContent = body.status; ready.className = "value-ok"; $("systemReadyDetail").textContent = "所有依赖已就绪"; checks.textContent = JSON.stringify(body.checks || {}, null, 2); } catch (error) { ready.textContent = "未就绪"; ready.className = "value-error"; $("systemReadyDetail").textContent = error.message; checks.textContent = error.message; }
+}
+
 async function syncCurveDateRange() {
   const nodeId = $("curveNode").value;
   if (!nodeId) return;
@@ -432,6 +438,7 @@ $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
 $("submitSensitivity").addEventListener("click", submitSensitivity);
 $("loadPortfolio").addEventListener("click", loadPortfolio);
+$("refreshSystem").addEventListener("click", refreshSystem);
 $("powerMw").addEventListener("input", updateDurationHint);
 $("capacityMwh").addEventListener("input", updateDurationHint);
 ["powerMw", "capacityMwh", "annualRevenue"].forEach((id) => $(id).addEventListener("input", () => {
