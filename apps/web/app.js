@@ -225,7 +225,8 @@ async function pollDispatch(runId) {
 }
 
 function renderDispatchResult(result) {
-  if (!result) return; const money = (value) => value == null ? "—" : `${(Number(value) / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元`; $("dispatchValidDays").textContent = result.valid_days ?? "—"; $("dispatchTotalRevenue").textContent = money(result.total_net_revenue_yuan); $("dispatchAnnualRevenue").textContent = money(result.annualized_net_revenue_yuan); $("dispatchSnapshot").textContent = result.snapshot_id ? `${result.snapshot_id.slice(0, 8)}…` : "—"; $("dispatchResult").hidden = false;
+  if (!result) return; const money = (value) => value == null ? "—" : `${(Number(value) / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元`; $("dispatchValidDays").textContent = result.valid_days ?? "—"; $("dispatchTotalRevenue").textContent = money(result.total_net_revenue_yuan); $("dispatchAnnualRevenue").textContent = money(result.annualized_net_revenue_yuan); $("dispatchSnapshot").textContent = result.snapshot_id ? `${result.snapshot_id.slice(0, 8)}…` : "—";
+  const body = $("dispatchDays"); body.replaceChildren(); (result.days || []).forEach((day) => { const row = document.createElement("tr"); [day.run_date, money(day.net_revenue_yuan), Number(day.charge_energy_mwh).toFixed(1), Number(day.discharge_energy_mwh).toFixed(1), Number(day.cycles).toFixed(2), day.shutdown ? "低于门槛" : "已执行"].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); }); body.appendChild(row); }); $("dispatchResult").hidden = false;
 }
 
 function aggregateWeather(series, granularity) {
