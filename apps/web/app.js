@@ -103,17 +103,37 @@ function drawCurves(curves, selectedIndex = 0) {
   context.fillText("00:15", pad.left, height - 8); context.fillText("12:00", width / 2 - 18, height - 8); context.fillText("24:00", width - 48, height - 8);
 }
 
+let loadedCurves = [];
+function updateCurveStats(curves) {
+  const stats = $("curveStats");
+  if (!curves.length) { stats.hidden = true; stats.textContent = ""; return; }
+  const values = curves.flatMap((curve) => curve.prices);
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+  stats.hidden = false;
+  stats.textContent = `${curves.length} 天 · ${values.length.toLocaleString()} 点 · 均值 ${average.toFixed(2)} · 最低 ${Math.min(...values).toFixed(2)} · 最高 ${Math.max(...values).toFixed(2)} 元/MWh`;
+}
+function exportCurves() {
+  if (!loadedCurves.length) return;
+  const header = ["日期", ...Array.from({ length: 96 }, (_, index) => `时段${String(index + 1).padStart(2, "0")}`)];
+  const rows = loadedCurves.map((curve) => [curve.run_date, ...curve.prices]);
+  const csv = [header, ...rows].map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `price-curves-${Date.now()}.csv`; link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 0);
+}
+
 async function loadCurves() {
   const nodeId = $("curveNode").value;
   if (!nodeId) { $("curveState").textContent = "请选择节点"; return; }
   $("curveState").textContent = "加载中"; $("curveState").className = "status status-muted";
   try {
     const curves = await get("/api/v1/price/curves", { node_id: nodeId, market: $("curveMarket").value, start_date: $("curveStart").value, end_date: $("curveEnd").value, limit: $("curveLimit").value });
+    loadedCurves = curves; $("exportCurves").disabled = curves.length === 0; updateCurveStats(curves);
     const dayList = $("curveDays"); dayList.replaceChildren();
     curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); drawCurves(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
     $("curveEmpty").hidden = curves.length > 0; $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; $("curveState").textContent = curves.length ? `${curves.length} 天` : "暂无数据"; $("curveState").className = `status ${curves.length ? "status-ok" : "status-muted"}`;
     if (!curves.length) dayList.innerHTML = '<div class="empty-state">数据库暂无完整 96 点曲线</div>'; drawCurves(curves);
-  } catch (error) { $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
+  } catch (error) { loadedCurves = []; $("exportCurves").disabled = true; updateCurveStats([]); $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
 }
 
 function drawWeather(series) {
@@ -386,6 +406,7 @@ $("market").addEventListener("change", () => { invalidateAnalysisSelection(); sy
 $("curveNode").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
 $("curveMarket").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
 $("loadCurves").addEventListener("click", loadCurves);
+$("exportCurves").addEventListener("click", exportCurves);
 $("loadWeather").addEventListener("click", loadWeather);
 $("submitAnalysis").addEventListener("click", submitAnalysis);
 $("useAnalysisForFinance").addEventListener("click", useAnalysisForFinance);
