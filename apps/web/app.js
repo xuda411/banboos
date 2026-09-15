@@ -62,6 +62,20 @@ async function loadNodes() {
   setStatus(summaryAvailable ? `API 已连接 · ${body.data_mode}` : "运营摘要暂不可用", summaryAvailable ? "ok" : "error");
 }
 
+async function loadPortfolio() {
+  const state = $("portfolioState"); const body = $("portfolioBody"); state.textContent = "加载中"; body.replaceChildren();
+  try {
+    const nodes = await get("/api/v1/nodes");
+    const rows = await Promise.all(nodes.items.map(async (node) => {
+      const summary = await get("/api/v1/price/summary", { node_id: node.id, market: $("portfolioMarket").value, start_date: $("portfolioStart").value, end_date: $("portfolioEnd").value });
+      const coverage = (summary.valid_days && summary.data_points) ? `${(summary.data_points / (summary.valid_days * 96) * 100).toFixed(1)}%` : "0.0%";
+      return [node.name, node.province || "—", summary.valid_days, summary.data_points.toLocaleString(), coverage, summary.valid_days ? "可评估" : "数据不足"];
+    }));
+    rows.forEach((values) => { const tr = document.createElement("tr"); values.forEach((value) => { const td = document.createElement("td"); td.textContent = value; tr.appendChild(td); }); body.appendChild(tr); });
+    state.textContent = `${rows.length} 个节点`; state.className = "status status-ok";
+  } catch (error) { state.textContent = "加载失败"; state.className = "status status-error"; body.innerHTML = `<tr><td colspan="6">${error.message}</td></tr>`; }
+}
+
 async function syncCurveDateRange() {
   const nodeId = $("curveNode").value;
   if (!nodeId) return;
@@ -415,6 +429,7 @@ $("submitDispatch").addEventListener("click", submitDispatch);
 $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
 $("submitSensitivity").addEventListener("click", submitSensitivity);
+$("loadPortfolio").addEventListener("click", loadPortfolio);
 $("powerMw").addEventListener("input", updateDurationHint);
 $("capacityMwh").addEventListener("input", updateDurationHint);
 ["powerMw", "capacityMwh", "annualRevenue"].forEach((id) => $(id).addEventListener("input", () => {

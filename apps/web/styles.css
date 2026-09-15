@@ -67,6 +67,12 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; }
 .dispatch-days-wrap table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .dispatch-days-wrap th, .dispatch-days-wrap td { padding: 8px 10px; border-bottom: 1px solid #e1e8e4; text-align: right; white-space: nowrap; }
 .dispatch-days-wrap th:first-child, .dispatch-days-wrap td:first-child { text-align: left; }
+.portfolio-filters { grid-template-columns: repeat(3, minmax(160px, 1fr)) auto; }
+.portfolio-card { margin-top: 16px; }
+.portfolio-table-wrap { overflow-x: auto; }
+.portfolio-table-wrap table { width: 100%; border-collapse: collapse; }
+.portfolio-table-wrap th, .portfolio-table-wrap td { padding: 10px 12px; border-bottom: 1px solid #e1e8e4; text-align: right; white-space: nowrap; }
+.portfolio-table-wrap th:first-child, .portfolio-table-wrap td:first-child, .portfolio-table-wrap th:nth-child(2), .portfolio-table-wrap td:nth-child(2) { text-align: left; }
 .curve-layout { display: grid; grid-template-columns: 1fr 230px; gap: 16px; margin-top: 16px; }.curve-card { padding: 20px; min-height: 450px; }.curve-card h2, .curve-days h2 { margin: 0; font-size: 20px; }.curve-card canvas { display: block; width: 100%; height: 340px; margin-top: 18px; }.curve-days { padding: 20px; }.curve-day-list { display: grid; gap: 6px; margin-top: 14px; max-height: 380px; overflow: auto; }.curve-day { padding: 9px 10px; border: 1px solid #dfe5e2; border-radius: 7px; background: #f8fbf9; color: #52635d; font-size: 12px; cursor: pointer; }.curve-day.active, .curve-day:hover { border-color: #176b50; color: #176b50; background: #eaf4ee; }
 .weather-chart-card { margin-top: 16px; padding: 20px; }.weather-chart-card h2 { margin: 0; font-size: 20px; }.weather-chart-card canvas { display: block; width: 100%; height: 330px; margin-top: 18px; }
 .dispatch-filters { grid-template-columns: repeat(5, minmax(120px, 1fr)); }.dispatch-filters button { grid-column: span 1; }
