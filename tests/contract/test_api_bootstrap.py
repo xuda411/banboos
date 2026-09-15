@@ -4,6 +4,8 @@ def test_api_bootstrap_contract():
     assert app.title == "Banboos 2.0 API"
     assert any(route.path == "/health" for route in app.routes)
     assert any(route.path == "/api/v1/meta" for route in app.routes)
+    assert any(route.path == "/api/v1/price/export" for route in app.routes)
+    assert any(route.path == "/api/v1/weather/export" for route in app.routes)
 
 
 def test_readiness_and_optional_api_token(monkeypatch):
@@ -45,6 +47,8 @@ def test_readonly_demo_endpoints():
     response = client.get("/api/v1/weather/series", params={"node_id": 1})
     assert response.status_code == 200
     assert response.json() == []
+    assert client.get("/api/v1/price/export", params={"node_id": 1, "market": "实时", "start_date": "2026-01-01", "end_date": "2026-01-31"}).status_code == 400
+    assert client.get("/api/v1/weather/export", params={"node_id": 1}).status_code == 400
     response = client.get("/api/v1/price/range", params={"node_id": 1, "market": "实时"})
     assert response.status_code == 200
     assert response.json()["first_date"] is None

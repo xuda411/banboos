@@ -23,10 +23,17 @@ the date filters from the actual database instead of a hard-coded date.
 the selected node, market and date range. In demo mode it returns an empty list;
 it never fabricates a price curve.
 
+`GET /api/v1/price/export` exports the same bounded query to XLSX with source
+metadata, 96-point slot detail, daily statistics and a first-day chart.
+
 `GET /api/v1/weather/series` returns up to 744 filtered meteorology observations
 (`ghi`, wind speed and temperature). Each row includes the source and an
 estimated 100 MW PV/wind output based on the weather values; the estimate is
 explicitly marked `is_power_simulated=true` and is not a financial input.
+
+`GET /api/v1/weather/export` exports the bounded observations and estimated
+power with units, source mode and an explicit estimated-value note. Empty query
+results are rejected rather than producing an empty-looking report.
 
 Edge integration uses `POST /api/v1/telemetry/batches` for idempotent batch
 ingest, `POST /api/v1/telemetry/batches/{batch_id}/ack` after a successful
