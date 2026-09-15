@@ -45,6 +45,7 @@ function renderStationList(items) {
 }
 
 async function loadNodes() {
+  ReportUI.invalidate("curve"); ReportUI.invalidate("weather");
   const body = await get("/api/v1/nodes", { province: $("province").value });
   renderStationList(body.items);
   $("overviewNodes").textContent = body.items.length;
@@ -97,7 +98,7 @@ function drawCurves(curves, selectedIndex = 0) {
   const canvas = $("curveChart");
   const width = canvas.clientWidth || 700;
   const height = 340;
-  const ratio = window.devicePixelRatio || 1;
+  const ratio = Math.max(2, window.devicePixelRatio || 1);
   canvas.width = width * ratio; canvas.height = height * ratio;
   const context = canvas.getContext("2d"); context.scale(ratio, ratio);
   context.clearRect(0, 0, width, height);
@@ -127,7 +128,7 @@ function drawCurves(curves, selectedIndex = 0) {
 }
 
 let loadedCurves = [];
-function downloadCanvas(canvas, name) { if (!canvas || canvas.width < 2) return; const link = document.createElement("a"); link.download = `${name}-${Date.now()}.png`; link.href = canvas.toDataURL("image/png"); link.click(); }
+
 function updateCurveStats(curves) {
   const stats = $("curveStats");
   if (!curves.length) { stats.hidden = true; stats.textContent = ""; return; }
@@ -149,19 +150,23 @@ function exportCurves() {
 async function loadCurves() {
   const nodeId = $("curveNode").value;
   if (!nodeId) { $("curveState").textContent = "请选择节点"; return; }
+  const query = { node_id: nodeId, market: $("curveMarket").value, start_date: $("curveStart").value, end_date: $("curveEnd").value, limit: $("curveLimit").value };
+  const ticket = ReportUI.begin("curve", query, $("curveNode").selectedOptions[0].textContent);
   $("curveState").textContent = "加载中"; $("curveState").className = "status status-muted";
   try {
-    const curves = await get("/api/v1/price/curves", { node_id: nodeId, market: $("curveMarket").value, start_date: $("curveStart").value, end_date: $("curveEnd").value, limit: $("curveLimit").value });
+    const curves = await get("/api/v1/price/curves", query);
+    if (!ReportUI.current("curve", ticket)) return;
     loadedCurves = curves; $("exportCurves").disabled = curves.length === 0; $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
     const dayList = $("curveDays"); dayList.replaceChildren();
     curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); drawCurves(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
     $("curveEmpty").hidden = curves.length > 0; $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; $("curveState").textContent = curves.length ? `${curves.length} 天` : "暂无数据"; $("curveState").className = `status ${curves.length ? "status-ok" : "status-muted"}`;
     if (!curves.length) dayList.innerHTML = '<div class="empty-state">数据库暂无完整 96 点曲线</div>'; drawCurves(curves);
-  } catch (error) { loadedCurves = []; $("exportCurves").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
+    ReportUI.complete("curve", ticket, curves.length, `来源模式：${[...new Set(curves.map(c => c.source_mode))].join("、")} · ${curves[0]?.run_date || ""} 至 ${curves.at(-1)?.run_date || ""} · ${curves.length} 个完整日（上限 ${query.limit} 日） · 深绿为选中日，浅绿为其余日期`);
+  } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; $("exportCurves").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
 }
 
 function drawWeather(series) {
-  const canvas = $("weatherChart"); const width = canvas.clientWidth || 760; const height = 330; const ratio = window.devicePixelRatio || 1;
+  const canvas = $("weatherChart"); const width = canvas.clientWidth || 760; const height = 330; const ratio = Math.max(2, window.devicePixelRatio || 1);
   canvas.width = width * ratio; canvas.height = height * ratio; const context = canvas.getContext("2d"); context.scale(ratio, ratio); context.clearRect(0, 0, width, height);
   if (!series.length) return;
   const ghi = series.map((row) => row.ghi_w_m2).filter((value) => value != null); const pv = series.map((row) => row.pv_predict_power_mw).filter((value) => value != null); const wind = series.map((row) => row.wind_speed_m_s).filter((value) => value != null); const maxGhi = Math.max(1, ...ghi); const maxPv = Math.max(1, ...pv); const maxWind = Math.max(1, ...wind); const pad = {left: 46, right: 20, top: 20, bottom: 30}; const x = (index) => pad.left + (width - pad.left - pad.right) * index / Math.max(1, series.length - 1);
@@ -173,15 +178,22 @@ function drawWeather(series) {
 
 async function loadWeather() {
   const nodeId = $("weatherNode").value; if (!nodeId) { $("weatherEmpty").textContent = "请选择节点"; return; }
+  const query = { node_id: nodeId, limit: "744" };
+  if ($("weatherStart").value) query.start_time = $("weatherStart").value;
+  if ($("weatherEnd").value) query.end_time = $("weatherEnd").value;
+  const ticket = ReportUI.begin("weather", query, $("weatherNode").selectedOptions[0].textContent);
   try {
-    const rawSeries = await get("/api/v1/weather/series", { node_id: nodeId, start_time: $("weatherStart").value, end_time: $("weatherEnd").value, limit: 744 });
+    const rawSeries = await get("/api/v1/weather/series", query);
+    if (!ReportUI.current("weather", ticket)) return;
     const series = aggregateWeather(rawSeries, $("weatherGranularity").value);
     const mean = (key) => { const values = series.map((row) => row[key]).filter((value) => value != null); return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1) : "—"; };
     $("weatherObservations").textContent = series.length; $("weatherGhi").textContent = mean("ghi_w_m2"); $("weatherWind").textContent = mean("wind_speed_m_s"); $("weatherTemp").textContent = mean("temp_c"); $("weatherSourceDetail").textContent = series.length ? `${series[0].source || "未标注来源"} · ${series[0].is_power_simulated ? "功率估算" : "功率实测"}` : "当前范围暂无气象观测"; $("weatherChartTitle").textContent = series.length ? `${series[0].data_time.slice(0, 10)} 至 ${series[series.length - 1].data_time.slice(0, 10)}` : "当前范围暂无观测"; $("weatherEmpty").hidden = series.length > 0; if (!series.length) $("weatherEmpty").textContent = "数据库暂无气象观测"; $("exportWeatherPng").disabled = !series.length; $("exportWeatherXlsx").disabled = !series.length; drawWeather(series);
-  } catch (error) { $("weatherEmpty").hidden = false; $("weatherEmpty").textContent = `读取失败：${error.message}`; }
+    ReportUI.complete("weather", ticket, series.length, `来源：${[...new Set(rawSeries.map(r => r.source || r.source_mode))].join("、")} · ${rawSeries.length} 条原始观测（上限 744 条） · 图表粒度：${$("weatherGranularity").value} · 各曲线独立缩放，仅用于趋势比较；辐照度 W/m²，风速 m/s，功率 MW（模型预计）`);
+  } catch (error) { if (!ReportUI.current("weather", ticket)) return; ReportUI.invalidate("weather", "加载失败，请重试。"); $("weatherEmpty").hidden = false; $("weatherEmpty").textContent = `读取失败：${error.message}`; }
 }
 
 async function submitAnalysis() {
+  ReportUI.clearRun("analysisView");
   const nodeId = $("node").value; const state = $("analysisState"); const resultBox = $("analysisResult");
   analysisSourceRunId = null; analysisAnnualRevenueYuan = null; analysisScale = null;
   $("useAnalysisForFinance").disabled = true;
@@ -199,6 +211,7 @@ async function submitAnalysis() {
     $("analysisAnnual").textContent = `${(analysisAnnualRevenueYuan / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元/年（估算）`;
     $("analysisDays").textContent = `${data.baseline_policy === "latest_complete_year" ? "最近完整年度" : "不足完整年度，全部有效日"}：${data.start_date} 至 ${data.end_date}，${data.valid_days} 天；快照 ${data.snapshot_id.slice(0, 12)}`;
     renderAnalysisMonthly(data.monthly);
+    ReportUI.run("analysisView", run.run_id, "月度价差", apiBase);
     $("useAnalysisForFinance").disabled = false;
   } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; $("analysisMessage").textContent = error.message; } finally { $("submitAnalysis").disabled = false; }
 }
@@ -233,13 +246,14 @@ function invalidateAnalysisSelection() {
 }
 
 async function submitDispatch() {
+  ReportUI.clearRun("dispatchView");
   const nodeId = $("dispatchNode").value; const state = $("dispatchState"); const message = $("dispatchMessage");
   if (!nodeId) { message.textContent = "请选择节点"; return; }
   const power = Number($("dispatchPower").value); const capacity = Number($("dispatchCapacity").value);
   if (!Number.isFinite(power) || !Number.isFinite(capacity) || power <= 0 || capacity <= 0 || capacity / power < 0.25 || capacity / power > 24) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
   state.textContent = "提交中"; state.className = "status status-muted"; $("dispatchResult").hidden = true;
   const parameters = { node_id: Number(nodeId), market: $("dispatchMarket").value, start_date: $("dispatchStart").value, end_date: $("dispatchEnd").value, power_mw: power, capacity_mwh: capacity, eta_charge: Number($("dispatchEta").value) / 100, eta_discharge: Number($("dispatchEta").value) / 100, max_daily_cycles: Number($("dispatchCycles").value), hurdle_yuan_per_mwh: Number($("dispatchHurdle").value) };
-  try { const run = await post("/api/v1/runs", { kind: "strict-dispatch", parameters }); $("dispatchRunId").textContent = run.run_id; const finished = await pollDispatch(run.run_id); renderDispatchResult(finished.result); } catch (error) { state.textContent = "回放失败"; state.className = "status status-error"; message.textContent = error.message; }
+  try { const run = await post("/api/v1/runs", { kind: "strict-dispatch", parameters }); $("dispatchRunId").textContent = run.run_id; const finished = await pollDispatch(run.run_id); renderDispatchResult(finished.result); ReportUI.run("dispatchView", run.run_id, "逐日调度", apiBase); } catch (error) { state.textContent = "回放失败"; state.className = "status status-error"; message.textContent = error.message; }
 }
 
 async function pollDispatch(runId) {
@@ -364,6 +378,7 @@ function collectFinancialParameters() {
 }
 
 async function submitSensitivity() {
+  ReportUI.clearRun("taskView");
   const state = $("sensitivityState"); const message = $("sensitivityMessage"); const resultBox = $("sensitivityResult");
   const down = Number($("sensitivityDown").value) / 100; const up = Number($("sensitivityUp").value) / 100; const step = Number($("sensitivityStep").value) / 100;
   if (!Number.isFinite(down) || !Number.isFinite(up) || !Number.isFinite(step) || down >= up || step <= 0 || Math.ceil((up - down) / step) + 1 > 9) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "请检查上下限和步长，情景点数须为 3 至 9 个"; return; }
@@ -372,7 +387,7 @@ async function submitSensitivity() {
   state.textContent = "提交中"; state.className = "status status-muted"; message.textContent = "正在生成敏感性情景…"; resultBox.hidden = true; $("submitSensitivity").disabled = true;
   try {
     const run = await post("/api/v1/runs", { kind: "sensitivity", parameters: { base: collectFinancialParameters(), variable: $("sensitivityVariable").value, change_rates: changeRates } });
-    $("sensitivityRunId").textContent = run.run_id; const finished = await pollSensitivity(run.run_id); renderSensitivityResult(finished.result); state.textContent = "计算完成"; state.className = "status status-ok"; message.textContent = "情景结果已绑定当前财务参数。";
+    $("sensitivityRunId").textContent = run.run_id; const finished = await pollSensitivity(run.run_id); renderSensitivityResult(finished.result); ReportUI.run("taskView", run.run_id, "敏感性分析", apiBase); state.textContent = "计算完成"; state.className = "status status-ok"; message.textContent = "情景结果已绑定当前财务参数。";
   } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; message.textContent = error.message; } finally { $("submitSensitivity").disabled = false; }
 }
 
@@ -432,13 +447,10 @@ $("curveNode").addEventListener("change", () => syncCurveDateRange().catch(() =>
 $("curveMarket").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
 $("loadCurves").addEventListener("click", loadCurves);
 $("exportCurves").addEventListener("click", exportCurves);
-$("exportCurvePng").addEventListener("click", () => downloadCanvas($("curveChart"), "price-curve"));
-$("exportCurveXlsx").addEventListener("click", () => { const params = new URLSearchParams({ node_id: $("curveNode").value, market: $("curveMarket").value, start_date: $("curveStart").value, end_date: $("curveEnd").value, limit: $("curveLimit").value }); window.open(`${apiBase}/api/v1/price/export?${params}`, "_blank"); });
-$("exportWeatherPng").addEventListener("click", () => downloadCanvas($("weatherChart"), "weather-power"));
-$("exportWeatherXlsx").addEventListener("click", () => {
-  const params = new URLSearchParams({ node_id: $("weatherNode").value, start_time: $("weatherStart").value, end_time: $("weatherEnd").value, limit: "744" });
-  window.open(`${apiBase}/api/v1/weather/export?${params}`, "_blank");
-});
+$("exportCurvePng").addEventListener("click", () => ReportUI.png("curve", "curveChart", $("curveTitle").textContent));
+$("exportCurveXlsx").addEventListener("click", (event) => ReportUI.exportQuery("curve", event.currentTarget, apiBase));
+$("exportWeatherPng").addEventListener("click", () => ReportUI.png("weather", "weatherChart", $("weatherChartTitle").textContent));
+$("exportWeatherXlsx").addEventListener("click", (event) => ReportUI.exportQuery("weather", event.currentTarget, apiBase));
 $("loadWeather").addEventListener("click", loadWeather);
 $("submitAnalysis").addEventListener("click", submitAnalysis);
 $("useAnalysisForFinance").addEventListener("click", useAnalysisForFinance);
@@ -457,5 +469,9 @@ $("capacityMwh").addEventListener("input", updateDurationHint);
   financialSourceRunId = null;
 }));
 document.querySelectorAll("[data-view]").forEach((item) => item.addEventListener("click", () => activateView(item.dataset.view)));
+$("downloadReport").addEventListener("click", (event) => {
+  event.preventDefault(); ReportUI.xlsx(event.currentTarget.href, "财务测算.xlsx", event.currentTarget, "taskView");
+});
+ReportUI.init();
 activateView("overviewView");
 loadNodes().then(refresh).catch((error) => { $("notice").textContent = `无法连接 API：${error.message}`; setStatus("API 未连接", "error"); });

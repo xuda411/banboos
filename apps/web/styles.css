@@ -61,6 +61,10 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; }
 .filters { display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)) auto; gap: 12px; padding: 16px; align-items: end; }
 .curve-filters { grid-template-columns: repeat(5, minmax(130px, 1fr)) auto; }
 .curve-actions { display: flex; align-items: center; gap: 10px; }
+.curve-actions { flex-wrap: wrap; justify-content: flex-end; }
+.export-message { color: #36594c; line-height: 1.6; overflow-wrap: anywhere; }
+.run-export { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px 0; }
+.run-export span { overflow-wrap: anywhere; color: #36594c; font-size: 13px; }
 .curve-stats { margin: 12px 0 2px; color: #52635d; font-size: 12px; }
 .dispatch-days-wrap { grid-column: 1 / -1; overflow-x: auto; }
 .dispatch-days-wrap h3 { margin: 8px 0; font-size: 15px; color: #176b50; }
