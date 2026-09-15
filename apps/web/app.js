@@ -72,6 +72,8 @@ async function loadPortfolio() {
       return [node.name, node.province || "—", summary.valid_days, summary.data_points.toLocaleString(), coverage, summary.valid_days ? "可评估" : "数据不足"];
     }));
     rows.forEach((values) => { const tr = document.createElement("tr"); values.forEach((value) => { const td = document.createElement("td"); td.textContent = value; tr.appendChild(td); }); body.appendChild(tr); });
+    const provinceMap = new Map(); rows.forEach((row) => { const key = row[1]; const item = provinceMap.get(key) || { nodes: 0, days: 0, coverage: 0 }; item.nodes += 1; item.days += Number(row[2]) || 0; item.coverage += Number.parseFloat(row[4]) || 0; provinceMap.set(key, item); });
+    const provinceBody = $("provinceBody"); provinceBody.replaceChildren(); provinceMap.forEach((item, province) => { const tr = document.createElement("tr"); [province, item.nodes, item.days, `${(item.coverage / item.nodes).toFixed(1)}%`].forEach((value) => { const td = document.createElement("td"); td.textContent = value; tr.appendChild(td); }); provinceBody.appendChild(tr); });
     state.textContent = `${rows.length} 个节点`; state.className = "status status-ok";
   } catch (error) { state.textContent = "加载失败"; state.className = "status status-error"; body.innerHTML = `<tr><td colspan="6">${error.message}</td></tr>`; }
 }
