@@ -76,6 +76,8 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; }
 .system-metrics { margin-top: 16px; }
 .system-actions { margin-top: 16px; }
 .system-actions pre { margin: 0; padding: 14px; background: #f3f7f5; border-radius: 8px; color: #52635d; overflow: auto; }
+.audit-filters { display: flex; gap: 12px; margin-bottom: 12px; }
+.audit-filters label { display: grid; gap: 5px; color: #52635d; font-size: 12px; }
 .value-ok { color: #176b50; }
 .value-error { color: #b54a3a; }
 .curve-layout { display: grid; grid-template-columns: 1fr 230px; gap: 16px; margin-top: 16px; }.curve-card { padding: 20px; min-height: 450px; }.curve-card h2, .curve-days h2 { margin: 0; font-size: 20px; }.curve-card canvas { display: block; width: 100%; height: 340px; margin-top: 18px; }.curve-days { padding: 20px; }.curve-day-list { display: grid; gap: 6px; margin-top: 14px; max-height: 380px; overflow: auto; }.curve-day { padding: 9px 10px; border: 1px solid #dfe5e2; border-radius: 7px; background: #f8fbf9; color: #52635d; font-size: 12px; cursor: pointer; }.curve-day.active, .curve-day:hover { border-color: #176b50; color: #176b50; background: #eaf4ee; }
