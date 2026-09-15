@@ -28,6 +28,7 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
     _write_cashflow(workbook.create_sheet("年度现金流"), result)
     _write_debt(workbook.create_sheet("融资明细"), result)
     _write_timeline(workbook.create_sheet("全周期现金流"), result)
+    _write_template_mapping(workbook.create_sheet("模板映射"))
     for sheet in workbook.worksheets:
         sheet.sheet_view.showGridLines = False
         sheet.freeze_panes = "B5"
@@ -227,3 +228,28 @@ def _write_timeline(sheet, result: dict) -> None:
         sheet.add_chart(chart, f"A{sheet.max_row + 3}")
         # Include the embedded chart in the print area.
         sheet.cell(sheet.max_row + 27, 5, "期初投资计入第 0 年；金额为任务快照值。")
+
+
+def _write_template_mapping(sheet) -> None:
+    """Document the explicit server-to-xlsm semantic mapping without editing the source template."""
+    _title(sheet, "服务器版与 xlsm 模板映射", 5)
+    _header(sheet, 4, ["服务器版字段", "单位", "模板工作表", "模板语义", "映射状态"])
+    rows = [
+        ("power_mw", "MW", "参数设定", "系统功率（MW）", "已映射"),
+        ("capacity_mwh", "MWh", "参数设定", "电池容量（MWh）", "已映射"),
+        ("annual_revenue_yuan", "元/年", "电量类", "电能量收入", "已映射"),
+        ("capex_yuan_per_wh", "元/Wh", "参数设定", "单位投资", "已映射"),
+        ("om_rate", "%", "财务指标", "运营成本/运维费率", "已映射"),
+        ("first_year_eol / final_eol", "%", "EOL", "生命周期衰减", "已映射"),
+        ("yearly[*]", "元/年", "财务指标", "年度收入、成本、税费和现金流", "服务器明细"),
+        ("full_irr / equity_irr", "%", "财务指标", "全投资/资本金 IRR", "服务器结果"),
+        ("cashflows_yuan", "元", "财务指标", "项目现金流（含建设期）", "服务器结果"),
+    ]
+    for row, values in enumerate(rows, 5):
+        for col, value in enumerate(values, 1):
+            cell = sheet.cell(row, col, value)
+            cell.font = Font(name="Microsoft YaHei", color=TEXT)
+            cell.fill = PatternFill("solid", fgColor=LIGHT_GREEN if row % 2 else "FFFFFF")
+            cell.border = Border(bottom=THIN)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+        sheet.row_dimensions[row].height = 30
