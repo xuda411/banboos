@@ -74,3 +74,16 @@ def test_financial_model_rejects_invalid_ratio_inputs():
         FinancialTaskParameters(power_mw=100, capacity_mwh=10, annual_revenue_yuan=1)
     with pytest.raises(ValueError, match="时长"):
         FinancialTaskParameters(power_mw=1, capacity_mwh=30, annual_revenue_yuan=1)
+
+
+def test_sensitivity_task_reuses_financial_model_for_each_scenario():
+    registry = RunRegistry()
+    item = registry.submit("sensitivity", parameters={
+        "base": {"power_mw": 100, "capacity_mwh": 200, "annual_revenue_yuan": 8_000_000},
+        "variable": "annual_revenue_yuan", "change_rates": [-0.2, 0, 0.2],
+    })
+    assert run_once(registry)
+    result = registry.get(item.run_id)
+    assert result.status == "succeeded"
+    assert len(result.result["points"]) == 3
+    assert result.result["points"][0]["full_npv_yuan"] < result.result["points"][-1]["full_npv_yuan"]

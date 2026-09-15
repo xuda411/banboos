@@ -17,6 +17,8 @@ from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.dispatch_result import DispatchDayResult, DispatchRunResult
 from packages.contracts.financial import FinancialTaskParameters
+from packages.contracts.sensitivity import SensitivityTaskParameters
+from packages.contracts.sensitivity_result import SensitivityPoint, SensitivityRunResult
 from packages.domain.financial_model import FinancialError, calculate_financials
 from packages.domain.storage_dispatch import ALGORITHM_VERSION, DispatchError, solve_day
 from packages.infrastructure.dispatch_snapshots import DispatchSnapshots
@@ -124,6 +126,50 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
             registry.fail(item.run_id, f"财务测算失败：{error}", "FINANCIAL_INPUT_INVALID")
         except (TypeError, ValueError, RuntimeError) as error:
             registry.fail(item.run_id, f"财务测算失败：{error}", "FINANCIAL_FAILED")
+    elif item.kind == "sensitivity":
+        try:
+            request = SensitivityTaskParameters.model_validate(item.parameters)
+            base = request.base
+            if base.annual_revenue_yuan is None and base.source_run_id:
+                upstream = registry.get(base.source_run_id)
+                if (not upstream or upstream.status != "succeeded" or not upstream.result
+                        or upstream.kind not in {"strict-dispatch", "price-analysis"}):
+                    raise FinancialError("上游价差或调度任务尚未成功，不能开始敏感性分析")
+                for field in ("power_mw", "capacity_mwh"):
+                    if not isclose(float(upstream.result.get(field, 0)), getattr(base, field),
+                                   rel_tol=1e-9, abs_tol=1e-6):
+                        raise FinancialError("敏感性分析规模必须与上游分析规模一致")
+                revenue_key = ("annualized_revenue_yuan" if upstream.kind == "price-analysis"
+                               else "annualized_net_revenue_yuan")
+                base = base.model_copy(update={"annual_revenue_yuan": upstream.result.get(revenue_key)})
+            baseline = base.financial()
+            points = []
+            for index, change in enumerate(request.change_rates, start=1):
+                updates = {}
+                current = getattr(baseline, request.variable)
+                updates[request.variable] = (max(1, round(current * (1 + change)))
+                                             if request.variable == "operation_years"
+                                             else current * (1 + change))
+                scenario = baseline.__class__(**{**baseline.__dict__, **updates})
+                result = calculate_financials(scenario)
+                points.append(SensitivityPoint(
+                    change_rate=change, full_irr=result["full_irr"],
+                    full_npv_yuan=result["full_npv_yuan"], payback_year=result["payback_year"],
+                    first_year_net_profit_yuan=result["yearly"][0]["net_profit_yuan"],
+                ))
+                registry.update_progress(item.run_id, 5 + int(index / len(request.change_rates) * 90),
+                                         f"正在计算第 {index}/{len(request.change_rates)} 个敏感性情景")
+            result = SensitivityRunResult(
+                variable=request.variable, base_power_mw=base.power_mw,
+                base_capacity_mwh=base.capacity_mwh, source_run_id=base.source_run_id,
+                model_version="banboos-financial-1.0.0",
+                points=points,
+            )
+            registry.complete(item.run_id, "财务敏感性分析完成", result.model_dump(mode="json"))
+        except FinancialError as error:
+            registry.fail(item.run_id, f"敏感性分析失败：{error}", "SENSITIVITY_INPUT_INVALID")
+        except (KeyError, TypeError, ValueError, RuntimeError) as error:
+            registry.fail(item.run_id, f"敏感性分析失败：{error}", "SENSITIVITY_FAILED")
     else:
         registry.fail(item.run_id, "该任务类型尚未接入执行器", "EXECUTOR_NOT_IMPLEMENTED")
     return True

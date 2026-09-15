@@ -34,6 +34,7 @@ from packages.contracts.readonly import (
     WeatherObservation,
     WeatherSummary,
 )
+from packages.contracts.sensitivity import SensitivityTaskParameters
 from packages.contracts.tasks import RunRequest
 from packages.contracts.telemetry import TelemetryAlert, TelemetryBatch, TelemetryPoint
 from packages.domain.telemetry_alerts import evaluate_alerts
@@ -261,6 +262,11 @@ def submit_run(kind: str | None = Query(default=None, min_length=1, max_length=8
     if resolved_kind == "financial":
         try:
             FinancialTaskParameters.model_validate(request.parameters if request else {})
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+    if resolved_kind == "sensitivity":
+        try:
+            SensitivityTaskParameters.model_validate(request.parameters if request else {})
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
     return run_registry.submit(resolved_kind, idempotency_key,

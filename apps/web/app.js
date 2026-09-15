@@ -295,19 +295,7 @@ async function submitFinancial() {
   state.textContent = "提交中";
   state.className = "status status-muted";
   try {
-    const percent = (id) => Number($(id).value) / 100;
-    const optionalNumber = (id) => $(id).value === "" ? null : Number($(id).value);
-    const parameters = {
-      power_mw: power, capacity_mwh: capacity, annual_revenue_yuan: financialSourceRunId ? null : Number($("annualRevenue").value),
-      capacity_lease_yuan: Number($("capacityLease").value), capacity_fee_yuan: Number($("capacityFee").value),
-      subsidy_yuan: Number($("subsidy").value), primary_frequency_yuan: Number($("primaryFrequency").value),
-      secondary_frequency_yuan: Number($("secondaryFrequency").value), capex_yuan_per_wh: Number($("capex").value), source_run_id: financialSourceRunId || undefined,
-      operation_years: Number($("operationYears").value), om_rate: percent("omRate"), om_growth: percent("omGrowth"),
-      first_year_eol: percent("firstEol"), final_eol: percent("finalEol"), residual_rate: percent("residualRate"),
-      income_tax_rate: percent("incomeTaxRate"), discount_rate: percent("discountRate"), loan_ratio: percent("loanRatio"),
-      loan_years: Number($("loanYears").value), loan_rate: percent("loanRate"), construction_years: Number($("constructionYears").value),
-      construction_loan_rate: percent("constructionLoanRate"), replace_year: optionalNumber("replaceYear"), replace_capex_yuan: Number($("replaceCapex").value),
-    };
+    const parameters = collectFinancialParameters();
     const run = await post("/api/v1/runs", { kind: "financial", parameters });
     message.textContent = `任务 ${run.run_id} 已进入队列`;
     const finished = await pollRun(run.run_id);
@@ -317,6 +305,41 @@ async function submitFinancial() {
     state.className = "status status-error";
     message.textContent = error.message;
   }
+}
+
+function collectFinancialParameters() {
+  const percent = (id) => Number($(id).value) / 100;
+  const optionalNumber = (id) => $(id).value === "" ? null : Number($(id).value);
+  return {
+    power_mw: Number($("powerMw").value), capacity_mwh: Number($("capacityMwh").value), annual_revenue_yuan: financialSourceRunId ? null : Number($("annualRevenue").value),
+    capacity_lease_yuan: Number($("capacityLease").value), capacity_fee_yuan: Number($("capacityFee").value), subsidy_yuan: Number($("subsidy").value),
+    primary_frequency_yuan: Number($("primaryFrequency").value), secondary_frequency_yuan: Number($("secondaryFrequency").value), capex_yuan_per_wh: Number($("capex").value), source_run_id: financialSourceRunId || undefined,
+    operation_years: Number($("operationYears").value), om_rate: percent("omRate"), om_growth: percent("omGrowth"), first_year_eol: percent("firstEol"), final_eol: percent("finalEol"), residual_rate: percent("residualRate"), income_tax_rate: percent("incomeTaxRate"), discount_rate: percent("discountRate"), loan_ratio: percent("loanRatio"), loan_years: Number($("loanYears").value), loan_rate: percent("loanRate"), construction_years: Number($("constructionYears").value), construction_loan_rate: percent("constructionLoanRate"), replace_year: optionalNumber("replaceYear"), replace_capex_yuan: Number($("replaceCapex").value),
+  };
+}
+
+async function submitSensitivity() {
+  const state = $("sensitivityState"); const message = $("sensitivityMessage"); const resultBox = $("sensitivityResult");
+  const down = Number($("sensitivityDown").value) / 100; const up = Number($("sensitivityUp").value) / 100; const step = Number($("sensitivityStep").value) / 100;
+  if (!Number.isFinite(down) || !Number.isFinite(up) || !Number.isFinite(step) || down >= up || step <= 0 || Math.ceil((up - down) / step) + 1 > 9) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "请检查上下限和步长，情景点数须为 3 至 9 个"; return; }
+  const changeRates = []; for (let value = down; value <= up + 1e-9; value += step) changeRates.push(Number(value.toFixed(6)));
+  if (changeRates.length < 3) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "至少需要 3 个情景点"; return; }
+  state.textContent = "提交中"; state.className = "status status-muted"; message.textContent = "正在生成敏感性情景…"; resultBox.hidden = true; $("submitSensitivity").disabled = true;
+  try {
+    const run = await post("/api/v1/runs", { kind: "sensitivity", parameters: { base: collectFinancialParameters(), variable: $("sensitivityVariable").value, change_rates: changeRates } });
+    $("sensitivityRunId").textContent = run.run_id; const finished = await pollSensitivity(run.run_id); renderSensitivityResult(finished.result); state.textContent = "计算完成"; state.className = "status status-ok"; message.textContent = "情景结果已绑定当前财务参数。";
+  } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; message.textContent = error.message; } finally { $("submitSensitivity").disabled = false; }
+}
+
+async function pollSensitivity(runId) {
+  for (let attempt = 0; attempt < 300; attempt += 1) { const run = await get(`/api/v1/runs/${runId}`); if (run.status === "succeeded") return run; if (["failed", "cancelled"].includes(run.status)) throw new Error(`${run.message || "敏感性分析未完成"}${run.error_code ? `（${run.error_code}）` : ""}`); await new Promise((resolve) => setTimeout(resolve, 1000)); }
+  throw new Error("敏感性分析轮询超时，请稍后按 run_id 查询");
+}
+
+function renderSensitivityResult(result) {
+  const body = $("sensitivityBody"); body.replaceChildren();
+  (result?.points || []).forEach((point) => { const tr = document.createElement("tr"); const values = [`${(point.change_rate * 100).toFixed(1)}%`, point.full_irr == null ? "—" : `${(point.full_irr * 100).toFixed(2)}%`, `${(Number(point.full_npv_yuan) / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})}`, point.payback_year == null ? "—" : `${Number(point.payback_year).toFixed(2)} 年`, `${(Number(point.first_year_net_profit_yuan) / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})}`]; values.forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; tr.appendChild(cell); }); body.appendChild(tr); });
+  $("sensitivityResult").hidden = !result?.points?.length;
 }
 
 function renderFinancialResult(result) {
@@ -369,6 +392,7 @@ $("useAnalysisForFinance").addEventListener("click", useAnalysisForFinance);
 $("submitDispatch").addEventListener("click", submitDispatch);
 $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
+$("submitSensitivity").addEventListener("click", submitSensitivity);
 $("powerMw").addEventListener("input", updateDurationHint);
 $("capacityMwh").addEventListener("input", updateDurationHint);
 ["powerMw", "capacityMwh", "annualRevenue"].forEach((id) => $(id).addEventListener("input", () => {

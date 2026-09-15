@@ -84,6 +84,16 @@ def test_readonly_demo_endpoints():
 
     response = client.post("/api/v1/runs", json={"kind": "strict-dispatch", "parameters": {"node_id": 1}})
     assert response.status_code == 422
+    response = client.post("/api/v1/runs", json={"kind": "sensitivity", "parameters": {
+        "base": {"power_mw": 100, "capacity_mwh": 200, "annual_revenue_yuan": 8_000_000},
+        "variable": "annual_revenue_yuan", "change_rates": [-0.2, 0, 0.2],
+    }})
+    assert response.status_code == 202
+    response = client.post("/api/v1/runs", json={"kind": "sensitivity", "parameters": {
+        "base": {"power_mw": 100, "capacity_mwh": 200, "annual_revenue_yuan": 8_000_000},
+        "variable": "annual_revenue_yuan", "change_rates": [0, 0],
+    }})
+    assert response.status_code == 422
 
     response = client.post("/api/v1/runs", params={"kind": "readonly-price-analysis"})
     assert response.status_code == 202
