@@ -62,3 +62,16 @@ SQLite 适合隔离回放和一次性迁移，不适合未来多用户、实时�
 每个节点和两种市场至少完成：记录数、完整日数、首末日期、96 点均值/最小值/最大值、年度价差均值和财务首年收益的逐项对账。任何差异必须生成差异报告，保留旧结果和新结果，不直接覆盖。
 
 当前实现基础：`packages/infrastructure/legacy_sqlite.py`、`packages/application/readonly_service.py`、`docs/ADR/0003-legacy-replay-only.md`。下一阶段应新增快照/哈希/批次迁移命令，以及旧库管理表的只读 API。
+
+## 快照工具
+
+使用以下命令对隔离副本生成可验证快照；不要把 1.6.6 默认生产库直接配置为 2.0 的写库：
+
+```powershell
+Set-Location E:\Banboos2.0
+& .venv\Scripts\python.exe scripts\snapshot_legacy_db.py `
+  E:\path\to\isolated\price_analysis.db `
+  --destination E:\Banboos2.0\var\legacy-snapshots
+```
+
+命令会输出 `manifest.json`，包含源路径、快照路径、文件大小、SHA-256、SQLite `integrity_check`、表行数和迁移版本。复制中断或完整性检查失败时会清理临时目录，不产生可误用的快照。
