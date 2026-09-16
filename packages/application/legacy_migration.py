@@ -43,7 +43,9 @@ CREATE TABLE IF NOT EXISTS canonical_price_curves (
 """
 
 
-def migrate_legacy_snapshot(manifest_path: str | Path, target_path: str | Path) -> dict:
+def migrate_legacy_snapshot(manifest_path: str | Path, target_path: str | Path,
+                            node_id: int | None = None, market: str | None = None,
+                            start_date: str | None = None, end_date: str | None = None) -> dict:
     manifest_file = Path(manifest_path).expanduser().resolve()
     if not manifest_file.is_file():
         raise ValueError(f"迁移清单不存在：{manifest_file}")
@@ -51,6 +53,12 @@ def migrate_legacy_snapshot(manifest_path: str | Path, target_path: str | Path) 
     source = Path(manifest["snapshot_path"]).expanduser().resolve()
     if not source.is_file() or _sha256(source) != manifest.get("sha256"):
         raise ValueError("快照 SHA-256 不匹配，拒绝迁移")
+    if market is not None and market not in {"日前", "实时"}:
+        raise ValueError("market 必须是 日前 或 实时")
+    if node_id is not None and node_id <= 0:
+        raise ValueError("node_id 必须为正整数")
+    if start_date and end_date and end_date < start_date:
+        raise ValueError("end_date 不能早于 start_date")
     target = Path(target_path).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     batch_id = str(uuid4())
@@ -66,7 +74,17 @@ def migrate_legacy_snapshot(manifest_path: str | Path, target_path: str | Path) 
         with sqlite3.connect(f"file:{source.as_posix()}?mode=ro", uri=True) as source_connection:
             source_connection.row_factory = sqlite3.Row
             columns = ",".join(["id", "node_id", "run_date", "publish_type", "case_type", *PRICE_FIELDS, "source_file"])
-            cursor = source_connection.execute(f"SELECT {columns} FROM price_data ORDER BY id")
+            where, query_params = [], []
+            if node_id is not None:
+                where.append("node_id=?"); query_params.append(node_id)
+            if market is not None:
+                where.append("case_type=?"); query_params.append(market)
+            if start_date:
+                where.append("run_date>=?"); query_params.append(start_date)
+            if end_date:
+                where.append("run_date<=?"); query_params.append(end_date)
+            condition = f" WHERE {' AND '.join(where)}" if where else ""
+            cursor = source_connection.execute(f"SELECT {columns} FROM price_data{condition} ORDER BY id", query_params)
             raw_sql = "INSERT INTO raw_price_records VALUES (?,?,?,?,?,?,?,?,?)"
             quality_sql = "INSERT INTO quality_price_records VALUES (?,?,?,?,?,?,?,?,?)"
             canonical_sql = "INSERT OR IGNORE INTO canonical_price_curves VALUES (?,?,?,?,?,?,?)"

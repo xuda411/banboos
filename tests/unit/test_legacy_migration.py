@@ -49,3 +49,17 @@ def test_migration_rejects_tampered_snapshot(tmp_path):
         assert "SHA-256" in str(error)
     else:
         raise AssertionError("tampered snapshot must be rejected")
+
+
+def test_migration_scope_and_reconciliation(tmp_path):
+    source = tmp_path / "legacy.db"
+    make_source(source)
+    manifest = snapshot_legacy_database(source, tmp_path / "snapshots")
+    target = tmp_path / "staging.sqlite3"
+    result = migrate_legacy_snapshot(manifest, target, node_id=7, market="实时",
+                                     start_date="2026-01-01", end_date="2026-01-01")
+    assert result["raw"] == 1 and result["canonical"] == 1
+    from packages.application.legacy_reconciliation import reconcile_legacy_migration
+    report = reconcile_legacy_migration(manifest, target)
+    assert report["status"] == "matched"
+    assert report["canonical_records"] == 1
