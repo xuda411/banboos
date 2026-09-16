@@ -19,16 +19,19 @@ from packages.domain.annual_spread import ALGORITHM_VERSION as BASELINE_VERSION
 from packages.domain.annual_spread import annual_window_average
 from packages.infrastructure.dispatch_snapshots import DispatchSnapshots
 from packages.infrastructure.legacy_sqlite import LegacySQLiteReader
+from packages.infrastructure.staging_sqlite import StagingSQLiteReader
 
 
 class ReadonlyService:
-    def __init__(self, legacy_db: str | None = None):
+    def __init__(self, legacy_db: str | None = None, staging_db: str | None = None):
         configured = legacy_db or os.getenv("BANBOOS2_LEGACY_DB")
-        self._reader = LegacySQLiteReader(configured) if configured else None
+        staging = staging_db or (os.getenv("BANBOOS2_STAGING_DB") if legacy_db is None else None)
+        self._legacy_reader = LegacySQLiteReader(configured) if configured else None
+        self._reader = StagingSQLiteReader(staging) if staging else self._legacy_reader
 
     @property
     def data_mode(self) -> str:
-        return "legacy-readonly" if self._reader else "demo"
+        return "staging-readonly" if isinstance(self._reader, StagingSQLiteReader) else ("legacy-readonly" if self._reader else "demo")
 
     def nodes(self, province: str | None = None, query: str | None = None) -> list[NodeSummary]:
         if self._reader:
@@ -40,9 +43,9 @@ class ReadonlyService:
         return self._reader.node_count() if self._reader else len(self.nodes())
 
     def legacy_management(self, kind: str, limit: int = 200) -> dict:
-        if not self._reader:
-            return {"items": [], "source_mode": "demo", "table": kind}
-        return {"items": self._reader.management_rows(kind, limit),
+        if not self._legacy_reader:
+            return {"items": [], "source_mode": self.data_mode, "table": kind}
+        return {"items": self._legacy_reader.management_rows(kind, limit),
                 "source_mode": "legacy-readonly", "table": kind}
 
     def price(self, node_id: int, market: str, start_date: date, end_date: date) -> PriceSummary:
@@ -74,14 +77,14 @@ class ReadonlyService:
             return []
         rows = self._reader.price_curves(node_id, market, start_date, end_date)
         return [PriceCurve(node_id=node_id, market=market, run_date=row["run_date"],
-                           prices=row["prices"], source_mode="legacy-readonly")
+                           prices=row["prices"], source_mode=self.data_mode)
                 for row in rows[:limit]]
 
     def weather(self, node_id: int, start_time: datetime | None = None,
                 end_time: datetime | None = None) -> WeatherSummary:
-        if self._reader:
-            return WeatherSummary.model_validate(self._reader.weather_summary(node_id, start_time, end_time))
-        return WeatherSummary(node_id=node_id, observations=0, source_mode="demo")
+        if self._legacy_reader:
+            return WeatherSummary.model_validate(self._legacy_reader.weather_summary(node_id, start_time, end_time))
+        return WeatherSummary(node_id=node_id, observations=0, source_mode="unavailable")
 
     def weather_series(self, node_id: int, start_time: datetime | None = None,
                        end_time: datetime | None = None, limit: int = 744) -> list[WeatherObservation]:
@@ -89,9 +92,9 @@ class ReadonlyService:
             raise ValueError("end_time must be on or after start_time")
         if not 1 <= limit <= 744:
             raise ValueError("limit must be between 1 and 744")
-        if not self._reader:
+        if not self._legacy_reader:
             return []
-        observations = self._reader.weather_observations(node_id, start_time, end_time, limit)
+        observations = self._legacy_reader.weather_observations(node_id, start_time, end_time, limit)
         result = []
         for row in observations:
             ghi = _finite_or_none(row["ghi_w_m2"])
@@ -105,7 +108,7 @@ class ReadonlyService:
             result.append(WeatherObservation(node_id=node_id, data_time=row["data_time"],
                 source=row["source"], ghi_w_m2=ghi, wind_speed_m_s=wind, temp_c=temp,
                 pv_predict_power_mw=round(pv, 4) if pv is not None else None,
-                wind_predict_power_mw=round(wind_power, 4) if wind_power is not None else None))
+                wind_predict_power_mw=round(wind_power, 4) if wind_power is not None else None, source_mode="legacy-readonly"))
         return result
 
     def quality(self, node_id: int, market: str, start_date: date,
@@ -142,7 +145,7 @@ class ReadonlyService:
             raise ValueError("连续均价差时长须为15分钟的整数倍")
         if self._reader:
             curves = self._reader.baseline_curves(node_id, market)
-            source_mode = "legacy-readonly"
+            source_mode = self.data_mode
         else:
             curves = []
             source_mode = "demo"

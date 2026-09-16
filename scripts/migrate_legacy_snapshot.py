@@ -10,12 +10,13 @@ def main() -> None:
     parser.add_argument("manifest", help="snapshot manifest.json")
     parser.add_argument("--target", required=True, help="staging SQLite path on E:")
     parser.add_argument("--node-id", type=int)
-    parser.add_argument("--market", choices=["日前", "实时"])
+    parser.add_argument("--market", choices=["鏃ュ墠", "瀹炴椂"])
     parser.add_argument("--start-date")
     parser.add_argument("--end-date")
+    parser.add_argument("--max-records", type=int, default=50000)
     args = parser.parse_args()
     print(json.dumps(migrate_legacy_snapshot(args.manifest, args.target, args.node_id, args.market,
-                                              args.start_date, args.end_date), ensure_ascii=False, indent=2))
+                                              args.start_date, args.end_date, args.max_records), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

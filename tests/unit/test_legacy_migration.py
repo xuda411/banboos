@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from datetime import date
 
 from packages.application.legacy_migration import migrate_legacy_snapshot
 from packages.application.legacy_snapshot import snapshot_legacy_database
@@ -33,6 +34,11 @@ def test_migration_preserves_raw_quality_and_canonical_layers(tmp_path):
         assert connection.execute("SELECT quality_status FROM quality_price_records WHERE source_row_id=2").fetchone()[0] == "rejected"
         assert connection.execute("SELECT market FROM canonical_price_curves").fetchone()[0] == "实时"
         assert connection.execute("SELECT status FROM migration_batches").fetchone()[0] == "succeeded"
+    from packages.application.readonly_service import ReadonlyService
+    service = ReadonlyService(staging_db=str(target))
+    summary = service.price(7, "实时", date(2026, 1, 1), date(2026, 1, 2))
+    assert service.data_mode == "staging-readonly"
+    assert summary.valid_days == 1 and summary.data_points == 96
 
 
 def test_migration_rejects_tampered_snapshot(tmp_path):
@@ -60,6 +66,7 @@ def test_migration_scope_and_reconciliation(tmp_path):
                                      start_date="2026-01-01", end_date="2026-01-01")
     assert result["raw"] == 1 and result["canonical"] == 1
     from packages.application.legacy_reconciliation import reconcile_legacy_migration
-    report = reconcile_legacy_migration(manifest, target)
+    report = reconcile_legacy_migration(manifest, target, node_id=7, market="实时",
+                                        start_date="2026-01-01", end_date="2026-01-01")
     assert report["status"] == "matched"
     assert report["canonical_records"] == 1

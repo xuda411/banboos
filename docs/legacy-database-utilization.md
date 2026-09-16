@@ -125,3 +125,19 @@ Set-Location E:\Banboos2.0
 ```
 
 对账会报告源库完整记录数、Canonical 数、差异、重复键、首末日期和成功批次数。分批窗口应覆盖完整日期集合后才可判定 `matched`；范围不完整时报告差异是预期行为。
+
+## 数据接入与真实回放验证（第五阶段）
+
+2.0 已支持通过 `BANBOOS2_STAGING_DB` 只读接入已成功迁移的 staging v2 数据库。Staging 读取器只暴露成功批次：
+
+- 节点目录来自 `staging_nodes`；
+- 曲线/调度使用 Canonical 中每个节点、日期、市场的稳定代表；
+- 质量统计使用 Quality 层的完整记录数；
+- 年度价差使用 Raw 层全部有效来源候选，保留 1.6.6 的同日多来源口径；
+- 没有完成全历史迁移的节点/市场会拒绝年度基准测算，防止样本片段冒充年度数据。
+
+已用快照中的节点 786、实时市场生成真实 staging 回放：935 条完整记录、546 个有效日期，覆盖 2025-01-01 至 2026-06-30。逐行价格、源文件、日期和节点对账通过；2 小时和 4 小时年度基准均通过；API `source_mode=staging-readonly`，价差任务成功返回 365 天完整年度窗口。当前启动脚本支持：
+
+```powershell
+& .\scripts\start_manual_check.ps1 -StagingDb E:\Banboos2.0\var\migrations\replay-node786.sqlite3
+```
