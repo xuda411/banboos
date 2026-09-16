@@ -88,3 +88,21 @@ Set-Location E:\Banboos2.0
 - `GET /api/v1/legacy/access-log`
 
 接口只使用固定表和字段白名单，默认最多返回 200 条；未配置隔离旧库时返回 `source_mode=demo` 和空列表。它们不接受写请求，不执行数据清洗，也不改变 1.6.6 文件。
+
+## 离线迁移工具（第三阶段）
+
+快照通过校验后，可以执行 Raw/Quality/Canonical 分层迁移：
+
+```powershell
+& .venv\Scripts\python.exe scripts\migrate_legacy_snapshot.py `
+  E:\Banboos2.0\var\legacy-snapshots\<快照目录>\manifest.json `
+  --target E:\Banboos2.0\var\migrations\legacy-staging.sqlite3
+```
+
+迁移目标是独立的 staging SQLite，不写入 1.6.6 源库。每次运行生成 `migration_batches` 批次记录：快照 SHA-256、开始/结束时间、成功状态、Raw/Quality/Canonical/拒绝数量和错误信息。
+
+- `raw_price_records`：保留源行、源文件、原始 96 点 JSON 和内容哈希；
+- `quality_price_records`：记录缺失单元格、非有限值、市场类型和完整性状态；
+- `canonical_price_curves`：只收录完整的 96 点“日前/实时”日曲线，并按节点、日期、市场去重。
+
+`OK`、`missing` 等历史检查标签不会映射为市场类型；不能识别为“日前/实时”的记录会保留在 Raw 层并在 Quality 层标记拒绝。
