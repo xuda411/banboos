@@ -106,3 +106,22 @@ Set-Location E:\Banboos2.0
 - `canonical_price_curves`：只收录完整的 96 点“日前/实时”日曲线，并按节点、日期、市场去重。
 
 `OK`、`missing` 等历史检查标签不会映射为市场类型；不能识别为“日前/实时”的记录会保留在 Raw 层并在 Quality 层标记拒绝。
+
+### 分批迁移与对账（第四阶段）
+
+全量数据可按节点、市场和日期窗口分批执行，避免一次性占满磁盘：
+
+```powershell
+& .venv\Scripts\python.exe scripts\migrate_legacy_snapshot.py <manifest.json> `
+  --target E:\Banboos2.0\var\migrations\legacy-staging.sqlite3 `
+  --node-id 7 --market 实时 --start-date 2026-01-01 --end-date 2026-03-31
+```
+
+迁移后执行：
+
+```powershell
+& .venv\Scripts\python.exe scripts\reconcile_legacy_migration.py <manifest.json> `
+  --target E:\Banboos2.0\var\migrations\legacy-staging.sqlite3
+```
+
+对账会报告源库完整记录数、Canonical 数、差异、重复键、首末日期和成功批次数。分批窗口应覆盖完整日期集合后才可判定 `matched`；范围不完整时报告差异是预期行为。
