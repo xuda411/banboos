@@ -47,7 +47,12 @@ function renderStationList(items) {
 
 async function loadNodes() {
   ReportUI.invalidate("curve"); ReportUI.invalidate("weather");
-  const body = await get("/api/v1/nodes", { province: $("province").value });
+  const body = await get("/api/v1/nodes");
+  const selectedProvince = $("province").value;
+  const provinces = [...new Set(body.items.map((item) => item.province).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+  $("province").replaceChildren(new Option("全部省份", ""), ...provinces.map((name) => new Option(name, name)));
+  if (provinces.includes(selectedProvince)) $("province").value = selectedProvince;
+  body.items = body.items.filter((item) => !$("province").value || item.province === $("province").value);
   renderStationList(body.items);
   $("overviewNodes").textContent = body.items.length;
   $("node").replaceChildren(...body.items.map((item) => new Option(`${item.name} · ${item.province}`, item.id)));
@@ -453,7 +458,7 @@ async function refresh() {
     $("overviewCoverage").textContent = `${(quality.coverage_ratio * 100).toFixed(1)}%`;
     $("overviewRange").textContent = price.first_date ? `${price.first_date} 至 ${price.last_date}` : "所选范围暂无有效日";
     await refreshOperationsSummary();
-    $("notice").textContent = "只读结果已更新。正式分析、控制指令和生产数据接入将在后续阶段开放。";
+    $("notice").textContent = "摘要按去重后的有效日期统计；完整率按原始记录统计。年度财务基准另按完整年度规则计算。";
   } catch (error) {
     $("notice").textContent = `读取失败：${error.message}`;
     setStatus("API 请求失败", "error");

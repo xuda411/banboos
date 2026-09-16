@@ -41,10 +41,8 @@ class StagingSQLiteReader(LegacySQLiteReader):
 
     def price_summary(self, node_id, market, start_date, end_date):
         rows = self.price_curves(node_id, market, start_date, end_date)
-        with closing(self._connect()) as c:
-            quality_days = c.execute("SELECT COUNT(*) FROM quality_price_records q JOIN migration_batches b USING(batch_id) WHERE b.status='succeeded' AND q.node_id=? AND q.market=? AND q.run_date>=? AND q.run_date<=? AND q.is_complete=1", (node_id, market, start_date.isoformat(), end_date.isoformat())).fetchone()[0]
         return dict(node_id=node_id, market=market, start_date=start_date, end_date=end_date,
-                    valid_days=quality_days, data_points=quality_days*96,
+                    valid_days=len(rows), data_points=len(rows)*96,
                     first_date=rows[0]['run_date'] if rows else None,
                     last_date=rows[-1]['run_date'] if rows else None,
                     sources=sorted({r['source_file'] for r in rows if r['source_file']}),

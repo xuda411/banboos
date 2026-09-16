@@ -149,3 +149,11 @@ Set-Location E:\Banboos2.0
   -StagingDb E:\Banboos2.0\var\migrations\replay-node786.sqlite3 `
   -LegacyDb E:\Banboos2.0\var\legacy-snapshots\20260916-024117-b245f40d\price_analysis.db
 ```
+
+## 多节点批量回放（第六阶段）
+
+已完成 10 个节点、20 个日前/实时范围、40 组 2h/4h 年度与财务回放。
+当前人工检查使用 `var/migrations/replay-top10.sqlite3`。
+新增 `scripts/migrate_node_batches.py`，支持限定节点数、失败证据保存及成功范围复用。
+有效天数与标准曲线点数现按去重日期统计，原始完整记录数仍在质量摘要中保留。
+详见 [多节点验证报告](multi-node-replay-20260916.md)，其中明确列出了 Excel 原生模板、跨省抽样等尚未完成项。
