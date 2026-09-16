@@ -141,3 +141,11 @@ Set-Location E:\Banboos2.0
 ```powershell
 & .\scripts\start_manual_check.ps1 -StagingDb E:\Banboos2.0\var\migrations\replay-node786.sqlite3
 ```
+
+启动脚本现在支持同时配置两个只读来源：`-StagingDb` 用于节点、电价和质量查询，`-LegacyDb` 用于导入日志、字段映射、地理映射、省级投资和访问日志查询。例如：
+
+```powershell
+& .\scripts\start_manual_check.ps1 `
+  -StagingDb E:\Banboos2.0\var\migrations\replay-node786.sqlite3 `
+  -LegacyDb E:\Banboos2.0\var\legacy-snapshots\20260916-024117-b245f40d\price_analysis.db
+```

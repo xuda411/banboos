@@ -25,7 +25,7 @@ from packages.infrastructure.staging_sqlite import StagingSQLiteReader
 class ReadonlyService:
     def __init__(self, legacy_db: str | None = None, staging_db: str | None = None):
         configured = legacy_db or os.getenv("BANBOOS2_LEGACY_DB")
-        staging = staging_db or (os.getenv("BANBOOS2_STAGING_DB") if legacy_db is None else None)
+        staging = staging_db or os.getenv("BANBOOS2_STAGING_DB")
         self._legacy_reader = LegacySQLiteReader(configured) if configured else None
         self._reader = StagingSQLiteReader(staging) if staging else self._legacy_reader
 
