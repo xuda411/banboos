@@ -75,3 +75,16 @@ Set-Location E:\Banboos2.0
 ```
 
 命令会输出 `manifest.json`，包含源路径、快照路径、文件大小、SHA-256、SQLite `integrity_check`、表行数和迁移版本。复制中断或完整性检查失败时会清理临时目录，不产生可误用的快照。
+
+### 管理表只读接口
+
+系统管理页通过以下接口查看隔离旧库的管理元数据：
+
+- `GET /api/v1/legacy/import-logs`
+- `GET /api/v1/legacy/field-mappings`
+- `GET /api/v1/legacy/breakpoints`
+- `GET /api/v1/legacy/geo-mappings`
+- `GET /api/v1/legacy/province-investment`
+- `GET /api/v1/legacy/access-log`
+
+接口只使用固定表和字段白名单，默认最多返回 200 条；未配置隔离旧库时返回 `source_mode=demo` 和空列表。它们不接受写请求，不执行数据清洗，也不改变 1.6.6 文件。

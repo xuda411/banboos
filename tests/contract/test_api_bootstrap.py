@@ -38,6 +38,10 @@ def test_readonly_demo_endpoints():
     response = client.get("/api/v1/nodes", params={"province": "湖北"})
     assert response.status_code == 200
     assert response.json()["items"][0]["name"] == "演示储能节点"
+    response = client.get("/api/v1/legacy/import-logs")
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "source_mode": "demo", "table": "import-logs"}
+    assert client.get("/api/v1/legacy/not-a-table").status_code == 422
 
     response = client.get("/api/v1/price/summary", params={
         "node_id": 1, "market": "实时", "start_date": "2026-01-01", "end_date": "2026-01-31",

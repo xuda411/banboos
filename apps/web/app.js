@@ -188,6 +188,21 @@ async function resumePortfolio() {
   finally { $("portfolioFields").disabled = false; $("resumePortfolio").disabled = false; }
 }
 
+async function refreshLegacyManagement() {
+  const kind = $("legacyTableKind").value; const state = $("legacyState");
+  const head = $("legacyHead"); const body = $("legacyBody");
+  state.textContent = "读取隔离副本中…"; head.replaceChildren(); body.replaceChildren();
+  try {
+    const result = await get(`/api/v1/legacy/${kind}`, { limit: 200 });
+    const items = result.items || [];
+    if (!items.length) { body.innerHTML = '<tr><td>当前数据模式没有可显示的管理记录</td></tr>'; state.textContent = `0 条 · ${result.source_mode}`; return; }
+    const columns = Object.keys(items[0]);
+    columns.forEach((column) => { const th = document.createElement("th"); th.textContent = column; head.append(th); });
+    items.forEach((item) => { const tr = document.createElement("tr"); columns.forEach((column) => { const td = document.createElement("td"); td.textContent = item[column] == null ? "—" : String(item[column]); tr.append(td); }); body.append(tr); });
+    state.textContent = `${items.length} 条 · ${result.source_mode}`;
+  } catch (error) { state.textContent = `读取失败：${error.message}`; body.innerHTML = '<tr><td>请检查 API 和隔离副本配置</td></tr>'; }
+}
+
 async function refreshSystem() {
   const health = $("systemHealth"); const ready = $("systemReady"); const checks = $("systemChecks");
   try { const [healthBody, meta] = await Promise.all([get("/health"), get("/api/v1/meta")]); health.textContent = healthBody.status || "正常"; health.className = "value-ok"; $("systemHealthDetail").textContent = `版本 ${healthBody.version || "—"}`; $("systemMode").textContent = meta.data_mode || "—"; } catch (error) { health.textContent = "异常"; health.className = "value-error"; $("systemHealthDetail").textContent = error.message; }
@@ -576,6 +591,8 @@ $("resumePortfolio").addEventListener("click", resumePortfolio);
 try { portfolioRunId = localStorage.getItem("banboosPortfolioRun"); $("resumePortfolio").hidden = !portfolioRunId; } catch { /* Optional task recovery. */ }
 addPortfolioProject();
 $("refreshSystem").addEventListener("click", refreshSystem);
+$("refreshLegacy").addEventListener("click", refreshLegacyManagement);
+$("legacyTableKind").addEventListener("change", refreshLegacyManagement);
 $("systemRunKind").addEventListener("change", refreshSystem);
 $("systemRunStatus").addEventListener("change", refreshSystem);
 $("powerMw").addEventListener("input", updateDurationHint);

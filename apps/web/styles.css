@@ -126,3 +126,9 @@ button { cursor: pointer; font-weight: 700; }
 #portfolioOptimizer .task-progress { overflow-wrap: anywhere; line-height: 1.7; }
 #portfolioOptimizer :focus-visible { outline: 2px solid #176b50; outline-offset: 3px; }
 @media (max-width: 600px) { .portfolio-opt-form { grid-template-columns: 1fr; } .portfolio-editor input { font-size: 16px; } }
+
+.legacy-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.legacy-tools select { min-width: 150px; }
+#legacyState { overflow-wrap: anywhere; }
+#legacyHead th { white-space: nowrap; }
+#legacyBody td { max-width: 280px; overflow-wrap: anywhere; }

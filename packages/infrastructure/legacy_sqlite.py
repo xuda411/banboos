@@ -50,6 +50,33 @@ class LegacySQLiteReader:
         with closing(self._connect()) as connection:
             return int(connection.execute("SELECT COUNT(*) FROM nodes").fetchone()[0])
 
+    def management_rows(self, kind: str, limit: int = 200) -> list[dict[str, Any]]:
+        """Read legacy management tables through a fixed, non-user SQL map."""
+        if not 1 <= limit <= 200:
+            raise ValueError("limit must be between 1 and 200")
+        table_map = {
+            "import-logs": ("import_logs", ("id", "file_path", "status", "row_count", "error_message", "imported_at")),
+            "field-mappings": ("field_mappings", ("id", "excel_field", "db_field", "confidence", "created_at")),
+            "breakpoints": ("breakpoint_data", ("id", "task_id", "file_path", "last_row", "total_rows", "status", "created_at", "updated_at")),
+            "geo-mappings": ("node_geo_mapping", ("id", "node_id", "original_name", "province", "city", "district", "latitude", "longitude", "settlement_node", "node_type", "confidence", "match_method", "match_reason", "status", "created_at", "updated_at")),
+            "province-investment": ("province_investment", ("id", "province_name", "region", "energy_revenue", "capacity_price", "frequency_revenue", "tier", "grid_type", "created_at", "updated_at")),
+            "access-log": ("data_access_log", ("id", "table_name", "operation", "record_id", "user_info", "access_time", "ip_address", "query_params", "result_count")),
+        }
+        if kind not in table_map:
+            raise ValueError("unknown legacy management table")
+        table, columns = table_map[kind]
+        with closing(self._connect()) as connection:
+            exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone()
+            if not exists:
+                return []
+            selected = ", ".join(f'"{column}"' for column in columns)
+            rows = connection.execute(
+                f"SELECT {selected} FROM \"{table}\" ORDER BY 1 DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def price_summary(self, node_id: int, market: str, start_date: date, end_date: date) -> dict[str, Any]:
         if market not in {"日前", "实时"}:
             raise ValueError("market must be 日前 or 实时")

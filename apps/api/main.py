@@ -122,6 +122,16 @@ def nodes(province: str | None = None, q: str | None = Query(default=None, max_l
             "data_mode": readonly_service.data_mode}
 
 
+@app.get("/api/v1/legacy/{kind}", tags=["legacy-readonly"])
+def legacy_management(kind: str = APIPath(..., pattern="^(import-logs|field-mappings|breakpoints|geo-mappings|province-investment|access-log)$"),
+                      limit: int = Query(default=200, ge=1, le=200)) -> dict:
+    """Expose 1.6.6 management metadata without exposing any write operation."""
+    try:
+        return readonly_service.legacy_management(kind, limit)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @app.get("/api/v1/operations/summary", response_model=OperationsSummary, tags=["operations"])
 def operations_summary(response: Response) -> OperationsSummary:
     response.headers["Cache-Control"] = "no-store"

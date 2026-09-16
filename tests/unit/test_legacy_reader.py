@@ -79,3 +79,14 @@ def test_readonly_service_exposes_weather_and_estimated_power(tmp_path):
     assert series[0].pv_predict_power_mw == pytest.approx(49.0)
     assert series[0].wind_predict_power_mw == pytest.approx(11.1111, rel=1e-3)
     assert series[0].is_power_simulated is True
+
+
+def test_management_rows_use_fixed_allowlist_and_missing_tables_are_empty(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    make_fixture(path)
+    reader = LegacySQLiteReader(path)
+    assert reader.management_rows("import-logs") == []
+    with pytest.raises(ValueError):
+        reader.management_rows("price_data")
+    with pytest.raises(ValueError):
+        reader.management_rows("import-logs", 201)

@@ -39,6 +39,12 @@ class ReadonlyService:
     def node_count(self) -> int:
         return self._reader.node_count() if self._reader else len(self.nodes())
 
+    def legacy_management(self, kind: str, limit: int = 200) -> dict:
+        if not self._reader:
+            return {"items": [], "source_mode": "demo", "table": kind}
+        return {"items": self._reader.management_rows(kind, limit),
+                "source_mode": "legacy-readonly", "table": kind}
+
     def price(self, node_id: int, market: str, start_date: date, end_date: date) -> PriceSummary:
         if market not in {"日前", "实时"}:
             raise ValueError("market must be 日前 or 实时")
