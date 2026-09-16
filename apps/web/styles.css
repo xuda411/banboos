@@ -111,3 +111,18 @@ button { cursor: pointer; font-weight: 700; }
 @media (max-width: 1080px) { .metrics, .overview-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .overview-signals { grid-template-columns: 1fr; } .overview-grid, .curve-layout { grid-template-columns: 1fr; } }
 @media (max-width: 860px) { .topbar { flex-wrap: wrap; gap: 8px; padding: 10px 20px 0; } .main-nav { order: 3; width: 100%; height: 42px; } .nav-item { flex: 1; } .page { padding: 20px; } .filters, .task-form, .advanced-grid, .finance-result { grid-template-columns: repeat(2, 1fr); } .filters button, .task-form button { grid-column: span 2; } .overview-hero { padding: 32px; } .analysis-action { grid-template-columns: 1fr; }.analysis-action-form { grid-template-columns: repeat(2, minmax(130px, 1fr)); }.analysis-action-form button { grid-column: span 2; }.analysis-result { grid-template-columns: 1fr 1fr; }.sensitivity-form { grid-template-columns: repeat(2, minmax(130px, 1fr)); }.sensitivity-form button { grid-column: span 2; } }
 @media (max-width: 560px) { .topbar { padding: 10px 16px 0; } .topbar > .status { margin-left: auto; } .page { padding: 14px; } .overview-hero { min-height: 210px; padding: 26px 22px; } .hero-orbit { width: 100px; height: 100px; } .overview-kpis, .quick-actions { grid-template-columns: 1fr; } .hero { display: block; } .hero-badge { display: inline-block; margin-top: 16px; } .metrics { grid-template-columns: 1fr; } .task-progress { align-items: start; flex-direction: column; } }
+
+/* Compact, editable assumptions and stable result snapshots. */
+#portfolioFields { border: 0; margin: 0; padding: 0; min-width: 0; }
+.portfolio-opt-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.portfolio-note { color: #52635d; font-size: 14px; line-height: 1.7; max-width: 75ch; margin: 12px 0 20px; }
+.portfolio-project-heading { margin-top: 24px; }
+.portfolio-project-heading h3 { font-size: 16px; margin: 0; }
+.portfolio-editor input { min-width: 120px; width: 100%; }
+.portfolio-editor td:first-child input { min-width: 180px; }
+.portfolio-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+#portfolioOptBody td { font-variant-numeric: tabular-nums; }
+#portfolioOptBody td:first-child { white-space: normal; overflow-wrap: anywhere; }
+#portfolioOptimizer .task-progress { overflow-wrap: anywhere; line-height: 1.7; }
+#portfolioOptimizer :focus-visible { outline: 2px solid #176b50; outline-offset: 3px; }
+@media (max-width: 600px) { .portfolio-opt-form { grid-template-columns: 1fr; } .portfolio-editor input { font-size: 16px; } }

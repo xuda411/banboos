@@ -31,6 +31,7 @@ from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.financial import FinancialTaskParameters
 from packages.contracts.operations import OperationsSummary
+from packages.contracts.portfolio import PortfolioTaskParameters
 from packages.contracts.readonly import (
     DataQualitySummary,
     PriceCurve,
@@ -273,6 +274,11 @@ def submit_run(kind: str | None = Query(default=None, min_length=1, max_length=8
     if resolved_kind == "sensitivity":
         try:
             SensitivityTaskParameters.model_validate(request.parameters if request else {})
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+    if resolved_kind == "portfolio-optimization":
+        try:
+            PortfolioTaskParameters.model_validate(request.parameters if request else {})
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
     return run_registry.submit(resolved_kind, idempotency_key,

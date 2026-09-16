@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 
 from packages.application.financial_export import GREEN, LIGHT_GREEN, _fit_columns, _header, _title
 
-SUPPORTED_TASKS = {"financial", "price-analysis", "strict-dispatch", "sensitivity"}
+SUPPORTED_TASKS = {"financial", "price-analysis", "strict-dispatch", "sensitivity", "portfolio-optimization"}
 
 
 def table(workbook, title, headers, rows, formats=None):
@@ -74,7 +74,7 @@ def export_task_xlsx(run):
         "上游任务": data.get("source_run_id"), "输入快照": data.get("snapshot_id"),
         "算法或模型版本": data.get("algorithm_version", data.get("model_version", data.get("method"))),
         "口径": "已完成任务的结果快照；缺失值留空，0 表示真实零值；修改参数须重新计算。"})
-    table(workbook, "任务参数", ["参数", "值"], [[key, value if not isinstance(value, dict) else str(value)]
+    table(workbook, "任务参数", ["参数", "值"], [[key, value if not isinstance(value, (dict, list)) else str(value)]
           for key, value in run.parameters.items()])
     table(workbook, "结果摘要", ["指标（字段名含单位）", "数值"],
           [[key, value] for key, value in data.items() if not isinstance(value, (list, dict))])
@@ -86,6 +86,14 @@ def export_task_xlsx(run):
         keys = ["month", "valid_days", "charge_price_yuan_per_mwh", "discharge_price_yuan_per_mwh", "spread_yuan_per_mwh"]
         table(workbook, "月度价差", ["月份", "有效日", "低价均价（元/MWh）", "高价均价（元/MWh）", "价差（元/MWh）"],
               [[month.get(key) for key in keys] for month in data["monthly"]], {2: "0"})
+    elif run.kind == "portfolio-optimization":
+        project_keys = ["name", "capacity_mwh", "unit_investment_yuan_wh", "annual_revenue_wan"]
+        headers = ["项目", "容量（MWh）", "单位投资（元/Wh）", "年净现金流（万元）"]
+        table(workbook, "全部候选项目", headers,
+              [[p.get(key) for key in project_keys] for p in run.parameters["projects"]])
+        table(workbook, "选中项目", headers + ["投资（万元）", "NPV（万元）"],
+              [[p.get(key) for key in project_keys + ["investment_wan", "npv_wan"]]
+               for p in data["selected_projects"]])
     else:
         keys = ["change_rate", "full_irr", "full_npv_yuan", "payback_year", "first_year_net_profit_yuan"]
         table(workbook, "敏感性分析", ["相对变动率", "项目 IRR", "项目 NPV（元）", "静态回收期（年）", "首年净利润（元）"],

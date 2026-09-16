@@ -4,6 +4,7 @@ let analysisSourceRunId = null;
 let analysisAnnualRevenueYuan = null;
 let analysisScale = null;
 let financialSourceRunId = null;
+let portfolioRunId = null;
 
 async function get(path, params = {}) {
   const url = new URL(apiBase + path);
@@ -77,6 +78,114 @@ async function loadPortfolio() {
     const provinceBody = $("provinceBody"); provinceBody.replaceChildren(); provinceMap.forEach((item, province) => { const tr = document.createElement("tr"); [province, item.nodes, item.days, `${(item.coverage / item.nodes).toFixed(1)}%`].forEach((value) => { const td = document.createElement("td"); td.textContent = value; tr.appendChild(td); }); provinceBody.appendChild(tr); });
     state.textContent = `${rows.length} 个节点`; state.className = "status status-ok";
   } catch (error) { state.textContent = "加载失败"; state.className = "status status-error"; body.innerHTML = `<tr><td colspan="6">${error.message}</td></tr>`; }
+}
+
+function invalidatePortfolio() {
+  ReportUI.clearRun("portfolioOptimizer");
+  $("portfolioOptState").textContent = "待计算";
+  $("portfolioOptState").className = "status status-muted";
+  $("portfolioOptBody").innerHTML = '<tr><td colspan="4">参数已修改，请重新计算。</td></tr>';
+  $("portfolioOptMessage").textContent = "当前为手工情景；修改后的参数尚未计算。";
+}
+
+function syncPortfolioObjective() {
+  const minimum = $("portfolioObjective").value === "min_investment";
+  $("portfolioRevenueTarget").disabled = !minimum;
+  $("portfolioRevenueTarget").required = minimum;
+  $("portfolioBudget").required = !minimum;
+}
+
+function addPortfolioProject(project = {}) {
+  const body = $("portfolioProjectBody");
+  if (body.rows.length >= 50) return;
+  const row = document.createElement("tr");
+  const number = body.rows.length + 1;
+  [["name", "项目名称", "text", null, 120], ["capacity_mwh", "容量", "number", 0.001, 1000000],
+    ["unit_investment_yuan_wh", "单位投资", "number", 0.000001, 100],
+    ["annual_revenue_wan", "年净现金流", "number", 0, 1000000000]].forEach(([key, label, type, min, max]) => {
+    const td = document.createElement("td"); const input = document.createElement("input");
+    input.type = type; input.dataset.field = key; input.required = true;
+    input.setAttribute("aria-label", `项目 ${number} ${label}`);
+    if (type === "number") { input.min = min; input.max = max; input.step = "any"; }
+    else input.maxLength = max;
+    input.value = project[key] ?? ""; td.append(input); row.append(td);
+  });
+  const action = document.createElement("td"); const remove = document.createElement("button");
+  remove.type = "button"; remove.textContent = "删除"; remove.setAttribute("aria-label", `删除项目 ${number}`);
+  remove.addEventListener("click", () => { row.remove(); $("addPortfolioProject").disabled = false; invalidatePortfolio(); });
+  action.append(remove); row.append(action); body.append(row);
+  $("addPortfolioProject").disabled = body.rows.length >= 50;
+}
+
+function renderPortfolioResult(result) {
+  const body = $("portfolioOptBody"); body.replaceChildren();
+  result.selected_projects.forEach((project) => {
+    const tr = document.createElement("tr");
+    [project.name, project.investment_wan.toFixed(2), project.npv_wan.toFixed(2), project.annual_revenue_wan.toFixed(2)].forEach((value) => {
+      const td = document.createElement("td"); td.textContent = value; tr.append(td);
+    }); body.append(tr);
+  });
+  if (!result.selected_projects.length) {
+    const tr = document.createElement("tr"); const td = document.createElement("td");
+    td.colSpan = 4; td.textContent = result.message; tr.append(td); body.append(tr);
+  }
+  $("portfolioOptState").textContent = result.outcome === "optimal" ? "计算完成" : "无可选组合";
+  $("portfolioOptState").className = `status status-${result.outcome === "optimal" ? "ok" : "muted"}`;
+  $("portfolioOptMessage").textContent = `${result.message} 总投资 ${result.total_investment_wan.toFixed(2)} 万元 · 总 NPV ${result.total_npv_wan.toFixed(2)} 万元 · 组合 IRR ${result.portfolio_irr == null ? "无有效根" : (result.portfolio_irr * 100).toFixed(2) + "%"}。${result.cashflow_note}`;
+  ReportUI.run("portfolioOptimizer", portfolioRunId, "组合优化", apiBase);
+}
+
+async function pollPortfolio() {
+  for (let i = 0; i < 90; i += 1) {
+    const status = await get(`/api/v1/runs/${portfolioRunId}`);
+    $("portfolioOptMessage").textContent = `${status.message || "计算中"} · ${status.progress}% · 任务 ${portfolioRunId}`;
+    if (status.status === "succeeded") { renderPortfolioResult(status.result); return; }
+    if (["failed", "cancelled"].includes(status.status)) throw new Error(status.message);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+  }
+  throw new Error("任务仍在后台执行，可点击恢复上次任务继续查询。");
+}
+
+async function submitPortfolio(event) {
+  event.preventDefault();
+  if (!$("portfolioProjectBody").rows.length) {
+    $("portfolioOptMessage").textContent = "请至少添加一个候选项目。"; return;
+  }
+  const projects = Array.from($("portfolioProjectBody").rows, (row) => Object.fromEntries(
+    Array.from(row.querySelectorAll("input"), (input) => [input.dataset.field, input.type === "number" ? Number(input.value) : input.value.trim()])));
+  const parameters = { objective: $("portfolioObjective").value, projects,
+    budget_limit_wan: $("portfolioBudget").value === "" ? null : Number($("portfolioBudget").value),
+    revenue_target_wan: $("portfolioRevenueTarget").disabled ? null : Number($("portfolioRevenueTarget").value),
+    discount_rate: Number($("portfolioRate").value) / 100, operation_years: Number($("portfolioYears").value) };
+  invalidatePortfolio(); $("portfolioFields").disabled = true; $("resumePortfolio").disabled = true;
+  $("portfolioOptState").textContent = "计算中";
+  try {
+    const run = await post("/api/v1/runs", { kind: "portfolio-optimization", parameters });
+    portfolioRunId = run.run_id;
+    try { localStorage.setItem("banboosPortfolioRun", portfolioRunId); } catch { /* Storage can be disabled. */ }
+    $("resumePortfolio").hidden = false;
+    await pollPortfolio();
+  } catch (error) {
+    $("portfolioOptState").textContent = "请检查任务"; $("portfolioOptState").className = "status status-error";
+    $("portfolioOptMessage").textContent = error.message;
+  } finally { $("portfolioFields").disabled = false; $("resumePortfolio").disabled = false; }
+}
+
+async function resumePortfolio() {
+  if (!portfolioRunId) return;
+  $("portfolioFields").disabled = true; $("resumePortfolio").disabled = true;
+  ReportUI.clearRun("portfolioOptimizer");
+  try {
+    const run = await get(`/api/v1/runs/${portfolioRunId}`);
+    if (run.kind !== "portfolio-optimization") throw new Error("任务类型不匹配");
+    const p = run.parameters;
+    $("portfolioObjective").value = p.objective; $("portfolioBudget").value = p.budget_limit_wan ?? "";
+    $("portfolioRevenueTarget").value = p.revenue_target_wan ?? "";
+    $("portfolioRate").value = p.discount_rate * 100; $("portfolioYears").value = p.operation_years;
+    $("portfolioProjectBody").replaceChildren(); p.projects.forEach(addPortfolioProject);
+    syncPortfolioObjective(); await pollPortfolio();
+  } catch (error) { $("portfolioOptMessage").textContent = error.message; }
+  finally { $("portfolioFields").disabled = false; $("resumePortfolio").disabled = false; }
 }
 
 async function refreshSystem() {
@@ -459,6 +568,13 @@ $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
 $("submitSensitivity").addEventListener("click", submitSensitivity);
 $("loadPortfolio").addEventListener("click", loadPortfolio);
+$("portfolioForm").addEventListener("submit", submitPortfolio);
+$("portfolioForm").addEventListener("input", invalidatePortfolio);
+$("portfolioObjective").addEventListener("change", syncPortfolioObjective);
+$("addPortfolioProject").addEventListener("click", () => { addPortfolioProject(); invalidatePortfolio(); });
+$("resumePortfolio").addEventListener("click", resumePortfolio);
+try { portfolioRunId = localStorage.getItem("banboosPortfolioRun"); $("resumePortfolio").hidden = !portfolioRunId; } catch { /* Optional task recovery. */ }
+addPortfolioProject();
 $("refreshSystem").addEventListener("click", refreshSystem);
 $("systemRunKind").addEventListener("change", refreshSystem);
 $("systemRunStatus").addEventListener("change", refreshSystem);

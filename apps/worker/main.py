@@ -17,9 +17,12 @@ from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.dispatch_result import DispatchDayResult, DispatchRunResult
 from packages.contracts.financial import FinancialTaskParameters
+from packages.contracts.portfolio import PortfolioTaskParameters
+from packages.contracts.portfolio_result import PortfolioResult
 from packages.contracts.sensitivity import SensitivityTaskParameters
 from packages.contracts.sensitivity_result import SensitivityPoint, SensitivityRunResult
 from packages.domain.financial_model import FinancialError, calculate_financials
+from packages.domain.portfolio_optimizer import optimize_portfolio
 from packages.domain.storage_dispatch import ALGORITHM_VERSION, DispatchError, solve_day
 from packages.infrastructure.dispatch_snapshots import DispatchSnapshots
 
@@ -170,6 +173,15 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
             registry.fail(item.run_id, f"敏感性分析失败：{error}", "SENSITIVITY_INPUT_INVALID")
         except (KeyError, TypeError, ValueError, RuntimeError) as error:
             registry.fail(item.run_id, f"敏感性分析失败：{error}", "SENSITIVITY_FAILED")
+    elif item.kind == "portfolio-optimization":
+        try:
+            parameters = PortfolioTaskParameters.model_validate(item.parameters)
+            registry.update_progress(item.run_id, 20, "正在评估候选项目组合")
+            result = PortfolioResult.model_validate(optimize_portfolio(parameters))
+            registry.update_progress(item.run_id, 90, "正在整理组合收益与投资指标")
+            registry.complete(item.run_id, result.message, result.model_dump(mode="json"))
+        except (KeyError, TypeError, ValueError, RuntimeError) as error:
+            registry.fail(item.run_id, f"组合优化失败：{error}", "PORTFOLIO_OPTIMIZATION_FAILED")
     else:
         registry.fail(item.run_id, "该任务类型尚未接入执行器", "EXECUTOR_NOT_IMPLEMENTED")
     return True
