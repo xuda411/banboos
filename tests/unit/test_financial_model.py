@@ -6,6 +6,26 @@ from packages.contracts.financial import FinancialTaskParameters
 from packages.domain.financial_model import calculate_financials
 
 
+def test_unlevered_equity_cashflow_equals_project_cashflow():
+    result = calculate_financials(FinancialTaskParameters(
+        power_mw=60, capacity_mwh=120, annual_revenue_yuan=25_000_000,
+        replace_year=3, replace_capex_yuan=4_000_000,
+    ).financial())
+    assert result["equity_cashflows_yuan"] == pytest.approx(result["cashflows_yuan"])
+    assert result["equity_irr"] == pytest.approx(result["full_irr"])
+
+
+def test_levered_cashflow_does_not_add_back_depreciation_twice():
+    result = calculate_financials(FinancialTaskParameters(
+        power_mw=1, capacity_mwh=2, annual_revenue_yuan=1_000_000,
+        capex_yuan_per_wh=1, operation_years=2, first_year_eol=1, final_eol=1,
+        om_rate=0, loan_ratio=.5, loan_years=2, loan_rate=.1,
+        construction_years=0, residual_rate=0, income_tax_rate=.25,
+    ).financial())
+    # Year 1: 1m revenue - 100k interest - 500k principal; no taxable profit.
+    assert result["equity_cashflows_yuan"] == pytest.approx([-1_000_000, 400_000, 450_000])
+
+
 def test_financial_model_returns_cashflows_and_ratio_duration():
     parameters = FinancialTaskParameters(power_mw=100, capacity_mwh=200,
                                          annual_revenue_yuan=8_000_000)

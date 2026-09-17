@@ -18,6 +18,7 @@ node_modules/
 .ruff_cache/
 *.egg-info/
 var/
+outputs/
 coverage.xml
 .coverage
 *.local.*

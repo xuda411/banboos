@@ -21,7 +21,7 @@ from packages.contracts.portfolio import PortfolioTaskParameters
 from packages.contracts.portfolio_result import PortfolioResult
 from packages.contracts.sensitivity import SensitivityTaskParameters
 from packages.contracts.sensitivity_result import SensitivityPoint, SensitivityRunResult
-from packages.domain.financial_model import FinancialError, calculate_financials
+from packages.domain.financial_model import MODEL_VERSION, FinancialError, calculate_financials
 from packages.domain.portfolio_optimizer import optimize_portfolio
 from packages.domain.storage_dispatch import ALGORITHM_VERSION, DispatchError, solve_day
 from packages.infrastructure.dispatch_snapshots import DispatchSnapshots
@@ -165,7 +165,7 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
             result = SensitivityRunResult(
                 variable=request.variable, base_power_mw=base.power_mw,
                 base_capacity_mwh=base.capacity_mwh, source_run_id=base.source_run_id,
-                model_version="banboos-financial-1.0.0",
+                model_version=MODEL_VERSION,
                 points=points,
             )
             registry.complete(item.run_id, "财务敏感性分析完成", result.model_dump(mode="json"))

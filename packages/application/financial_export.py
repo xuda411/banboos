@@ -9,6 +9,9 @@ from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.workbook.properties import CalcProperties
+
+from packages.application.financial_formula_audit import write_formula_audit
 
 GREEN = "0B6B53"
 LIGHT_GREEN = "E8F2EE"
@@ -21,6 +24,8 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
     target = Path(destination).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
+    workbook.calculation = CalcProperties(calcMode="auto", fullCalcOnLoad=True,
+                                           forceFullCalc=True)
     overview = workbook.active
     overview.title = "项目概览"
     _write_overview(overview, result)
@@ -29,6 +34,7 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
     _write_debt(workbook.create_sheet("融资明细"), result)
     _write_timeline(workbook.create_sheet("全周期现金流"), result)
     _write_template_mapping(workbook.create_sheet("模板映射"))
+    write_formula_audit(workbook, result, _title, _header)
     for sheet in workbook.worksheets:
         sheet.sheet_view.showGridLines = False
         sheet.freeze_panes = "B5"
@@ -43,6 +49,12 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
         sheet.print_area = f"A1:{get_column_letter(sheet.max_column)}{sheet.max_row}"
         sheet.row_dimensions[1].height = 32
         sheet.row_dimensions[2].height = 30
+        if sheet.title == "公式复核":
+            sheet.row_dimensions[2].height = 45
+            sheet.column_dimensions["A"].width = 10
+            sheet.column_dimensions["B"].width = 12
+            for column in range(3, 16):
+                sheet.column_dimensions[get_column_letter(column)].width = 23
         sheet.row_dimensions[4].height = 38
         for cells in sheet.iter_rows(min_row=4):
             sheet.row_dimensions[cells[0].row].height = 30
@@ -240,7 +252,9 @@ def _write_template_mapping(sheet) -> None:
         ("annual_revenue_yuan", "元/年", "电量类", "电能量收入", "已映射"),
         ("capex_yuan_per_wh", "元/Wh", "参数设定", "单位投资", "已映射"),
         ("om_rate", "%", "财务指标", "运营成本/运维费率", "已映射"),
-        ("first_year_eol / final_eol", "%", "EOL", "生命周期衰减", "已映射"),
+        ("first_year_eol / final_eol", "%", "EOL", "生命周期衰减", "规则不同：服务器线性衰减，模板取日历/循环衰减最小值"),
+        ("round_trip_efficiency", "%", "参数设定 D5", "效率", "口径不同：网页往返效率，模板单边效率，禁止直接同值代入"),
+        ("增值税 / 保险费 / 运营分成", "—", "参数设定", "模板费用及税种", "服务器尚未覆盖"),
         ("yearly[*]", "元/年", "财务指标", "年度收入、成本、税费和现金流", "服务器明细"),
         ("full_irr / equity_irr", "%", "财务指标", "全投资/资本金 IRR", "服务器结果"),
         ("cashflows_yuan", "元", "财务指标", "项目现金流（含建设期）", "服务器结果"),

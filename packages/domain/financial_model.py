@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass
 from itertools import pairwise
 from math import isfinite
 
+MODEL_VERSION = "banboos-financial-1.0.1"
+
 
 class FinancialError(ValueError):
     pass
@@ -152,7 +154,8 @@ def calculate_financials(p: FinancialParameters) -> dict:
         project_cashflow = net_profit + depreciation_this_year - replacement
         equity_taxable_profit = taxable_profit - interest
         equity_tax = max(0.0, equity_taxable_profit * p.income_tax_rate)
-        equity_cashflow = revenue - operating_cost - replacement - interest - principal - equity_tax + depreciation_this_year
+        # This starts from cash revenue, not net profit: depreciation is already excluded.
+        equity_cashflow = revenue - operating_cost - replacement - interest - principal - equity_tax
         cashflows.append(project_cashflow)
         equity_cashflows.append(equity_cashflow)
         yearly.append({"year": year, "eol": eol, "revenue_yuan": revenue,
@@ -186,6 +189,6 @@ def calculate_financials(p: FinancialParameters) -> dict:
         "payback_year": payback, "equity_irr": irr(equity_cashflows),
         "equity_npv_yuan": npv(p.discount_rate, equity_cashflows),
         "yearly": yearly, "equity_cashflows_yuan": equity_cashflows,
-        "model_version": "banboos-financial-1.0.0",
+        "model_version": MODEL_VERSION,
         "cashflows_yuan": cashflows,
     }
