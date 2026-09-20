@@ -1,6 +1,7 @@
 """Structured XLSX export for completed financial tasks."""
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -173,6 +174,7 @@ def _write_parameters(sheet, result: dict) -> None:
         "subsidy_yuan": ("补贴收入", "元/年"),
         "primary_frequency_yuan": ("一次调频收入", "元/年"),
         "secondary_frequency_yuan": ("二次调频收入", "元/年"),
+        "revenue_phases": ("分阶段收益规则", "JSON"),
         "capex_yuan_per_wh": ("单位投资", "元/Wh"),
         "operation_years": ("运营年限", "年"),
         "om_rate": ("运维费率", "%"),
@@ -209,6 +211,8 @@ def _write_parameters(sheet, result: dict) -> None:
     parameters = result.get("input_parameters", {})
     for row, (key, (label, unit)) in enumerate(labels.items(), start=5):
         value = parameters.get(key)
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value, ensure_ascii=False, sort_keys=True)
         cell_values = [label, value, unit, key]
         for column, value in enumerate(cell_values, start=1):
             cell = sheet.cell(row, column, value)

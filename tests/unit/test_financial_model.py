@@ -83,6 +83,20 @@ def test_input_vat_credit_carries_forward_and_pre_tax_cashflow_is_exposed():
     assert len(result["pre_tax_cashflows_yuan"]) == len(result["cashflows_yuan"])
 
 
+def test_revenue_phase_rules_apply_window_growth_and_eol_policy():
+    parameters = FinancialTaskParameters(
+        power_mw=10, capacity_mwh=20, annual_revenue_yuan=0,
+        capacity_fee_yuan=1_000_000,
+        revenue_phases={"capacity_fee_yuan": {
+            "start_year": 2, "end_year": 4, "eol_applies": False, "annual_growth": 0.1,
+        }},
+        operation_years=5,
+    )
+    result = calculate_financials(parameters.financial())
+    values = [item["capacity_fee_yuan"] for item in result["yearly"]]
+    assert values == pytest.approx([0, 1_000_000, 1_100_000, 1_210_000, 0])
+
+
 def test_calendar_cycle_eol_uses_annual_cycles_against_cycle_life():
     parameters = FinancialTaskParameters(
         power_mw=100, capacity_mwh=200, annual_revenue_yuan=8_000_000,

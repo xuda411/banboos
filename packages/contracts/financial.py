@@ -5,7 +5,27 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from packages.domain.financial_model import FinancialParameters
+from packages.domain.financial_model import FinancialParameters, RevenuePhaseRule
+
+RevenueComponent = Literal[
+    "annual_revenue_yuan", "capacity_lease_yuan", "capacity_fee_yuan", "subsidy_yuan",
+    "primary_frequency_yuan", "secondary_frequency_yuan",
+]
+
+
+class RevenuePhaseRuleInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    start_year: int = Field(default=1, ge=1, le=100)
+    end_year: int | None = Field(default=None, ge=1, le=100)
+    eol_applies: bool = True
+    annual_growth: float = Field(default=0, ge=-1, le=1)
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.end_year is not None and self.end_year < self.start_year:
+            raise ValueError("分阶段收益结束年份不能早于开始年份")
+        return self
 
 
 class FinancialTaskParameters(BaseModel):
@@ -25,6 +45,7 @@ class FinancialTaskParameters(BaseModel):
     subsidy_yuan: float = Field(default=0, ge=0)
     primary_frequency_yuan: float = Field(default=0, ge=0)
     secondary_frequency_yuan: float = Field(default=0, ge=0)
+    revenue_phases: dict[RevenueComponent, RevenuePhaseRuleInput] = Field(default_factory=dict)
     capex_yuan_per_wh: float = Field(default=1.2, gt=0)
     operation_years: int = Field(default=25, ge=1, le=100)
     om_rate: float = Field(default=0.0075, ge=0, le=1)
@@ -59,7 +80,12 @@ class FinancialTaskParameters(BaseModel):
     def financial(self) -> FinancialParameters:
         if self.annual_revenue_yuan is None:
             raise ValueError("annual_revenue_yuan or source_run_id is required")
-        return FinancialParameters(**self.model_dump(exclude={"source_run_id"}))
+        payload = self.model_dump(exclude={"source_run_id", "revenue_phases"})
+        payload["revenue_phases"] = {
+            component: RevenuePhaseRule(**rule.model_dump())
+            for component, rule in self.revenue_phases.items()
+        }
+        return FinancialParameters(**payload)
 
     @model_validator(mode="after")
     def validate_parameters(self):

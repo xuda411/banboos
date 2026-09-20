@@ -59,3 +59,18 @@ def test_formula_audit_includes_template_cost_and_tax_drivers(tmp_path):
     assert audit["B5"].value.startswith("=IF(")
     assert "Q5" in audit["P5"].value
     assert audit["S5"].value.startswith("=(C5-")
+
+
+def test_phase_schedule_is_serialized_and_keeps_formula_audit_explicit(tmp_path):
+    parameters = FinancialTaskParameters(
+        power_mw=10, capacity_mwh=20, annual_revenue_yuan=5_000_000,
+        capacity_fee_yuan=1_000_000,
+        revenue_phases={"capacity_fee_yuan": {"start_year": 2, "end_year": 4}},
+    )
+    result = calculate_financials(parameters.financial())
+    result["input_parameters"] = parameters.model_dump(exclude_none=True)
+    workbook = load_workbook(export_financial_xlsx(result, tmp_path / "phase.xlsx"))
+    parameter_values = [workbook["测算参数"].cell(row, 2).value
+                        for row in range(5, workbook["测算参数"].max_row + 1)]
+    assert any(isinstance(value, str) and "capacity_fee_yuan" in value for value in parameter_values)
+    assert "公式复核" not in workbook.sheetnames

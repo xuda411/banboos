@@ -1,15 +1,31 @@
 """Transparent project cash-flow model for the first server financial release."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from itertools import pairwise
 from math import isfinite
 
-MODEL_VERSION = "banboos-financial-1.2.0"
+MODEL_VERSION = "banboos-financial-1.3.0"
 
 
 class FinancialError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class RevenuePhaseRule:
+    start_year: int = 1
+    end_year: int | None = None
+    eol_applies: bool = True
+    annual_growth: float = 0.0
+
+    def validate(self, operation_years: int) -> None:
+        if self.start_year < 1 or self.start_year > operation_years:
+            raise FinancialError("分阶段收益开始年份必须在运营期内")
+        if self.end_year is not None and (self.end_year < self.start_year or self.end_year > operation_years):
+            raise FinancialError("分阶段收益结束年份必须不早于开始年份且在运营期内")
+        if not isinstance(self.eol_applies, bool) or not -1 <= self.annual_growth <= 1:
+            raise FinancialError("分阶段收益规则参数无效")
 
 
 @dataclass(frozen=True)
@@ -28,6 +44,7 @@ class FinancialParameters:
     subsidy_yuan: float = 0.0
     primary_frequency_yuan: float = 0.0
     secondary_frequency_yuan: float = 0.0
+    revenue_phases: dict[str, RevenuePhaseRule] = field(default_factory=dict)
     capex_yuan_per_wh: float = 1.2
     operation_years: int = 25
     om_rate: float = 0.0075
@@ -59,7 +76,7 @@ class FinancialParameters:
     replace_capex_yuan: float = 0.0
 
     def validate(self) -> None:
-        if any(v is not None and not isinstance(v, str)
+        if any(v is not None and not isinstance(v, (str, dict))
                and (isinstance(v, bool) or not isfinite(float(v)))
                for v in asdict(self).values()):
             raise FinancialError("财务参数必须为有限数值")
@@ -85,6 +102,14 @@ class FinancialParameters:
             raise FinancialError("单位投资必须为正")
         if not 1 <= self.operation_years <= 100 or int(self.operation_years) != self.operation_years:
             raise FinancialError("运营年限必须为1至100年的整数")
+        allowed_components = {"annual_revenue_yuan", "capacity_lease_yuan", "capacity_fee_yuan",
+                             "subsidy_yuan", "primary_frequency_yuan", "secondary_frequency_yuan"}
+        if set(self.revenue_phases) - allowed_components:
+            raise FinancialError("存在不支持的分阶段收益项目")
+        for rule in self.revenue_phases.values():
+            if not isinstance(rule, RevenuePhaseRule):
+                raise FinancialError("分阶段收益规则格式无效")
+            rule.validate(self.operation_years)
         if not 0 <= self.loan_ratio <= 1 or self.loan_years < 1 or self.loan_years > 100:
             raise FinancialError("贷款比例须在0至1之间，贷款期限须为正整数")
         if int(self.loan_years) != self.loan_years or self.loan_rate < 0:
@@ -149,6 +174,19 @@ def irr(cashflows: list[float]) -> float | None:
     return unique[0] if len(unique) == 1 else None
 
 
+def _phase_revenue(p: FinancialParameters, component: str, base: float,
+                   year: int, eol: float) -> float:
+    """Apply an optional start/end/growth rule to one annual revenue stream."""
+    rule = p.revenue_phases.get(component)
+    default_eol = component in {"annual_revenue_yuan", "capacity_fee_yuan", "subsidy_yuan"}
+    if rule is None:
+        return base * (eol if default_eol else 1.0)
+    if year < rule.start_year or (rule.end_year is not None and year > rule.end_year):
+        return 0.0
+    value = base * (1 + rule.annual_growth) ** (year - rule.start_year)
+    return value * (eol if rule.eol_applies else 1.0)
+
+
 def calculate_financials(p: FinancialParameters) -> dict:
     p.validate()
     years = int(p.operation_years)
@@ -183,11 +221,14 @@ def calculate_financials(p: FinancialParameters) -> dict:
         # cumulative cycles divided by that lifetime, bounded by final EOL.
         cycle_eol = max(p.final_eol, 1 - p.annual_cycles * age / p.cycle_life_cycles)
         eol = min(linear_eol, calendar_eol, cycle_eol) if p.eol_method == "calendar_cycle_min" else linear_eol
-        energy_revenue = p.annual_revenue_yuan * eol
-        capacity_fee = p.capacity_fee_yuan * eol
-        subsidy = p.subsidy_yuan * eol
-        revenue = (energy_revenue + capacity_fee + subsidy + p.capacity_lease_yuan
-                   + p.primary_frequency_yuan + p.secondary_frequency_yuan)
+        energy_revenue = _phase_revenue(p, "annual_revenue_yuan", p.annual_revenue_yuan, year, eol)
+        capacity_lease = _phase_revenue(p, "capacity_lease_yuan", p.capacity_lease_yuan, year, eol)
+        capacity_fee = _phase_revenue(p, "capacity_fee_yuan", p.capacity_fee_yuan, year, eol)
+        subsidy = _phase_revenue(p, "subsidy_yuan", p.subsidy_yuan, year, eol)
+        primary_frequency = _phase_revenue(p, "primary_frequency_yuan", p.primary_frequency_yuan, year, eol)
+        secondary_frequency = _phase_revenue(p, "secondary_frequency_yuan", p.secondary_frequency_yuan, year, eol)
+        revenue = (energy_revenue + capacity_fee + subsidy + capacity_lease
+                   + primary_frequency + secondary_frequency)
         output_vat = revenue / (1 + p.vat_rate) * p.vat_rate if p.vat_rate else 0.0
         net_revenue = revenue - output_vat
         vat_surcharge = output_vat * p.vat_surcharge_rate
@@ -242,9 +283,9 @@ def calculate_financials(p: FinancialParameters) -> dict:
                        "insurance_yuan": insurance,
                        "energy_revenue_yuan": energy_revenue,
                        "capacity_fee_yuan": capacity_fee, "subsidy_yuan": subsidy,
-                       "capacity_lease_yuan": p.capacity_lease_yuan,
-                       "primary_frequency_yuan": p.primary_frequency_yuan,
-                       "secondary_frequency_yuan": p.secondary_frequency_yuan,
+                       "capacity_lease_yuan": capacity_lease,
+                       "primary_frequency_yuan": primary_frequency,
+                       "secondary_frequency_yuan": secondary_frequency,
                        "operating_cost_yuan": operating_cost, "depreciation_yuan": depreciation_this_year,
                        "replacement_capex_yuan": replacement, "loan_interest_yuan": interest,
                        "loan_principal_yuan": principal, "remaining_loan_yuan": remaining_loan,

@@ -13,6 +13,8 @@ def write_formula_audit(workbook, result, title, header):
     required = set(FinancialParameters.__dataclass_fields__) - {"replace_year"}
     if not required.issubset(result["input_parameters"]):
         return  # Old or incomplete inputs cannot support a trustworthy independent reconstruction.
+    if result["input_parameters"].get("revenue_phases"):
+        return  # Excel formulas cannot safely parse the JSON phase schedule yet.
     parameters = workbook["测算参数"]
     refs = {parameters.cell(row, 4).value: f"'测算参数'!$B${row}"
             for row in range(5, parameters.max_row + 1)}

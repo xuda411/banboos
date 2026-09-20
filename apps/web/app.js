@@ -502,9 +502,17 @@ async function submitFinancial() {
 function collectFinancialParameters() {
   const percent = (id) => Number($(id).value) / 100;
   const optionalNumber = (id) => $(id).value === "" ? null : Number($(id).value);
+  const phaseText = $("revenuePhases").value.trim();
+  let revenuePhases = {};
+  if (phaseText) {
+    try { revenuePhases = JSON.parse(phaseText); } catch { throw new Error("分阶段收益规则不是有效 JSON"); }
+    if (!revenuePhases || Array.isArray(revenuePhases) || typeof revenuePhases !== "object") {
+      throw new Error("分阶段收益规则必须是 JSON 对象");
+    }
+  }
   return {
     power_mw: Number($("powerMw").value), capacity_mwh: Number($("capacityMwh").value), annual_revenue_yuan: financialSourceRunId ? null : Number($("annualRevenue").value),
-    capacity_lease_yuan: Number($("capacityLease").value), capacity_fee_yuan: Number($("capacityFee").value), subsidy_yuan: Number($("subsidy").value),
+    capacity_lease_yuan: Number($("capacityLease").value), capacity_fee_yuan: Number($("capacityFee").value), subsidy_yuan: Number($("subsidy").value), revenue_phases: revenuePhases,
     primary_frequency_yuan: Number($("primaryFrequency").value), secondary_frequency_yuan: Number($("secondaryFrequency").value), capex_yuan_per_wh: Number($("capex").value), source_run_id: financialSourceRunId || undefined,
     operation_years: Number($("operationYears").value), single_side_efficiency: percent("singleSideEfficiency"), dod: percent("dod"), annual_cycles: Number($("annualCycles").value), eol_method: $("eolMethod").value, calendar_eol_decline: percent("calendarEolDecline"), cycle_life_cycles: Number($("cycleLifeCycles").value), om_rate: percent("omRate"), om_growth: percent("omGrowth"), land_rent_yuan: Number($("landRent").value), insurance_rate: percent("insuranceRate"), fixed_operation_cost_yuan: Number($("fixedOperationCost").value), revenue_share_threshold_yuan: Number($("revenueShareThreshold").value), revenue_share_rate: percent("revenueShareRate"), other_operating_cost_yuan: Number($("otherOperatingCost").value), vat_rate: percent("vatRate"), vat_surcharge_rate: percent("vatSurchargeRate"), stamp_tax_rate: percent("stampTaxRate"), input_vat_rate_equipment: percent("inputVatRateEquipment"), input_vat_rate_other: percent("inputVatRateOther"), equipment_investment_share: percent("equipmentInvestmentShare"), input_vat_credit_ratio: percent("inputVatCreditRatio"), first_year_eol: percent("firstEol"), final_eol: percent("finalEol"), residual_rate: percent("residualRate"), income_tax_rate: percent("incomeTaxRate"), discount_rate: percent("discountRate"), loan_ratio: percent("loanRatio"), loan_years: Number($("loanYears").value), loan_rate: percent("loanRate"), construction_years: Number($("constructionYears").value), construction_loan_rate: percent("constructionLoanRate"), replace_year: optionalNumber("replaceYear"), replace_capex_yuan: Number($("replaceCapex").value),
   };
