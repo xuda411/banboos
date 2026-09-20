@@ -34,13 +34,14 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
     _write_cashflow(workbook.create_sheet("年度现金流"), result)
     _write_debt(workbook.create_sheet("融资明细"), result)
     _write_timeline(workbook.create_sheet("全周期现金流"), result)
+    _write_template_financial_sheet(workbook.create_sheet("财务指标"), result)
     if result.get("input_parameters", {}).get("revenue_phases"):
         _write_revenue_phase_sheet(workbook.create_sheet("阶段收益"), result)
     _write_template_mapping(workbook.create_sheet("模板映射"))
     write_formula_audit(workbook, result, _title, _header)
     for sheet in workbook.worksheets:
         sheet.sheet_view.showGridLines = False
-        sheet.freeze_panes = "B5"
+        sheet.freeze_panes = "D5" if sheet.title == "财务指标" else "B5"
         _fit_columns(sheet)
         sheet.print_title_rows = "1:4"
         sheet.print_options.horizontalCentered = True
@@ -277,6 +278,138 @@ def _write_revenue_phase_sheet(sheet, result: dict) -> None:
             sheet.cell(row, 8).border = Border(bottom=THIN)
             row += 1
     sheet.auto_filter.ref = f"A4:H{row - 1}"
+
+
+def _write_template_financial_sheet(sheet, result: dict) -> None:
+    """Render a horizontal, template-like financial indicator statement."""
+    yearly = result.get("yearly", [])
+    years = len(yearly)
+    last_column = 4 + years
+    _title(sheet, "财务指标（模板排版）", last_column)
+    sheet.cell(2, 1, "年度横向展示；明细和税务口径均链接到任务快照与公式复核页")
+    _header(sheet, 4, ["序号", "指标", "单位"] + [0] + list(range(1, years + 1)))
+    for column in range(4, last_column + 1):
+        sheet.cell(4, column).number_format = '0" 年"'
+    rows = [
+        (5, "收益", "", None), (6, "EOL", "%", "eol"),
+        (7, "电能量收入", "元", "energy_revenue_yuan"),
+        (8, "容量租赁收入", "元", "capacity_lease_yuan"),
+        (9, "容量电费收入", "元", "capacity_fee_yuan"),
+        (10, "补贴收入", "元", "subsidy_yuan"),
+        (11, "一次调频收入", "元", "primary_frequency_yuan"),
+        (12, "二次调频收入", "元", "secondary_frequency_yuan"),
+        (13, "总收入", "元", "revenue_yuan"),
+        (14, "不含税收入", "元", "net_revenue_yuan"),
+        (15, "销项增值税", "元", "output_vat_yuan"),
+        (16, "实际应缴增值税", "元", "actual_vat_yuan"),
+        (17, "进项税抵扣使用", "元", "input_vat_credit_used_yuan"),
+        (18, "进项税抵扣余额", "元", "input_vat_credit_closing_yuan"),
+        (20, "成本与税费", "", None),
+        (21, "运营成本", "元", "operating_cost_yuan"),
+        (22, "折旧", "元", "depreciation_yuan"),
+        (23, "换电池投资", "元", "replacement_capex_yuan"),
+        (24, "贷款利息", "元", "loan_interest_yuan"),
+        (25, "偿还本金", "元", "loan_principal_yuan"),
+        (26, "所得税", "元", "income_tax_yuan"),
+        (27, "增值税附加", "元", "vat_surcharge_yuan"),
+        (28, "印花税", "元", "stamp_tax_yuan"),
+        (30, "现金流", "", None),
+        (31, "项目税前现金流", "元", "project_pre_tax_cashflow_yuan"),
+        (32, "项目现金流", "元", "project_cashflow_yuan"),
+        (33, "资本金税前现金流", "元", "equity_pre_tax_cashflow_yuan"),
+        (34, "资本金现金流", "元", "equity_cashflow_yuan"),
+        (35, "累计项目现金流", "元", "cumulative_project"),
+        (36, "累计资本金现金流", "元", "cumulative_equity"),
+        (38, "财务指标", "", None),
+        (39, "全投资税前 IRR", "%", "full_pre_tax_irr"),
+        (40, "全投资 IRR", "%", "full_irr"),
+        (41, "全投资税前 NPV", "元", "full_pre_tax_npv_yuan"),
+        (42, "全投资 NPV", "元", "full_npv_yuan"),
+        (43, "资本金税前 IRR", "%", "equity_pre_tax_irr"),
+        (44, "资本金 IRR", "%", "equity_irr"),
+        (45, "资本金税前 NPV", "元", "equity_pre_tax_npv_yuan"),
+        (46, "资本金 NPV", "元", "equity_npv_yuan"),
+    ]
+    annual_columns = {
+        "eol": "B", "energy_revenue_yuan": "C", "capacity_lease_yuan": "F",
+        "capacity_fee_yuan": "D", "subsidy_yuan": "E", "primary_frequency_yuan": "G",
+        "secondary_frequency_yuan": "H", "revenue_yuan": "I", "net_revenue_yuan": "S",
+        "output_vat_yuan": "T", "actual_vat_yuan": "U", "input_vat_credit_used_yuan": "V",
+        "input_vat_credit_closing_yuan": "W", "operating_cost_yuan": "J", "depreciation_yuan": "K",
+        "replacement_capex_yuan": "M", "loan_interest_yuan": "?", "loan_principal_yuan": "?",
+        "income_tax_yuan": "L", "vat_surcharge_yuan": "X", "stamp_tax_yuan": "Y",
+        "project_pre_tax_cashflow_yuan": "AB", "project_cashflow_yuan": "N",
+        "equity_pre_tax_cashflow_yuan": "AC", "equity_cashflow_yuan": "O",
+    }
+    # Loan details live on a separate sheet; resolve their columns through the
+    # same year index when writing the annual rows.
+    debt_columns = {"loan_interest_yuan": "B", "loan_principal_yuan": "C"}
+    for number, label, unit, key in rows:
+        sheet.cell(number, 1, "" if key is None else number - 5)
+        sheet.cell(number, 2, label)
+        sheet.cell(number, 3, unit)
+        for column in range(1, 4):
+            cell = sheet.cell(number, column)
+            cell.font = Font(name="Microsoft YaHei", color=TEXT, bold=key is None)
+            cell.border = Border(bottom=THIN)
+            cell.fill = PatternFill("solid", fgColor="DDEBE5" if key is None else (LIGHT_GREEN if number % 2 else "FFFFFF"))
+        if key is None:
+            sheet.merge_cells(start_row=number, start_column=1, end_row=number, end_column=last_column)
+            sheet.cell(number, 1).alignment = Alignment(horizontal="left", vertical="center")
+            continue
+        for year_index in range(years + 1):
+            column = 4 + year_index
+            cell = sheet.cell(number, column)
+            if key in {"full_pre_tax_irr", "full_irr", "equity_pre_tax_irr", "equity_irr",
+                       "full_pre_tax_npv_yuan", "full_npv_yuan", "equity_pre_tax_npv_yuan", "equity_npv_yuan"}:
+                if column == 4:
+                    source_cell = {"full_pre_tax_irr": "B14", "full_irr": "B12",
+                                   "full_pre_tax_npv_yuan": "B15", "full_npv_yuan": "B13",
+                                   "equity_pre_tax_irr": "B16", "equity_irr": "B9",
+                                   "equity_pre_tax_npv_yuan": "B17", "equity_npv_yuan": "B10"}[key]
+                    cell.value = f"='项目概览'!{source_cell}"
+                else:
+                    cell.value = ""
+            elif key == "cumulative_project" or key == "cumulative_equity":
+                cash_key = "project_cashflow_yuan" if key == "cumulative_project" else "equity_cashflow_yuan"
+                source_col = "B" if key == "cumulative_project" else "C"
+                if column == 4:
+                    cell.value = f"='全周期现金流'!{source_col}5"
+                else:
+                    cell.value = f"={sheet.cell(number, column - 1).coordinate}+{sheet.cell(32 if cash_key == 'project_cashflow_yuan' else 34, column).coordinate}"
+            elif key in debt_columns:
+                if column == 4:
+                    cell.value = "=0"
+                else:
+                    cell.value = f"='融资明细'!{debt_columns[key]}{year_index + 4}"
+            elif column == 4:
+                if key in {"project_pre_tax_cashflow_yuan", "project_cashflow_yuan"}:
+                    cell.value = "='全周期现金流'!B5"
+                elif key in {"equity_pre_tax_cashflow_yuan", "equity_cashflow_yuan"}:
+                    cell.value = "='全周期现金流'!C5"
+                else:
+                    cell.value = "=1" if key == "eol" else "=0"
+            else:
+                cell.value = f"='年度现金流'!{annual_columns[key]}{year_index + 4}"
+            cell.font = Font(name="Microsoft YaHei", color=TEXT)
+            cell.border = Border(bottom=THIN)
+            cell.number_format = "0.00%" if unit == "%" or key == "eol" else "#,##0.00;[Red](#,##0.00);0.00"
+    # Replace summary cells with recalculable formulas using the horizontal cashflow rows.
+    parameter_rows = {sheet.parent["测算参数"].cell(row, 4).value: row
+                      for row in range(5, sheet.parent["测算参数"].max_row + 1)}
+    discount_ref = f"'测算参数'!$B${parameter_rows['discount_rate']}"
+    final_column = get_column_letter(last_column)
+    sheet["D39"] = f"=IRR(D31:{final_column}31)"
+    sheet["D40"] = f"=IRR(D32:{final_column}32)"
+    sheet["D41"] = f"=NPV({discount_ref},E31:{final_column}31)+D31"
+    sheet["D42"] = f"=NPV({discount_ref},E32:{final_column}32)+D32"
+    sheet["D43"] = f"=IRR(D33:{final_column}33)"
+    sheet["D44"] = f"=IRR(D34:{final_column}34)"
+    sheet["D45"] = f"=NPV({discount_ref},E33:{final_column}33)+D33"
+    sheet["D46"] = f"=NPV({discount_ref},E34:{final_column}34)+D34"
+    for row in range(39, 47):
+        sheet.cell(row, 4).number_format = "0.00%" if row in {39, 40, 43, 44} else "#,##0.00;[Red](#,##0.00);0.00"
+    sheet.auto_filter.ref = f"A4:{get_column_letter(last_column)}46"
 
 
 def _write_debt(sheet, result: dict) -> None:
