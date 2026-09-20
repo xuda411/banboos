@@ -124,3 +124,18 @@ def test_sensitivity_task_reuses_financial_model_for_each_scenario():
     assert result.status == "succeeded"
     assert len(result.result["points"]) == 3
     assert result.result["points"][0]["full_npv_yuan"] < result.result["points"][-1]["full_npv_yuan"]
+
+
+def test_sensitivity_task_supports_template_operating_cost_driver():
+    registry = RunRegistry()
+    item = registry.submit("sensitivity", parameters={
+        "base": {
+            "power_mw": 100, "capacity_mwh": 200, "annual_revenue_yuan": 8_000_000,
+            "fixed_operation_cost_yuan": 500_000,
+        },
+        "variable": "fixed_operation_cost_yuan", "change_rates": [-0.2, 0, 0.2],
+    })
+    assert run_once(registry)
+    result = registry.get(item.run_id)
+    assert result.status == "succeeded"
+    assert result.result["points"][0]["full_npv_yuan"] > result.result["points"][-1]["full_npv_yuan"]

@@ -14,7 +14,11 @@ class SensitivityTaskParameters(BaseModel):
     base: FinancialTaskParameters
     variable: Literal[
         "annual_revenue_yuan", "capex_yuan_per_wh", "om_rate", "discount_rate",
-        "loan_rate", "operation_years"
+        "loan_rate", "operation_years", "annual_cycles", "calendar_eol_decline",
+        "cycle_life_cycles", "land_rent_yuan", "insurance_rate",
+        "fixed_operation_cost_yuan", "revenue_share_threshold_yuan",
+        "revenue_share_rate", "other_operating_cost_yuan", "vat_rate",
+        "vat_surcharge_rate", "stamp_tax_rate"
     ]
     change_rates: list[float] = Field(min_length=3, max_length=9)
 
