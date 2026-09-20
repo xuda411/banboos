@@ -382,7 +382,9 @@ async function submitDispatch() {
   if (!Number.isFinite(power) || !Number.isFinite(capacity) || power <= 0 || capacity <= 0 || capacity / power < 0.25 || capacity / power > 24) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
   state.textContent = "提交中"; state.className = "status status-muted"; $("dispatchResult").hidden = true;
   const parameters = { node_id: Number(nodeId), market: $("dispatchMarket").value, start_date: $("dispatchStart").value, end_date: $("dispatchEnd").value, power_mw: power, capacity_mwh: capacity, eta_charge: Number($("dispatchEta").value) / 100, eta_discharge: Number($("dispatchEta").value) / 100, max_daily_cycles: Number($("dispatchCycles").value), hurdle_yuan_per_mwh: Number($("dispatchHurdle").value) };
-  try { const run = await post("/api/v1/runs", { kind: "strict-dispatch", parameters }); $("dispatchRunId").textContent = run.run_id; const finished = await pollDispatch(run.run_id); renderDispatchResult(finished.result); ReportUI.run("dispatchView", run.run_id, "逐日调度", apiBase); } catch (error) { state.textContent = "回放失败"; state.className = "status status-error"; message.textContent = error.message; }
+  const kind = $("dispatchMode").value || "strict-dispatch";
+  if (kind === "lp-analysis") Object.assign(parameters, { include_comparison: true, include_sensitivity: false });
+  try { const run = await post("/api/v1/runs", { kind, parameters }); $("dispatchRunId").textContent = run.run_id; const finished = await pollDispatch(run.run_id); renderDispatchResult(finished.result); ReportUI.run("dispatchView", run.run_id, kind === "lp-analysis" ? "LP详细回放" : "逐日调度", apiBase); } catch (error) { state.textContent = "回放失败"; state.className = "status status-error"; message.textContent = error.message; }
 }
 
 async function pollDispatch(runId) {
@@ -393,7 +395,9 @@ async function pollDispatch(runId) {
 
 function renderDispatchResult(result) {
   if (!result) return; const money = (value) => value == null ? "—" : `${(Number(value) / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元`; $("dispatchValidDays").textContent = result.valid_days ?? "—"; $("dispatchTotalRevenue").textContent = money(result.total_net_revenue_yuan); $("dispatchAnnualRevenue").textContent = money(result.annualized_net_revenue_yuan); $("dispatchSnapshot").textContent = result.snapshot_id ? `${result.snapshot_id.slice(0, 8)}…` : "—";
-  const body = $("dispatchDays"); body.replaceChildren(); (result.days || []).forEach((day) => { const row = document.createElement("tr"); [day.run_date, money(day.net_revenue_yuan), Number(day.charge_energy_mwh).toFixed(1), Number(day.discharge_energy_mwh).toFixed(1), Number(day.cycles).toFixed(2), day.shutdown ? "低于门槛" : "已执行"].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); }); body.appendChild(row); }); $("dispatchResult").hidden = false;
+  const body = $("dispatchDays"); body.replaceChildren(); (result.days || []).forEach((day) => { const row = document.createElement("tr"); [day.run_date, money(day.net_revenue_yuan), Number(day.charge_energy_mwh).toFixed(1), Number(day.discharge_energy_mwh).toFixed(1), Number(day.cycles).toFixed(2), day.shutdown ? "低于门槛" : "已执行"].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); }); body.appendChild(row); });
+  const detail = $("lpResultDetails"); const months = $("lpMonths"); months.replaceChildren(); if (result.monthly?.length) { result.monthly.forEach((item) => { const row = document.createElement("tr"); [item.month, item.days, Number(item.revenue_total_yuan).toFixed(2), Number(item.revenue_avg_yuan).toFixed(2), Number(item.discharge_energy_total_mwh).toFixed(1), Number(item.cycles_avg).toFixed(3)].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); }); months.appendChild(row); }); detail.hidden = false; } else detail.hidden = true;
+  $("dispatchResult").hidden = false;
 }
 
 function aggregateWeather(series, granularity) {

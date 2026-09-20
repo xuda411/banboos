@@ -92,6 +92,11 @@ def test_readonly_demo_endpoints():
 
     response = client.post("/api/v1/runs", json={"kind": "strict-dispatch", "parameters": {"node_id": 1}})
     assert response.status_code == 422
+    response = client.post("/api/v1/runs", json={"kind": "lp-analysis", "parameters": {
+        "node_id": 1, "market": "实时", "start_date": "2026-01-01", "end_date": "2026-01-01",
+        "power_mw": 100, "capacity_mwh": 200,
+    }})
+    assert response.status_code == 202
     response = client.post("/api/v1/runs", json={"kind": "sensitivity", "parameters": {
         "base": {"power_mw": 100, "capacity_mwh": 200, "annual_revenue_yuan": 8_000_000},
         "variable": "annual_revenue_yuan", "change_rates": [-0.2, 0, 0.2],

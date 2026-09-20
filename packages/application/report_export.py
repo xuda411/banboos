@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 
 from packages.application.financial_export import GREEN, LIGHT_GREEN, _fit_columns, _header, _title
 
-SUPPORTED_TASKS = {"financial", "price-analysis", "strict-dispatch", "sensitivity", "portfolio-optimization"}
+SUPPORTED_TASKS = {"financial", "price-analysis", "strict-dispatch", "lp-analysis", "sensitivity", "portfolio-optimization"}
 
 
 def table(workbook, title, headers, rows, formats=None):
@@ -82,6 +82,32 @@ def export_task_xlsx(run):
         keys = ["run_date", "net_revenue_yuan", "charge_energy_mwh", "discharge_energy_mwh", "cycles", "shutdown", "solver_gap"]
         table(workbook, "逐日调度", ["日期", "净收益（元）", "充电量（MWh）", "放电量（MWh）", "循环次数", "停机", "求解间隙"],
               [[day.get(key) for key in keys] for day in data["days"]], {7: "0.00%"})
+    elif run.kind == "lp-analysis":
+        keys = ["run_date", "net_revenue_yuan", "charge_energy_mwh", "discharge_energy_mwh", "cycles",
+                "spread_max_yuan_per_mwh", "spread_avg_yuan_per_mwh", "shutdown", "solver_gap"]
+        table(workbook, "LP逐日结果", ["日期", "净收益（元）", "充电量（MWh）", "放电量（MWh）", "循环次数",
+              "最大价差（元/MWh）", "平均价差（元/MWh）", "停机", "求解间隙"],
+              [[day.get(key) for key in keys] for day in data["days"]], {9: "0.00%"})
+        trajectory_rows = []
+        for day in data["days"]:
+            for slot, values in enumerate(zip(day["prices_yuan_per_mwh"], day["charge_mw"], day["discharge_mw"], day["soc"]), 1):
+                price, charge, discharge, soc = values
+                trajectory_rows.append([day["run_date"], slot, f"{(slot - 1) // 4:02d}:{(slot - 1) % 4 * 15:02d}", price, charge, discharge, soc])
+        table(workbook, "LP时段轨迹", ["日期", "序号", "时段终点", "电价（元/MWh）", "充电功率（MW）", "放电功率（MW）", "区间末SOC"], trajectory_rows)
+        month_keys = ["month", "days", "revenue_total_yuan", "revenue_avg_yuan", "discharge_energy_total_mwh", "cycles_avg", "spread_max_yuan_per_mwh", "spread_avg_yuan_per_mwh"]
+        table(workbook, "LP月度汇总", ["月份", "有效日", "净收益合计（元）", "日均净收益（元）", "放电量合计（MWh）", "平均循环", "最大价差", "平均价差"],
+              [[row.get(key) for key in month_keys] for row in data["monthly"]])
+        year_keys = ["year", "days", "revenue_total_yuan", "revenue_avg_daily_yuan", "discharge_energy_total_mwh", "cycles_avg", "spread_max_yuan_per_mwh", "spread_avg_yuan_per_mwh"]
+        table(workbook, "LP年度汇总", ["年度", "有效日", "净收益合计（元）", "日均净收益（元）", "放电量合计（MWh）", "平均循环", "最大价差", "平均价差"],
+              [[row.get(key) for key in year_keys] for row in data["annual"]])
+        if data.get("comparison"):
+            comparison_keys = ["run_date", "lp_revenue_yuan", "simple_revenue_yuan", "improvement_yuan", "improvement_pct", "lp_discharge_energy_mwh", "simple_discharge_energy_mwh", "lp_cycles"]
+            table(workbook, "LP与窗口基准", ["日期", "LP净收益（元）", "窗口基准（元）", "提升（元）", "提升比例（%）", "LP放电量（MWh）", "基准放电量（MWh）", "LP循环"],
+                  [[row.get(key) for key in comparison_keys] for row in data["comparison"]])
+        if data.get("sensitivity"):
+            sensitivity_keys = ["c_rate", "power_mw", "capacity_mwh", "total_revenue_yuan", "avg_daily_revenue_yuan", "annual_revenue_yuan", "avg_cycles", "capex_yuan"]
+            table(workbook, "LP C率敏感性", ["C率", "功率（MW）", "容量（MWh）", "总净收益（元）", "日均净收益（元）", "年化净收益（元）", "平均循环", "投资额（元）"],
+                  [[row.get(key) for key in sensitivity_keys] for row in data["sensitivity"]], {1: "0.00%"})
     elif run.kind == "price-analysis":
         keys = ["month", "valid_days", "charge_price_yuan_per_mwh", "discharge_price_yuan_per_mwh", "spread_yuan_per_mwh"]
         table(workbook, "月度价差", ["月份", "有效日", "低价均价（元/MWh）", "高价均价（元/MWh）", "价差（元/MWh）"],

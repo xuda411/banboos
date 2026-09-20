@@ -17,11 +17,17 @@ from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.dispatch_result import DispatchDayResult, DispatchRunResult
 from packages.contracts.financial import FinancialTaskParameters
+from packages.contracts.lp_analysis import LPAnalysisParameters, LPAnalysisRunResult
 from packages.contracts.portfolio import PortfolioTaskParameters
 from packages.contracts.portfolio_result import PortfolioResult
 from packages.contracts.sensitivity import SensitivityTaskParameters
 from packages.contracts.sensitivity_result import SensitivityPoint, SensitivityRunResult
 from packages.domain.financial_model import MODEL_VERSION, FinancialError, calculate_financials
+from packages.domain.lp_analysis import annual as lp_annual
+from packages.domain.lp_analysis import compare as lp_compare
+from packages.domain.lp_analysis import day_payload as lp_day_payload
+from packages.domain.lp_analysis import monthly as lp_monthly
+from packages.domain.lp_analysis import sensitivity as lp_sensitivity
 from packages.domain.portfolio_optimizer import optimize_portfolio
 from packages.domain.storage_dispatch import ALGORITHM_VERSION, DispatchError, solve_day
 from packages.infrastructure.dispatch_snapshots import DispatchSnapshots
@@ -69,6 +75,46 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
             registry.complete(item.run_id, "节点价差分析完成", result)
         except (KeyError, TypeError, ValueError, RuntimeError) as error:
             registry.fail(item.run_id, f"节点价差分析失败：{error}", "PRICE_ANALYSIS_FAILED")
+    elif item.kind == "lp-analysis":
+        try:
+            parameters = LPAnalysisParameters.model_validate(item.parameters)
+            service = readonly_service or ReadonlyService()
+            curves = service.dispatch_curves(parameters.node_id, parameters.market,
+                                             parameters.start_date, parameters.end_date)
+            if not curves:
+                raise DispatchError("指定范围没有完整的96点有效日", "NO_VALID_PRICE_DAYS")
+            snapshot_payload = {"kind": "lp-analysis", "algorithm_version": ALGORITHM_VERSION,
+                                "parameters": parameters.model_dump(mode="json"), "curves": curves}
+            snapshot_id = DispatchSnapshots().put(snapshot_payload)
+            daily: list[dict] = []
+            battery = parameters.battery()
+            for index, curve in enumerate(curves, start=1):
+                registry.update_progress(item.run_id, 5 + int(index / len(curves) * 80),
+                                         f"正在求解第 {index}/{len(curves)} 个LP历史日")
+                day = solve_day(curve["prices"], battery)
+                daily.append(lp_day_payload(curve["run_date"], curve["prices"], day))
+            total = sum(float(day["net_revenue_yuan"]) for day in daily)
+            comparisons = lp_compare(daily, battery) if parameters.include_comparison else []
+            sensitivity = []
+            if parameters.include_sensitivity:
+                registry.update_progress(item.run_id, 87, "正在计算C率敏感性情景")
+                sensitivity = lp_sensitivity(curves, battery, parameters.c_rates, parameters.capex_per_mwh)
+            result = LPAnalysisRunResult(
+                node_id=parameters.node_id, market=parameters.market,
+                start_date=parameters.start_date, end_date=parameters.end_date,
+                power_mw=parameters.power_mw, capacity_mwh=parameters.capacity_mwh,
+                duration_hours=battery.duration_hours, valid_days=len(daily),
+                total_net_revenue_yuan=total,
+                annualized_net_revenue_yuan=total / len(daily) * 365,
+                snapshot_id=snapshot_id, algorithm_version=ALGORITHM_VERSION,
+                days=daily, monthly=lp_monthly(daily), annual=lp_annual(daily),
+                comparison=comparisons, sensitivity=sensitivity,
+            )
+            registry.complete(item.run_id, "LP详细历史回放完成", result.model_dump(mode="json"))
+        except DispatchError as error:
+            registry.fail(item.run_id, f"LP详细回放失败：{error}", error.code)
+        except (KeyError, TypeError, ValueError, RuntimeError) as error:
+            registry.fail(item.run_id, f"LP详细回放失败：{error}", "LP_ANALYSIS_FAILED")
     elif item.kind == "strict-dispatch":
         try:
             parameters = DispatchParameters.model_validate(item.parameters)
