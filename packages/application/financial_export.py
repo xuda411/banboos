@@ -13,6 +13,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.workbook.properties import CalcProperties
 
 from packages.application.financial_formula_audit import write_formula_audit
+from packages.application.financial_template_audit import write_template_audit
 
 GREEN = "0B6B53"
 LIGHT_GREEN = "E8F2EE"
@@ -42,6 +43,7 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
     _write_template_parity_sheet(workbook.create_sheet("财务模板"), result)
     if result.get("input_parameters", {}).get("revenue_phases"):
         _write_revenue_phase_sheet(workbook.create_sheet("阶段收益"), result)
+    write_template_audit(workbook)
     _write_template_mapping(workbook.create_sheet("模板映射"))
     write_formula_audit(workbook, result, _title, _header)
     for sheet in workbook.worksheets:
@@ -634,6 +636,11 @@ def _write_template_parity_sheet(sheet, result: dict) -> None:
     set_year(79, 4, f"=NPV({discount},E76:{last_year_letter}76)+D76")
     set_year(67, 4, "='项目概览'!$B$15")
     set_year(80, 4, "='项目概览'!$B$15")
+    sheet.cell(81, 1, "说明：服务器版复现原始模板结构和可重算公式；宏、数据表和数组公式保持为明确差异。")
+    sheet.cell(81, 1).font = Font(name="Microsoft YaHei", size=9, color="7F6000", italic=True)
+    sheet.cell(81, 1).fill = PatternFill("solid", fgColor=TEMPLATE_SECTION)
+    sheet.cell(81, 1).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    sheet.merge_cells(start_row=81, start_column=1, end_row=81, end_column=6)
     sheet.auto_filter.ref = f"A2:{total_letter}80"
 
 
