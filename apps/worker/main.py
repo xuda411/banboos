@@ -17,12 +17,14 @@ from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.dispatch_result import DispatchDayResult, DispatchRunResult
 from packages.contracts.financial import FinancialTaskParameters
+from packages.contracts.investment_scenario import InvestmentScenarioParameters
 from packages.contracts.lp_analysis import LPAnalysisParameters, LPAnalysisRunResult
 from packages.contracts.portfolio import PortfolioTaskParameters
 from packages.contracts.portfolio_result import PortfolioResult
 from packages.contracts.sensitivity import SensitivityTaskParameters
 from packages.contracts.sensitivity_result import SensitivityPoint, SensitivityRunResult
 from packages.domain.financial_model import MODEL_VERSION, FinancialError, calculate_financials
+from packages.domain.investment_scenario import build_investment_scenario
 from packages.domain.lp_analysis import annual as lp_annual
 from packages.domain.lp_analysis import compare as lp_compare
 from packages.domain.lp_analysis import day_payload as lp_day_payload
@@ -75,6 +77,18 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
             registry.complete(item.run_id, "节点价差分析完成", result)
         except (KeyError, TypeError, ValueError, RuntimeError) as error:
             registry.fail(item.run_id, f"节点价差分析失败：{error}", "PRICE_ANALYSIS_FAILED")
+    elif item.kind == "investment-scenario":
+        try:
+            parameters = InvestmentScenarioParameters.model_validate(item.parameters)
+            source = registry.get(parameters.source_run_id)
+            if source is None or source.status != "succeeded" or not source.result:
+                raise ValueError("上游节点价差任务尚未成功，不能生成投资情景")
+            if source.kind != "price-analysis":
+                raise ValueError("投资情景只能引用节点价差分析任务")
+            result = build_investment_scenario(source.result, parameters.model_dump(), item.run_id)
+            registry.complete(item.run_id, "投资情景生成完成，可带入财务测算", result)
+        except (KeyError, TypeError, ValueError, RuntimeError) as error:
+            registry.fail(item.run_id, f"投资情景生成失败：{error}", "INVESTMENT_SCENARIO_FAILED")
     elif item.kind == "lp-analysis":
         try:
             parameters = LPAnalysisParameters.model_validate(item.parameters)
@@ -157,13 +171,13 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
             if parameters.annual_revenue_yuan is None and parameters.source_run_id:
                 upstream = registry.get(parameters.source_run_id)
                 if (not upstream or upstream.status != "succeeded" or not upstream.result
-                        or upstream.kind not in {"strict-dispatch", "price-analysis"}):
+                        or upstream.kind not in {"strict-dispatch", "price-analysis", "investment-scenario"}):
                     raise FinancialError("上游价差或调度任务尚未成功，不能开始财务测算")
                 for field in ("power_mw", "capacity_mwh"):
                     if not isclose(float(upstream.result.get(field, 0)), getattr(parameters, field),
                                    rel_tol=1e-9, abs_tol=1e-6):
                         raise FinancialError("财务功率和容量必须与上游分析规模一致，请重新分析或输入手动收益")
-                revenue_key = ("annualized_revenue_yuan" if upstream.kind == "price-analysis"
+                revenue_key = ("annualized_revenue_yuan" if upstream.kind in {"price-analysis", "investment-scenario"}
                                else "annualized_net_revenue_yuan")
                 annual_revenue = upstream.result.get(revenue_key)
                 parameters = parameters.model_copy(update={"annual_revenue_yuan": annual_revenue})
@@ -182,13 +196,13 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
             if base.annual_revenue_yuan is None and base.source_run_id:
                 upstream = registry.get(base.source_run_id)
                 if (not upstream or upstream.status != "succeeded" or not upstream.result
-                        or upstream.kind not in {"strict-dispatch", "price-analysis"}):
+                        or upstream.kind not in {"strict-dispatch", "price-analysis", "investment-scenario"}):
                     raise FinancialError("上游价差或调度任务尚未成功，不能开始敏感性分析")
                 for field in ("power_mw", "capacity_mwh"):
                     if not isclose(float(upstream.result.get(field, 0)), getattr(base, field),
                                    rel_tol=1e-9, abs_tol=1e-6):
                         raise FinancialError("敏感性分析规模必须与上游分析规模一致")
-                revenue_key = ("annualized_revenue_yuan" if upstream.kind == "price-analysis"
+                revenue_key = ("annualized_revenue_yuan" if upstream.kind in {"price-analysis", "investment-scenario"}
                                else "annualized_net_revenue_yuan")
                 base = base.model_copy(update={"annual_revenue_yuan": upstream.result.get(revenue_key)})
             baseline = base.financial()

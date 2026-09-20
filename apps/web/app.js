@@ -1,6 +1,7 @@
 const apiBase = window.BANBOOS_API_BASE || "http://127.0.0.1:8000";
 const $ = (id) => document.getElementById(id);
 let analysisSourceRunId = null;
+let analysisScenarioRunId = null;
 let analysisAnnualRevenueYuan = null;
 let analysisScale = null;
 let financialSourceRunId = null;
@@ -325,13 +326,14 @@ async function loadWeather() {
 async function submitAnalysis() {
   ReportUI.clearRun("analysisView");
   const nodeId = $("node").value; const state = $("analysisState"); const resultBox = $("analysisResult");
-  analysisSourceRunId = null; analysisAnnualRevenueYuan = null; analysisScale = null;
+  analysisSourceRunId = null; analysisScenarioRunId = null; analysisAnnualRevenueYuan = null; analysisScale = null;
   $("useAnalysisForFinance").disabled = true;
+  $("analysisScenarioState").textContent = "情景生成后可带入财务测算，原始节点分析结果保持不变。";
   const power = Number($("analysisPower").value); const capacity = Number($("analysisCapacity").value);
   const duration = capacity / power;
   if (!nodeId) { resultBox.hidden = false; state.textContent = "请选择节点"; state.className = "status status-error"; return; }
   if (!Number.isFinite(duration) || duration < 0.25 || duration > 24) { resultBox.hidden = false; state.textContent = "参数无效"; state.className = "status status-error"; $("analysisMessage").textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
-  resultBox.hidden = false; $("analysisMonthly").hidden = true; state.textContent = "提交中"; state.className = "status status-muted"; $("analysisMessage").textContent = "正在读取完整历史日并计算价差…"; $("analysisAnnual").textContent = "—"; $("analysisDays").textContent = "—"; analysisSourceRunId = null; analysisAnnualRevenueYuan = null; $("submitAnalysis").disabled = true;
+  resultBox.hidden = false; $("analysisMonthly").hidden = true; state.textContent = "提交中"; state.className = "status status-muted"; $("analysisMessage").textContent = "正在读取完整历史日并计算价差…"; $("analysisAnnual").textContent = "—"; $("analysisDays").textContent = "—"; analysisSourceRunId = null; analysisScenarioRunId = null; analysisAnnualRevenueYuan = null; $("submitAnalysis").disabled = true;
   try {
     const run = await post("/api/v1/runs", { kind: "price-analysis", parameters: { node_id: Number(nodeId), market: $("market").value, start_date: $("startDate").value, end_date: $("endDate").value, power_mw: power, capacity_mwh: capacity, round_trip_efficiency: Number($("analysisEta").value) / 100 } });
     const finished = await pollAnalysis(run.run_id); const data = finished.result || {};
@@ -344,6 +346,35 @@ async function submitAnalysis() {
     ReportUI.run("analysisView", run.run_id, "月度价差", apiBase);
     $("useAnalysisForFinance").disabled = false;
   } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; $("analysisMessage").textContent = error.message; } finally { $("submitAnalysis").disabled = false; }
+}
+
+async function createInvestmentScenario() {
+  const state = $("analysisScenarioState");
+  if (!analysisSourceRunId || !analysisScale) { state.textContent = "请先完成节点价差分析，再生成投资情景。"; return; }
+  const spreadFactor = Number($("analysisSpreadFactor").value) / 100;
+  const annualCycles = Number($("analysisAnnualCycles").value);
+  const utilization = Number($("analysisUtilization").value) / 100;
+  const retentionRate = Number($("analysisRetention").value) / 100;
+  const scenarioName = $("analysisScenarioName").value.trim() || "基准情景";
+  if (![spreadFactor, annualCycles, utilization, retentionRate].every(Number.isFinite)
+      || spreadFactor <= 0 || annualCycles < 0 || utilization < 0 || utilization > 1
+      || retentionRate <= 0 || retentionRate > 1) {
+    state.textContent = "情景参数无效：请检查系数、循环次数、利用率和保持率。";
+    return;
+  }
+  const button = $("createInvestmentScenario"); button.disabled = true; state.textContent = "情景生成中…";
+  try {
+    const run = await post("/api/v1/runs", { kind: "investment-scenario", parameters: {
+      source_run_id: analysisSourceRunId, scenario_name: scenarioName,
+      spread_factor: spreadFactor, annual_cycles: annualCycles,
+      utilization, retention_rate: retentionRate,
+    } });
+    const finished = await pollAnalysis(run.run_id); const data = finished.result || {};
+    analysisScenarioRunId = run.run_id; analysisAnnualRevenueYuan = Number(data.annual_revenue_yuan);
+    state.textContent = `已生成：${data.scenario_name || scenarioName} · 年收入 ${(analysisAnnualRevenueYuan / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元 · ${run.run_id}`;
+    $("useAnalysisForFinance").disabled = false;
+  } catch (error) { analysisScenarioRunId = null; state.textContent = `生成失败：${error.message}`; }
+  finally { button.disabled = false; }
 }
 
 async function pollAnalysis(runId) {
@@ -367,12 +398,12 @@ function useAnalysisForFinance() {
   const value = analysisAnnualRevenueYuan;
   if (Number.isFinite(value)) $("annualRevenue").value = Math.round(value);
   $("powerMw").value = analysisScale.power; $("capacityMwh").value = analysisScale.capacity;
-  financialSourceRunId = analysisSourceRunId; updateDurationHint();
-  activateView("taskView"); $("taskMessage").textContent = `已带入节点价差结果（run_id: ${analysisSourceRunId}）`; $("taskState").textContent = "待提交"; $("taskState").className = "status status-muted";
+  financialSourceRunId = analysisScenarioRunId || analysisSourceRunId; updateDurationHint();
+  activateView("taskView"); $("taskMessage").textContent = `已带入${analysisScenarioRunId ? "投资情景" : "节点价差结果"}（run_id: ${financialSourceRunId}）`; $("taskState").textContent = "待提交"; $("taskState").className = "status status-muted";
 }
 
 function invalidateAnalysisSelection() {
-  analysisSourceRunId = null; analysisAnnualRevenueYuan = null; analysisScale = null; $("useAnalysisForFinance").disabled = true; $("analysisResult").hidden = true; $("analysisMonthly").hidden = true;
+  analysisSourceRunId = null; analysisScenarioRunId = null; analysisAnnualRevenueYuan = null; analysisScale = null; $("useAnalysisForFinance").disabled = true; $("analysisResult").hidden = true; $("analysisMonthly").hidden = true; if ($("analysisScenarioState")) $("analysisScenarioState").textContent = "情景生成后可带入财务测算，原始节点分析结果保持不变。";
 }
 
 async function submitDispatch() {
@@ -602,6 +633,7 @@ $("exportWeatherPng").addEventListener("click", () => ReportUI.png("weather", "w
 $("exportWeatherXlsx").addEventListener("click", (event) => ReportUI.exportQuery("weather", event.currentTarget, apiBase));
 $("loadWeather").addEventListener("click", loadWeather);
 $("submitAnalysis").addEventListener("click", submitAnalysis);
+$("createInvestmentScenario").addEventListener("click", createInvestmentScenario);
 $("useAnalysisForFinance").addEventListener("click", useAnalysisForFinance);
 $("submitDispatch").addEventListener("click", submitDispatch);
 $("refresh").addEventListener("click", refresh);

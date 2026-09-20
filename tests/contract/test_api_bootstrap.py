@@ -144,3 +144,13 @@ def test_readonly_demo_endpoints():
         "power_mw": 100, "capacity_mwh": 200, "source_run_id": "dispatch-run-1",
     }})
     assert response.status_code == 202
+    response = client.post("/api/v1/runs", json={"kind": "investment-scenario", "parameters": {
+        "source_run_id": "short-source-id",
+    }})
+    assert response.status_code == 422
+    response = client.post("/api/v1/runs", json={"kind": "investment-scenario", "parameters": {
+        "source_run_id": "source-run-12345678901234567890123456789012",
+        "scenario_name": "基准情景", "spread_factor": 1, "annual_cycles": 350,
+        "utilization": 1, "retention_rate": 1,
+    }})
+    assert response.status_code == 202

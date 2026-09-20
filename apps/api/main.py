@@ -31,6 +31,7 @@ from packages.application.sqlite_runtime import SQLiteRuntime, runtime_path
 from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.financial import FinancialTaskParameters
+from packages.contracts.investment_scenario import InvestmentScenarioParameters
 from packages.contracts.lp_analysis import LPAnalysisParameters
 from packages.contracts.operations import OperationsSummary
 from packages.contracts.portfolio import PortfolioTaskParameters
@@ -290,6 +291,11 @@ def submit_run(kind: str | None = Query(default=None, min_length=1, max_length=8
     if resolved_kind == "financial":
         try:
             FinancialTaskParameters.model_validate(request.parameters if request else {})
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+    if resolved_kind == "investment-scenario":
+        try:
+            InvestmentScenarioParameters.model_validate(request.parameters if request else {})
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
     if resolved_kind == "sensitivity":

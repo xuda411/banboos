@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 
 from packages.application.financial_export import GREEN, LIGHT_GREEN, _fit_columns, _header, _title
 
-SUPPORTED_TASKS = {"financial", "price-analysis", "strict-dispatch", "lp-analysis", "sensitivity", "portfolio-optimization"}
+SUPPORTED_TASKS = {"financial", "price-analysis", "investment-scenario", "strict-dispatch", "lp-analysis", "sensitivity", "portfolio-optimization"}
 
 
 def table(workbook, title, headers, rows, formats=None):
@@ -114,6 +114,13 @@ def export_task_xlsx(run):
         keys = ["month", "valid_days", "charge_price_yuan_per_mwh", "discharge_price_yuan_per_mwh", "spread_yuan_per_mwh"]
         table(workbook, "月度价差", ["月份", "有效日", "低价均价（元/MWh）", "高价均价（元/MWh）", "价差（元/MWh）"],
               [[month.get(key) for key in keys] for month in data["monthly"]], {2: "0"})
+    elif run.kind == "investment-scenario":
+        keys = ["scenario_name", "source_run_id", "source_snapshot_id", "node_id", "market",
+                "start_date", "end_date", "power_mw", "capacity_mwh", "duration_hours",
+                "baseline_spread_yuan_per_mwh", "average_daily_revenue_yuan", "annual_cycles",
+                "utilization", "spread_factor", "retention_rate", "annual_revenue_yuan",
+                "formula", "algorithm_version"]
+        table(workbook, "投资情景", ["字段", "值"], [[key, data.get(key)] for key in keys])
     elif run.kind == "portfolio-optimization":
         project_keys = ["name", "capacity_mwh", "unit_investment_yuan_wh", "annual_revenue_wan"]
         headers = ["项目", "容量（MWh）", "单位投资（元/Wh）", "年净现金流（万元）"]
