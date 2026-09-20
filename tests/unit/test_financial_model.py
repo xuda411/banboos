@@ -50,6 +50,23 @@ def test_financial_model_breaks_out_revenues_and_financing():
     assert len(result["equity_cashflows_yuan"]) == 26
 
 
+def test_financial_model_supports_template_operating_costs_and_indirect_tax():
+    parameters = FinancialTaskParameters(
+        power_mw=100, capacity_mwh=200, annual_revenue_yuan=12_000_000,
+        insurance_rate=0.002, fixed_operation_cost_yuan=100_000,
+        revenue_share_threshold_yuan=5_000_000, revenue_share_rate=0.3,
+        vat_rate=0.13, stamp_tax_rate=0.0005,
+        eol_method="calendar_cycle_min", annual_cycles=350, cycle_life_cycles=8_000,
+    )
+    result = calculate_financials(parameters.financial())
+    first = result["yearly"][0]
+    assert first["output_vat_yuan"] > 0
+    assert first["insurance_yuan"] > 0
+    assert first["revenue_share_yuan"] > 0
+    assert first["net_revenue_yuan"] < first["gross_revenue_yuan"]
+    assert first["eol"] <= parameters.first_year_eol
+
+
 def test_financial_task_is_traceable_to_upstream_run():
     registry = RunRegistry()
     upstream = registry.submit("strict-dispatch")

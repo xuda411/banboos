@@ -1,6 +1,8 @@
 """Financial task contracts; monetary values are yuan unless stated otherwise."""
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from packages.domain.financial_model import FinancialParameters
@@ -11,6 +13,12 @@ class FinancialTaskParameters(BaseModel):
 
     power_mw: float = Field(gt=0)
     capacity_mwh: float = Field(gt=0)
+    single_side_efficiency: float = Field(default=0.92, gt=0, le=1)
+    dod: float = Field(default=0.95, gt=0, le=1)
+    annual_cycles: float = Field(default=350, ge=0)
+    eol_method: Literal["linear", "calendar_cycle_min"] = "linear"
+    calendar_eol_decline: float = Field(default=0.015, ge=0, le=1)
+    cycle_life_cycles: float = Field(default=8000, gt=0)
     annual_revenue_yuan: float | None = Field(default=None, ge=0)
     capacity_lease_yuan: float = Field(default=0, ge=0)
     capacity_fee_yuan: float = Field(default=0, ge=0)
@@ -21,10 +29,19 @@ class FinancialTaskParameters(BaseModel):
     operation_years: int = Field(default=25, ge=1, le=100)
     om_rate: float = Field(default=0.0075, ge=0, le=1)
     om_growth: float = Field(default=0.01, ge=0, le=1)
+    land_rent_yuan: float = Field(default=0, ge=0)
+    insurance_rate: float = Field(default=0, ge=0, le=1)
+    fixed_operation_cost_yuan: float = Field(default=0, ge=0)
+    revenue_share_threshold_yuan: float = Field(default=0, ge=0)
+    revenue_share_rate: float = Field(default=0, ge=0, le=1)
+    other_operating_cost_yuan: float = Field(default=0, ge=0)
     first_year_eol: float = Field(default=0.97, gt=0, le=1)
     final_eol: float = Field(default=0.80, gt=0, le=1)
     residual_rate: float = Field(default=0.02, ge=0, le=1)
     income_tax_rate: float = Field(default=0.25, ge=0, le=1)
+    vat_rate: float = Field(default=0, ge=0, le=1)
+    vat_surcharge_rate: float = Field(default=0.12, ge=0, le=1)
+    stamp_tax_rate: float = Field(default=0, ge=0, le=1)
     discount_rate: float = 0.08
     loan_ratio: float = Field(default=0, ge=0, le=1)
     loan_years: int = Field(default=10, ge=1, le=100)

@@ -38,3 +38,20 @@ def test_formula_audit_uses_task_inputs_and_preserves_snapshot(tmp_path):
     result["model_version"] = "banboos-financial-1.0.0"
     old = load_workbook(export_financial_xlsx(result, tmp_path / "old.xlsx"))
     assert "公式复核" not in old.sheetnames
+
+
+def test_formula_audit_includes_template_cost_and_tax_drivers(tmp_path):
+    parameters = FinancialTaskParameters(
+        power_mw=100, capacity_mwh=200, annual_revenue_yuan=12_000_000,
+        insurance_rate=0.002, fixed_operation_cost_yuan=100_000,
+        revenue_share_threshold_yuan=5_000_000, revenue_share_rate=0.3,
+        vat_rate=0.13, stamp_tax_rate=0.0005,
+        eol_method="calendar_cycle_min",
+    )
+    result = calculate_financials(parameters.financial())
+    result["input_parameters"] = parameters.model_dump(exclude_none=True)
+    workbook = load_workbook(export_financial_xlsx(result, tmp_path / "template-parity.xlsx"))
+    audit = workbook["公式复核"]
+    assert "MAX(0" in audit["J5"].value
+    assert "B5" in audit["D5"].value
+    assert audit["B5"].value.startswith("=IF(")

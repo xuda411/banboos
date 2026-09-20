@@ -125,14 +125,16 @@ def _write_cashflow(sheet, result: dict) -> None:
     headers = ["年度", "EOL", "电能量收入（元）", "容量电费（元）", "补贴（元）",
                "容量租赁（元）", "一次调频（元）", "二次调频（元）", "总收入（元）",
                "运营成本（元）", "折旧（元）", "所得税（元）", "换电池投资（元）",
-               "项目现金流（元）", "资本金现金流（元）", "应纳税利润（元）", "净利润（元）", "资本金所得税（元）"]
+               "项目现金流（元）", "资本金现金流（元）", "应纳税利润（元）", "净利润（元）", "资本金所得税（元）",
+               "不含税收入（元）", "销项增值税（元）", "增值税附加（元）", "印花税（元）", "收益分成（元）", "保险费（元）"]
     _title(sheet, "年度现金流", len(headers))
     _header(sheet, 4, headers)
     keys = ["year", "eol", "energy_revenue_yuan", "capacity_fee_yuan", "subsidy_yuan",
             "capacity_lease_yuan", "primary_frequency_yuan", "secondary_frequency_yuan",
             "revenue_yuan", "operating_cost_yuan", "depreciation_yuan", "income_tax_yuan",
             "replacement_capex_yuan", "project_cashflow_yuan", "equity_cashflow_yuan",
-            "taxable_profit_yuan", "net_profit_yuan", "equity_tax_yuan"]
+            "taxable_profit_yuan", "net_profit_yuan", "equity_tax_yuan", "net_revenue_yuan",
+            "output_vat_yuan", "vat_surcharge_yuan", "stamp_tax_yuan", "revenue_share_yuan", "insurance_yuan"]
     for row, item in enumerate(result.get("yearly", []), start=5):
         for column, key in enumerate(keys, start=1):
             cell = sheet.cell(row, column, item.get(key))
@@ -150,6 +152,12 @@ def _write_parameters(sheet, result: dict) -> None:
     labels = {
         "power_mw": ("额定功率", "MW"),
         "capacity_mwh": ("额定容量", "MWh"),
+        "single_side_efficiency": ("单边系统效率", "%"),
+        "dod": ("放电深度 DOD", "%"),
+        "annual_cycles": ("年循环次数", "次/年"),
+        "eol_method": ("EOL 计算方式", ""),
+        "calendar_eol_decline": ("日历衰减率", "%"),
+        "cycle_life_cycles": ("循环寿命", "次"),
         "annual_revenue_yuan": ("首年电能量收入", "元"),
         "capacity_lease_yuan": ("容量租赁收入", "元/年"),
         "capacity_fee_yuan": ("容量电费收入", "元/年"),
@@ -160,10 +168,19 @@ def _write_parameters(sheet, result: dict) -> None:
         "operation_years": ("运营年限", "年"),
         "om_rate": ("运维费率", "%"),
         "om_growth": ("运维费增长率", "%"),
+        "land_rent_yuan": ("土地租金", "元/年"),
+        "insurance_rate": ("保险费率", "%"),
+        "fixed_operation_cost_yuan": ("固定运营费", "元/年"),
+        "revenue_share_threshold_yuan": ("收益分成门槛", "元/年"),
+        "revenue_share_rate": ("收益分成比例", "%"),
+        "other_operating_cost_yuan": ("其他运营费", "元/年"),
         "first_year_eol": ("首年 EOL", "%"),
         "final_eol": ("末年 EOL", "%"),
         "residual_rate": ("残值率", "%"),
         "income_tax_rate": ("所得税率", "%"),
+        "vat_rate": ("增值税率", "%"),
+        "vat_surcharge_rate": ("增值税附加率", "%"),
+        "stamp_tax_rate": ("印花税率", "%"),
         "discount_rate": ("折现率", "%"),
         "loan_ratio": ("贷款比例", "%"),
         "loan_years": ("贷款期限", "年"),
@@ -187,7 +204,9 @@ def _write_parameters(sheet, result: dict) -> None:
             cell.border = Border(bottom=THIN)
             if column == 2 and key.endswith("rate") or column == 2 and key in {
                 "om_rate", "om_growth", "first_year_eol", "final_eol", "residual_rate",
-                "income_tax_rate", "discount_rate", "loan_ratio",
+                "income_tax_rate", "discount_rate", "loan_ratio", "single_side_efficiency", "dod",
+                "calendar_eol_decline", "insurance_rate", "revenue_share_rate", "vat_rate",
+                "vat_surcharge_rate", "stamp_tax_rate",
             }:
                 cell.number_format = "0.00%"
             elif column == 2 and isinstance(value, (int, float)):
@@ -253,8 +272,10 @@ def _write_template_mapping(sheet) -> None:
         ("capex_yuan_per_wh", "元/Wh", "参数设定", "单位投资", "已映射"),
         ("om_rate", "%", "财务指标", "运营成本/运维费率", "已映射"),
         ("first_year_eol / final_eol", "%", "EOL", "生命周期衰减", "规则不同：服务器线性衰减，模板取日历/循环衰减最小值"),
-        ("round_trip_efficiency", "%", "参数设定 D5", "效率", "口径不同：网页往返效率，模板单边效率，禁止直接同值代入"),
-        ("增值税 / 保险费 / 运营分成", "—", "参数设定", "模板费用及税种", "服务器尚未覆盖"),
+        ("single_side_efficiency / round_trip_efficiency", "%", "参数设定 D5", "效率", "服务器保留单边效率；节点价差任务使用往返效率，禁止直接同值代入"),
+        ("dod / annual_cycles / cycle_life_cycles", "%、次", "参数设定 D6/D10", "有效容量与循环衰减", "已接入参数，默认不改变既有年收入口径"),
+        ("insurance_rate / fixed_operation_cost_yuan / revenue_share_*", "%、元", "参数设定 D32:D36", "保险、固定运营费、收益分成", "已接入年度运营成本"),
+        ("vat_rate / vat_surcharge_rate / stamp_tax_rate", "%", "参数设定 D55:D58", "增值税及附加、印花税", "已接入现金流；进项税抵扣仍需单独配置"),
         ("yearly[*]", "元/年", "财务指标", "年度收入、成本、税费和现金流", "服务器明细"),
         ("full_irr / equity_irr", "%", "财务指标", "全投资/资本金 IRR", "服务器结果"),
         ("cashflows_yuan", "元", "财务指标", "项目现金流（含建设期）", "服务器结果"),
