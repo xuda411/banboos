@@ -641,6 +641,11 @@ def _write_template_parity_sheet(sheet, result: dict) -> None:
     sheet.cell(81, 1).fill = PatternFill("solid", fgColor=TEMPLATE_SECTION)
     sheet.cell(81, 1).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
     sheet.merge_cells(start_row=81, start_column=1, end_row=81, end_column=6)
+    sheet.column_dimensions["A"].width = 18
+    sheet.column_dimensions["B"].width = 7
+    sheet.column_dimensions["C"].width = 28
+    for column in range(4, total_column + 1):
+        sheet.column_dimensions[get_column_letter(column)].width = 12
     sheet.auto_filter.ref = f"A2:{total_letter}80"
 
 

@@ -44,6 +44,7 @@ def test_financial_export_has_typed_sheets_and_frozen_headers(tmp_path):
     audit = workbook["模板复核"]
     assert audit["B5"].value == "PASS"
     assert audit["B8"].value == "PASS"
+    assert audit["B11"].value == "PASS"
     assert audit["B13"].value == "WARN"
 
 
