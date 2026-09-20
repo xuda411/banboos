@@ -225,7 +225,29 @@ async function syncCurveDateRange() {
   if (range.last_date) $("curveEnd").value = range.last_date;
 }
 
-function drawCurves(curves, selectedIndex = 0) {
+let curvePointer = null;
+
+function priceColor(value, min, max) {
+  const ratio = Math.max(0, Math.min(1, (value - min) / Math.max(1, max - min)));
+  const stops = [[0, [190, 62, 62]], [0.5, [211, 164, 45]], [1, [23, 107, 80]]];
+  const upper = stops.findIndex(([stop]) => ratio <= stop);
+  if (upper <= 0) return `rgb(${stops[0][1].join(",")})`;
+  const [rightStop, rightColor] = stops[upper]; const [leftStop, leftColor] = stops[upper - 1];
+  const factor = (ratio - leftStop) / (rightStop - leftStop);
+  return `rgb(${rightColor.map((color, index) => Math.round(leftColor[index] + (color - leftColor[index]) * factor)).join(",")})`;
+}
+
+function curveScale(values) {
+  const dataMin = Math.min(...values); const dataMax = Math.max(...values);
+  let lower = Math.max(-1000, Math.floor((dataMin - 50) / 100) * 100);
+  let upper = Math.min(3000, Math.ceil((dataMax + 50) / 100) * 100);
+  if (upper <= lower) upper = Math.min(3000, lower + 100);
+  if (upper <= lower) lower = upper - 100;
+  const step = upper - lower > 2000 ? 200 : 100;
+  return { min: lower, max: upper, step };
+}
+
+function drawCurves(curves, selectedIndex = 0, pointer = null) {
   const canvas = $("curveChart");
   const width = canvas.clientWidth || 700;
   const height = 340;
@@ -234,39 +256,99 @@ function drawCurves(curves, selectedIndex = 0) {
   const context = canvas.getContext("2d"); context.scale(ratio, ratio);
   context.clearRect(0, 0, width, height);
   if (!curves.length) return;
-  const values = curves.flatMap((curve) => curve.prices);
-  const min = Math.min(...values); const max = Math.max(...values); const span = max - min || 1;
+  const values = curves.flatMap((curve) => curve.prices).filter((value) => Number.isFinite(value));
+  if (!values.length) return;
+  const scale = curveScale(values); const min = scale.min; const max = scale.max; const span = max - min || 1;
   const pad = { left: 42, right: 14, top: 18, bottom: 30 };
   context.strokeStyle = "#dfe5e2"; context.lineWidth = 1;
-  for (let step = 0; step <= 4; step += 1) {
-    const y = pad.top + (height - pad.top - pad.bottom) * step / 4;
+  for (let tick = min; tick <= max; tick += scale.step) {
+    const y = pad.top + (height - pad.top - pad.bottom) * (max - tick) / span;
     context.beginPath(); context.moveTo(pad.left, y); context.lineTo(width - pad.right, y); context.stroke();
-    context.fillStyle = "#5f7068"; context.font = "11px Microsoft YaHei"; context.fillText((max - span * step / 4).toFixed(1), 4, y + 4);
+    context.fillStyle = "#5f7068"; context.font = "11px Microsoft YaHei"; context.fillText(tick.toFixed(0), 4, y + 4);
   }
   curves.forEach((curve, curveIndex) => {
-    context.strokeStyle = curveIndex === selectedIndex ? "#176b50" : "#9fc5b1";
-    context.lineWidth = curveIndex === selectedIndex ? 2.4 : 1.2;
+    const selected = curveIndex === selectedIndex;
+    context.strokeStyle = selected ? "#176b50" : "#9fc5b1";
+    context.lineWidth = selected ? 2.4 : 1.2;
     context.beginPath();
     curve.prices.forEach((value, index) => {
       const x = pad.left + (width - pad.left - pad.right) * index / 95;
-      const y = pad.top + (height - pad.top - pad.bottom) * (max - value) / span;
+      const y = pad.top + (height - pad.top - pad.bottom) * (max - Number(value)) / span;
       index ? context.lineTo(x, y) : context.moveTo(x, y);
     });
     context.stroke();
+    if (selected) {
+      for (let index = 1; index < curve.prices.length; index += 1) {
+        const from = Number(curve.prices[index - 1]); const to = Number(curve.prices[index]);
+        if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+        const x1 = pad.left + (width - pad.left - pad.right) * (index - 1) / 95;
+        const x2 = pad.left + (width - pad.left - pad.right) * index / 95;
+        const y1 = pad.top + (height - pad.top - pad.bottom) * (max - from) / span;
+        const y2 = pad.top + (height - pad.top - pad.bottom) * (max - to) / span;
+        context.strokeStyle = priceColor((from + to) / 2, min, max); context.lineWidth = 2.7;
+        context.beginPath(); context.moveTo(x1, y1); context.lineTo(x2, y2); context.stroke();
+      }
+    }
   });
+  if (pointer && pointer.slot >= 0 && pointer.slot < 96) {
+    const x = pad.left + (width - pad.left - pad.right) * pointer.slot / 95;
+    const value = Number(curves[selectedIndex]?.prices[pointer.slot]);
+    if (Number.isFinite(value)) {
+      const y = pad.top + (height - pad.top - pad.bottom) * (max - value) / span;
+      context.strokeStyle = "rgba(23,107,80,.35)"; context.lineWidth = 1;
+      context.setLineDash([4, 4]); context.beginPath(); context.moveTo(x, pad.top); context.lineTo(x, height - pad.bottom); context.stroke(); context.setLineDash([]);
+      context.fillStyle = "#fff"; context.strokeStyle = "#176b50"; context.lineWidth = 2;
+      context.beginPath(); context.arc(x, y, 4.5, 0, Math.PI * 2); context.fill(); context.stroke();
+    }
+  }
   context.fillStyle = "#5f7068"; context.font = "11px Microsoft YaHei";
   context.fillText("00:15", pad.left, height - 8); context.fillText("12:00", width / 2 - 18, height - 8); context.fillText("24:00", width - 48, height - 8);
+  canvas._curveGeometry = { curves, selectedIndex, width, height, pad, min, max, span };
 }
 
 let loadedCurves = [];
 
-function updateCurveStats(curves) {
+function formatCurveTime(slot) {
+  const minutes = (slot + 1) * 15; const hour = Math.floor(minutes / 60) % 24; const minute = minutes % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function hideCurveHover() {
+  curvePointer = null; const hover = $("curveHover"); if (hover) hover.hidden = true;
+  if (loadedCurves.length) drawCurves(loadedCurves, activeCurveIndex());
+}
+
+function showCurveHover(event) {
+  const canvas = $("curveChart"); const geometry = canvas._curveGeometry;
+  if (!geometry || !geometry.curves.length) return;
+  const rect = canvas.getBoundingClientRect(); const x = event.clientX - rect.left; const y = event.clientY - rect.top;
+  if (x < geometry.pad.left || x > geometry.width - geometry.pad.right || y < geometry.pad.top || y > geometry.height - geometry.pad.bottom) { hideCurveHover(); return; }
+  const plotWidth = geometry.width - geometry.pad.left - geometry.pad.right;
+  const raw = Math.round((x - geometry.pad.left) / plotWidth * 95); const slot = Math.max(0, Math.min(95, raw));
+  const selectedIndex = geometry.selectedIndex; const curve = geometry.curves[selectedIndex]; const value = Number(curve?.prices[slot]);
+  if (!Number.isFinite(value)) { hideCurveHover(); return; }
+  curvePointer = { slot }; drawCurves(geometry.curves, selectedIndex, curvePointer);
+  const hover = $("curveHover"); const selectedDay = curve.run_date;
+  const nodeLabel = $("curveNode").selectedOptions[0]?.textContent || `节点 ${curve.node_id}`;
+  hover.innerHTML = `<strong>${nodeLabel}</strong><br>日期：${selectedDay}　市场：${curve.market}<br>时间：${formatCurveTime(slot)}（第 ${slot + 1}/96 点）<br>电价：<b>${value.toFixed(2)} 元/MWh</b><br>来源：${curve.source_mode || "未标注"}`;
+  hover.hidden = false;
+  const left = Math.max(8, Math.min(event.clientX - rect.left + 14, rect.width - hover.offsetWidth - 8));
+  const top = Math.max(8, Math.min(event.clientY - rect.top - hover.offsetHeight - 10, rect.height - hover.offsetHeight - 8));
+  hover.style.left = `${left}px`; hover.style.top = `${top}px`;
+}
+
+function activeCurveIndex() {
+  const active = document.querySelector("#curveDays .curve-day.active");
+  return Number(active?.dataset.index || 0);
+}
+
+function updateCurveStats(curves, selectedIndex = 0) {
   const stats = $("curveStats");
   if (!curves.length) { stats.hidden = true; stats.textContent = ""; return; }
-  const values = curves.flatMap((curve) => curve.prices);
+  const selected = curves[selectedIndex] || curves[0]; const values = selected.prices;
   const average = values.reduce((sum, value) => sum + value, 0) / values.length;
   stats.hidden = false;
-  stats.textContent = `${curves.length} 天 · ${values.length.toLocaleString()} 点 · 均值 ${average.toFixed(2)} · 最低 ${Math.min(...values).toFixed(2)} · 最高 ${Math.max(...values).toFixed(2)} 元/MWh`;
+  stats.textContent = `${selected.run_date} · ${values.length} 点 · 均值 ${average.toFixed(2)} · 最低 ${Math.min(...values).toFixed(2)} · 最高 ${Math.max(...values).toFixed(2)} 元/MWh${curves.length > 1 ? ` · 共加载 ${curves.length} 天` : ""}`;
 }
 function exportCurves() {
   if (!loadedCurves.length) return;
@@ -287,12 +369,12 @@ async function loadCurves() {
   try {
     const curves = await get("/api/v1/price/curves", query);
     if (!ReportUI.current("curve", ticket)) return;
-    loadedCurves = curves; $("exportCurves").disabled = curves.length === 0; $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
+    loadedCurves = curves; curvePointer = null; $("curveHover").hidden = true; $("exportCurves").disabled = curves.length === 0; $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
     const dayList = $("curveDays"); dayList.replaceChildren();
-    curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); drawCurves(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
+    curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.dataset.index = String(index); day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); curvePointer = null; $("curveHover").hidden = true; drawCurves(curves, index); updateCurveStats(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
     $("curveEmpty").hidden = curves.length > 0; $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; $("curveState").textContent = curves.length ? `${curves.length} 天` : "暂无数据"; $("curveState").className = `status ${curves.length ? "status-ok" : "status-muted"}`;
     if (!curves.length) dayList.innerHTML = '<div class="empty-state">数据库暂无完整 96 点曲线</div>'; drawCurves(curves);
-    ReportUI.complete("curve", ticket, curves.length, `来源模式：${[...new Set(curves.map(c => c.source_mode))].join("、")} · ${curves[0]?.run_date || ""} 至 ${curves.at(-1)?.run_date || ""} · ${curves.length} 个完整日（上限 ${query.limit} 日） · 深绿为选中日，浅绿为其余日期`);
+    ReportUI.complete("curve", ticket, curves.length, `来源模式：${[...new Set(curves.map(c => c.source_mode))].join("、")} · ${curves[0]?.run_date || ""} 至 ${curves.at(-1)?.run_date || ""} · ${curves.length} 个完整日（上限 ${query.limit} 日） · 选中日按价格渐变，其他日期用于对比`);
   } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; $("exportCurves").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
 }
 
@@ -625,6 +707,8 @@ $("node").addEventListener("change", () => { invalidateAnalysisSelection(); sync
 $("market").addEventListener("change", () => { invalidateAnalysisSelection(); syncDateRange().catch((error) => { $("notice").textContent = error.message; setStatus("API 请求失败", "error"); }); });
 $("curveNode").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
 $("curveMarket").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
+$("curveChart").addEventListener("mousemove", showCurveHover);
+$("curveChart").addEventListener("mouseleave", hideCurveHover);
 $("loadCurves").addEventListener("click", loadCurves);
 $("exportCurves").addEventListener("click", exportCurves);
 $("exportCurvePng").addEventListener("click", () => ReportUI.png("curve", "curveChart", $("curveTitle").textContent));
