@@ -410,7 +410,7 @@ async function submitAnalysis() {
   const nodeId = $("node").value; const state = $("analysisState"); const resultBox = $("analysisResult");
   analysisSourceRunId = null; analysisScenarioRunId = null; analysisAnnualRevenueYuan = null; analysisScale = null;
   $("useAnalysisForFinance").disabled = true;
-  $("analysisScenarioState").textContent = "情景生成后可带入财务测算，原始节点分析结果保持不变。";
+  if ($("analysisScenarioState")) $("analysisScenarioState").textContent = "情景生成后可带入财务测算，原始节点分析结果保持不变。";
   const power = Number($("analysisPower").value); const capacity = Number($("analysisCapacity").value);
   const duration = capacity / power;
   if (!nodeId) { resultBox.hidden = false; state.textContent = "请选择节点"; state.className = "status status-error"; return; }
@@ -626,12 +626,43 @@ function collectFinancialParameters() {
       throw new Error("分阶段收益规则必须是 JSON 对象");
     }
   }
+  const power = Number($("powerMw").value); const capacity = Number($("capacityMwh").value);
+  const efficiency = percent("singleSideEfficiency"); const dod = percent("dod");
+  const cycles = Number($("annualCycles").value) + Number($("auxiliaryEquivalentCycles").value || 0);
+  const lease = Number($("capacityLeaseEnabled").value) ? power * 1000 * Number($("capacityLeasePricePerKw").value) * Number($("capacityLeaseUtilization").value) * 10000 : 0;
+  const capacityFee = Number($("capacityFeeEnabled").value) ? power * Number($("capacityFeePerMw").value) * Number($("capacityFeeSupplyCoeff").value) * Number($("capacityFeeDodCoeff").value) * 10000 : 0;
+  const dischargeEnergy = capacity * dod * efficiency * cycles;
+  const subsidy = Number($("subsidyEnabled").value) ? dischargeEnergy * 1000 * Number($("subsidyPerKwh").value) : 0;
+  const primary = Number($("primaryFrequencyEnabled").value) ? Number($("primaryFrequencyMileage").value) * Number($("primaryFrequencyPrice").value) * Number($("primaryFrequencyK").value) : 0;
+  const secondary = Number($("secondaryFrequencyEnabled").value) ? Number($("secondaryFrequencyMileage").value) * Number($("secondaryFrequencyPrice").value) * Number($("secondaryFrequencyK").value) : 0;
+  const legacyCapacity = Number($("capacityIncomeWan").value) * 10000;
+  const legacyAuxiliary = Number($("auxiliaryIncomeWan").value) * 10000;
+  const replaceEnabled = Number($("replaceBatteryEnabled").value) > 0;
+  const replaceCost = replaceEnabled
+    ? capacity * 1000000 * Number($("replaceUnitPriceYuanWh").value)
+    : Number($("replaceCapex").value);
   return {
-    power_mw: Number($("powerMw").value), capacity_mwh: Number($("capacityMwh").value), annual_revenue_yuan: financialSourceRunId ? null : Number($("annualRevenue").value),
-    capacity_lease_yuan: Number($("capacityLease").value), capacity_fee_yuan: Number($("capacityFee").value), subsidy_yuan: Number($("subsidy").value), revenue_phases: revenuePhases,
-    primary_frequency_yuan: Number($("primaryFrequency").value), secondary_frequency_yuan: Number($("secondaryFrequency").value), capex_yuan_per_wh: Number($("capex").value), source_run_id: financialSourceRunId || undefined,
-    operation_years: Number($("operationYears").value), single_side_efficiency: percent("singleSideEfficiency"), dod: percent("dod"), annual_cycles: Number($("annualCycles").value), eol_method: $("eolMethod").value, calendar_eol_decline: percent("calendarEolDecline"), cycle_life_cycles: Number($("cycleLifeCycles").value), om_rate: percent("omRate"), om_growth: percent("omGrowth"), land_rent_yuan: Number($("landRent").value), insurance_rate: percent("insuranceRate"), fixed_operation_cost_yuan: Number($("fixedOperationCost").value), revenue_share_threshold_yuan: Number($("revenueShareThreshold").value), revenue_share_rate: percent("revenueShareRate"), other_operating_cost_yuan: Number($("otherOperatingCost").value), vat_rate: percent("vatRate"), vat_surcharge_rate: percent("vatSurchargeRate"), stamp_tax_rate: percent("stampTaxRate"), input_vat_rate_equipment: percent("inputVatRateEquipment"), input_vat_rate_other: percent("inputVatRateOther"), equipment_investment_share: percent("equipmentInvestmentShare"), input_vat_credit_ratio: percent("inputVatCreditRatio"), first_year_eol: percent("firstEol"), final_eol: percent("finalEol"), residual_rate: percent("residualRate"), income_tax_rate: percent("incomeTaxRate"), discount_rate: percent("discountRate"), loan_ratio: percent("loanRatio"), loan_years: Number($("loanYears").value), loan_rate: percent("loanRate"), construction_years: Number($("constructionYears").value), construction_loan_rate: percent("constructionLoanRate"), replace_year: optionalNumber("replaceYear"), replace_capex_yuan: Number($("replaceCapex").value),
+    power_mw: power, capacity_mwh: capacity, annual_revenue_yuan: financialSourceRunId ? null : Number($("annualRevenue").value),
+    capacity_lease_yuan: lease || (Number($("capacityLease").value) || legacyCapacity), capacity_fee_yuan: capacityFee || Number($("capacityFee").value), subsidy_yuan: subsidy || Number($("subsidy").value), revenue_phases: revenuePhases,
+    primary_frequency_yuan: primary || Number($("primaryFrequency").value), secondary_frequency_yuan: secondary || Number($("secondaryFrequency").value) || legacyAuxiliary, capex_yuan_per_wh: Number($("capex").value), source_run_id: financialSourceRunId || undefined,
+    operation_years: Number($("operationYears").value), single_side_efficiency: efficiency, dod, annual_cycles: cycles, eol_method: $("eolMethod").value, calendar_eol_decline: percent("calendarEolDecline"), cycle_life_cycles: Number($("cycleLifeCycles").value), om_rate: percent("omRate"), om_growth: percent("omGrowth"), land_rent_yuan: Number($("landRent").value), insurance_rate: percent("insuranceRate"), fixed_operation_cost_yuan: Number($("fixedOperationCost").value), revenue_share_threshold_yuan: Number($("revenueShareThreshold").value), revenue_share_rate: percent("revenueShareRate"), other_operating_cost_yuan: Number($("otherOperatingCost").value), vat_rate: percent("vatRate"), vat_surcharge_rate: percent("vatSurchargeRate"), stamp_tax_rate: percent("stampTaxRate"), input_vat_rate_equipment: percent("inputVatRateEquipment"), input_vat_rate_other: percent("inputVatRateOther"), equipment_investment_share: percent("equipmentInvestmentShare"), input_vat_credit_ratio: percent("inputVatCreditRatio"), first_year_eol: percent("firstEol"), final_eol: percent("finalEol"), residual_rate: percent("residualRate"), income_tax_rate: percent("incomeTaxRate"), discount_rate: percent("discountRate"), loan_ratio: percent("loanRatio"), loan_years: Number($("loanYears").value), loan_rate: percent("loanRate"), construction_years: Number($("constructionYears").value), construction_loan_rate: percent("constructionLoanRate"), replace_year: replaceEnabled ? optionalNumber("replaceYear") : null, replace_capex_yuan: replaceCost,
   };
+}
+
+const FINANCE_GROUP_FIELDS = {
+  storage: new Set(["capex", "operationYears", "singleSideEfficiency", "dod", "annualCycles", "eolMethod", "calendarEolDecline", "cycleLifeCycles", "firstEol", "finalEol", "residualRate", "auxiliaryEquivalentCycles"]),
+  operation: new Set(["omRate", "omGrowth", "insuranceRate", "fixedOperationCost", "revenueShareThreshold", "revenueShareRate", "otherOperatingCost", "landRent", "replaceYear", "replaceCapex", "replaceBatteryEnabled", "replaceUnitPriceYuanWh"]),
+  finance: new Set(["discountRate", "loanRatio", "loanYears", "loanRate", "constructionYears", "constructionLoanRate", "vatRate", "vatSurchargeRate", "stampTaxRate", "inputVatRateEquipment", "inputVatRateOther", "equipmentInvestmentShare", "inputVatCreditRatio", "incomeTaxRate"]),
+  capacity: new Set(["capacityLease", "capacityFee", "capacityLeaseEnabled", "capacityLeasePricePerKw", "capacityLeaseUtilization", "capacityFeeEnabled", "capacityFeePerMw", "capacityFeeSupplyCoeff", "capacityFeeDodCoeff", "capacityIncomeWan", "revenuePhases"]),
+  service: new Set(["subsidy", "primaryFrequency", "secondaryFrequency", "subsidyEnabled", "subsidyPerKwh", "primaryFrequencyEnabled", "primaryFrequencyMileage", "primaryFrequencyPrice", "primaryFrequencyK", "secondaryFrequencyEnabled", "secondaryFrequencyMileage", "secondaryFrequencyPrice", "secondaryFrequencyK", "auxiliaryIncomeWan"]),
+};
+
+function syncFinancialParameterGroup() {
+  const selector = $("financialParameterGroup"); if (!selector) return;
+  const allowed = FINANCE_GROUP_FIELDS[selector.value] || FINANCE_GROUP_FIELDS.storage;
+  document.querySelectorAll(".advanced-grid > label").forEach((label) => {
+    const control = label.querySelector("[id]"); label.hidden = !control || !allowed.has(control.id);
+  });
 }
 
 async function submitSensitivity() {
@@ -717,7 +748,7 @@ $("exportWeatherPng").addEventListener("click", () => ReportUI.png("weather", "w
 $("exportWeatherXlsx").addEventListener("click", (event) => ReportUI.exportQuery("weather", event.currentTarget, apiBase));
 $("loadWeather").addEventListener("click", loadWeather);
 $("submitAnalysis").addEventListener("click", submitAnalysis);
-$("createInvestmentScenario").addEventListener("click", createInvestmentScenario);
+if ($("createInvestmentScenario")) $("createInvestmentScenario").addEventListener("click", createInvestmentScenario);
 $("useAnalysisForFinance").addEventListener("click", useAnalysisForFinance);
 $("submitDispatch").addEventListener("click", submitDispatch);
 $("refresh").addEventListener("click", refresh);
@@ -738,6 +769,10 @@ $("systemRunKind").addEventListener("change", refreshSystem);
 $("systemRunStatus").addEventListener("change", refreshSystem);
 $("powerMw").addEventListener("input", updateDurationHint);
 $("capacityMwh").addEventListener("input", updateDurationHint);
+if ($("financialParameterGroup")) {
+  $("financialParameterGroup").addEventListener("change", syncFinancialParameterGroup);
+  syncFinancialParameterGroup();
+}
 ["powerMw", "capacityMwh", "annualRevenue"].forEach((id) => $(id).addEventListener("input", () => {
   if (financialSourceRunId) $("taskMessage").textContent = "已修改规模或收入，当前使用手动财务假设；可重新从节点分析带入。";
   financialSourceRunId = null;

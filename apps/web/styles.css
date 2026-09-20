@@ -135,4 +135,7 @@ button { cursor: pointer; font-weight: 700; }
 
 .analysis-scenario { grid-column: 1 / -1; border-top: 1px solid #e1e8e4; padding-top: 12px; }.analysis-scenario summary { cursor: pointer; color: #176b50; font-weight: 700; }.analysis-scenario-form { display: grid; grid-template-columns: 1.4fr repeat(4, minmax(110px, 1fr)) auto; gap: 10px; align-items: end; margin-top: 12px; }.analysis-scenario-form button { min-height: 36px; }.analysis-scenario > details > small { display: block; color: #53665d; margin-top: 10px; }
 
+.finance-parameter-toolbar { display: flex; align-items: end; gap: 14px; padding: 12px 0 14px; border-bottom: 1px solid #e1e8e4; }.finance-parameter-toolbar label { min-width: 240px; }.finance-parameter-toolbar small { color: #53665d; padding-bottom: 8px; }.advanced-grid > label[hidden] { display: none; }
+@media (max-width: 860px) { .finance-parameter-toolbar { align-items: stretch; flex-wrap: wrap; }.finance-parameter-toolbar label { min-width: min(100%, 240px); flex: 1 1 240px; }.finance-parameter-toolbar small { flex: 1 1 100%; padding-bottom: 0; } }
+
 @media (max-width: 860px) { .analysis-scenario-form { grid-template-columns: repeat(2, minmax(130px, 1fr)); }.analysis-scenario-form button { grid-column: span 2; } }
