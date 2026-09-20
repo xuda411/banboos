@@ -2,7 +2,8 @@ param(
     [int]$ApiPort = 8000,
     [int]$WebPort = 5173,
     [string]$StagingDb = "",
-    [string]$LegacyDb = ""
+    [string]$LegacyDb = "",
+    [string]$FinancialTemplate = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +16,7 @@ $env:BANBOOS2_LOCAL_STATE = Join-Path $runtimeDir "runtime.sqlite"
 $env:BANBOOS2_EDGE_SPOOL = Join-Path $runtimeDir "edge-spool.sqlite"
 if ($StagingDb) { $env:BANBOOS2_STAGING_DB = $StagingDb } else { Remove-Item Env:BANBOOS2_STAGING_DB -ErrorAction SilentlyContinue }
 if ($LegacyDb) { $env:BANBOOS2_LEGACY_DB = $LegacyDb } else { Remove-Item Env:BANBOOS2_LEGACY_DB -ErrorAction SilentlyContinue }
+if ($FinancialTemplate) { $env:BANBOOS2_FINANCIAL_TEMPLATE = $FinancialTemplate } else { Remove-Item Env:BANBOOS2_FINANCIAL_TEMPLATE -ErrorAction SilentlyContinue }
 $env:BANBOOS2_CORS_ORIGINS = "http://127.0.0.1:$WebPort,http://localhost:$WebPort"
 Remove-Item (Join-Path $runtimeDir "api.out.log"), (Join-Path $runtimeDir "api.err.log"), `
     (Join-Path $runtimeDir "worker.out.log"), (Join-Path $runtimeDir "worker.err.log"), `
