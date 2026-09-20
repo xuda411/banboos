@@ -13,8 +13,6 @@ def write_formula_audit(workbook, result, title, header):
     required = set(FinancialParameters.__dataclass_fields__) - {"replace_year"}
     if not required.issubset(result["input_parameters"]):
         return  # Old or incomplete inputs cannot support a trustworthy independent reconstruction.
-    if result["input_parameters"].get("revenue_phases"):
-        return  # Excel formulas cannot safely parse the JSON phase schedule yet.
     parameters = workbook["测算参数"]
     refs = {parameters.cell(row, 4).value: f"'测算参数'!$B${row}"
             for row in range(5, parameters.max_row + 1)}
@@ -36,6 +34,7 @@ def write_formula_audit(workbook, result, title, header):
     years = p("operation_years")
     replace_year, replace_capex = p("replace_year"), p("replace_capex_yuan")
     inputs = result["input_parameters"]
+    phase_enabled = bool(inputs.get("revenue_phases"))
     extended = any(float(inputs.get(key, default)) != default for key, default in {
         "insurance_rate": 0.0, "fixed_operation_cost_yuan": 0.0,
         "revenue_share_threshold_yuan": 0.0, "revenue_share_rate": 0.0,
@@ -44,11 +43,21 @@ def write_formula_audit(workbook, result, title, header):
         "annual_cycles": 350.0, "cycle_life_cycles": 8000.0,
         "input_vat_rate_equipment": 0.13, "input_vat_rate_other": 0.09,
         "equipment_investment_share": 1.0, "input_vat_credit_ratio": 1.0,
-    }.items()) or inputs.get("eol_method", "linear") != "linear"
+    }.items()) or inputs.get("eol_method", "linear") != "linear" or phase_enabled
     for row in range(5, len(result["yearly"]) + 5):
         year = row - 4
         previous = loan if year == 1 else f"I{row - 1}"
-        gross_revenue = f"({p('annual_revenue_yuan')}+{p('capacity_fee_yuan')}+{p('subsidy_yuan')}+{p('capacity_lease_yuan')}+{p('primary_frequency_yuan')}+{p('secondary_frequency_yuan')})*B{row}"
+        if phase_enabled:
+            phase_refs = [
+                f'SUMIFS(\'阶段收益\'!$H:$H,\'阶段收益\'!$A:$A,"{component}",\'阶段收益\'!$B:$B,A{row})'
+                for component in (
+                    "annual_revenue_yuan", "capacity_fee_yuan", "subsidy_yuan",
+                    "capacity_lease_yuan", "primary_frequency_yuan", "secondary_frequency_yuan",
+                )
+            ]
+            gross_revenue = "(" + "+".join(phase_refs) + ")"
+        else:
+            gross_revenue = f"({p('annual_revenue_yuan')}+{p('capacity_fee_yuan')}+{p('subsidy_yuan')}+{p('capacity_lease_yuan')}+{p('primary_frequency_yuan')}+{p('secondary_frequency_yuan')})*B{row}"
         output_vat = f"({gross_revenue}/(1+{p('vat_rate')})*{p('vat_rate')})"
         net_revenue = f"({gross_revenue}-{output_vat})"
         vat_surcharge = f"({output_vat}*{p('vat_surcharge_rate')})"

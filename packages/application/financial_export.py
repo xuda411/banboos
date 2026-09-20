@@ -34,6 +34,8 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
     _write_cashflow(workbook.create_sheet("年度现金流"), result)
     _write_debt(workbook.create_sheet("融资明细"), result)
     _write_timeline(workbook.create_sheet("全周期现金流"), result)
+    if result.get("input_parameters", {}).get("revenue_phases"):
+        _write_revenue_phase_sheet(workbook.create_sheet("阶段收益"), result)
     _write_template_mapping(workbook.create_sheet("模板映射"))
     write_formula_audit(workbook, result, _title, _header)
     for sheet in workbook.worksheets:
@@ -229,6 +231,52 @@ def _write_parameters(sheet, result: dict) -> None:
                 cell.number_format = "0.00%"
             elif column == 2 and isinstance(value, (int, float)):
                 cell.number_format = "#,##0.00"
+
+
+def _write_revenue_phase_sheet(sheet, result: dict) -> None:
+    """Expand phase rules into annual formulas that the audit sheet can reuse."""
+    parameters = result.get("input_parameters", {})
+    phases = parameters.get("revenue_phases", {})
+    years = int(parameters.get("operation_years", 0))
+    components = [
+        ("annual_revenue_yuan", True), ("capacity_lease_yuan", False),
+        ("capacity_fee_yuan", True), ("subsidy_yuan", True),
+        ("primary_frequency_yuan", False), ("secondary_frequency_yuan", False),
+    ]
+    _title(sheet, "分阶段收益年度展开", 8)
+    _header(sheet, 4, ["收入项目", "年份", "开始年份", "结束年份", "按 EOL", "年度增长", "基准收入（元）", "阶段收入（元）"])
+    # The parameter sheet is stable and keyed by column D; locate it without
+    # relying on row numbers so added fields do not break the formulas.
+    source = sheet.parent["测算参数"]
+    parameter_rows = {source.cell(row, 4).value: row
+                      for row in range(5, source.max_row + 1)}
+    row = 5
+    for component, default_eol in components:
+        rule = phases.get(component) or {
+            "start_year": 1, "end_year": None,
+            "eol_applies": default_eol, "annual_growth": 0,
+        }
+        base_ref = f"'测算参数'!$B${parameter_rows[component]}"
+        for year in range(1, years + 1):
+            values = [component, year, rule["start_year"], rule.get("end_year"),
+                      1 if rule.get("eol_applies", default_eol) else 0,
+                      rule.get("annual_growth", 0), f"={base_ref}"]
+            for column, value in enumerate(values, start=1):
+                cell = sheet.cell(row, column, value)
+                cell.font = Font(name="Microsoft YaHei", color=TEXT)
+                cell.border = Border(bottom=THIN)
+                if column == 6:
+                    cell.number_format = "0.00%"
+                elif column == 7:
+                    cell.number_format = "#,##0.00"
+            audit_row = year + 4
+            sheet.cell(row, 8,
+                       f'=IF(AND(B{row}>=C{row},OR(D{row}="",B{row}<=D{row})),G{row}*(1+F{row})^(B{row}-C{row})*IF(E{row}=1,\'公式复核\'!B{audit_row},1),0)')
+            sheet.cell(row, 8).number_format = "#,##0.00"
+            sheet.cell(row, 8).font = Font(name="Microsoft YaHei", color=TEXT)
+            sheet.cell(row, 8).border = Border(bottom=THIN)
+            row += 1
+    sheet.auto_filter.ref = f"A4:H{row - 1}"
 
 
 def _write_debt(sheet, result: dict) -> None:

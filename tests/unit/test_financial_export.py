@@ -61,7 +61,7 @@ def test_formula_audit_includes_template_cost_and_tax_drivers(tmp_path):
     assert audit["S5"].value.startswith("=(C5-")
 
 
-def test_phase_schedule_is_serialized_and_keeps_formula_audit_explicit(tmp_path):
+def test_phase_schedule_is_serialized_and_rebuilt_in_formula_audit(tmp_path):
     parameters = FinancialTaskParameters(
         power_mw=10, capacity_mwh=20, annual_revenue_yuan=5_000_000,
         capacity_fee_yuan=1_000_000,
@@ -73,4 +73,7 @@ def test_phase_schedule_is_serialized_and_keeps_formula_audit_explicit(tmp_path)
     parameter_values = [workbook["测算参数"].cell(row, 2).value
                         for row in range(5, workbook["测算参数"].max_row + 1)]
     assert any(isinstance(value, str) and "capacity_fee_yuan" in value for value in parameter_values)
-    assert "公式复核" not in workbook.sheetnames
+    assert "阶段收益" in workbook.sheetnames
+    assert "公式复核" in workbook.sheetnames
+    assert "SUMIFS" in workbook["公式复核"]["C5"].value
+    assert "阶段收益" in workbook["公式复核"]["C5"].value
