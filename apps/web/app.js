@@ -5,6 +5,7 @@ let analysisAnnualRevenueYuan = null;
 let analysisScale = null;
 let financialSourceRunId = null;
 let portfolioRunId = null;
+let financialTemplateAvailable = false;
 
 async function get(path, params = {}) {
   const url = new URL(apiBase + path);
@@ -210,7 +211,7 @@ async function refreshLegacyManagement() {
 
 async function refreshSystem() {
   const health = $("systemHealth"); const ready = $("systemReady"); const checks = $("systemChecks");
-  try { const [healthBody, meta] = await Promise.all([get("/health"), get("/api/v1/meta")]); health.textContent = healthBody.status || "正常"; health.className = "value-ok"; $("systemHealthDetail").textContent = `版本 ${healthBody.version || "—"}`; $("systemMode").textContent = meta.data_mode || "—"; } catch (error) { health.textContent = "异常"; health.className = "value-error"; $("systemHealthDetail").textContent = error.message; }
+  try { const [healthBody, meta] = await Promise.all([get("/health"), get("/api/v1/meta")]); financialTemplateAvailable = meta.financial_template_available === "True"; health.textContent = healthBody.status || "正常"; health.className = "value-ok"; $("systemHealthDetail").textContent = `版本 ${healthBody.version || "—"}`; $("systemMode").textContent = meta.data_mode || "—"; } catch (error) { financialTemplateAvailable = false; health.textContent = "异常"; health.className = "value-error"; $("systemHealthDetail").textContent = error.message; }
   try { const body = await get("/readyz"); ready.textContent = body.status; ready.className = "value-ok"; $("systemReadyDetail").textContent = "所有依赖已就绪"; checks.textContent = JSON.stringify(body.checks || {}, null, 2); } catch (error) { ready.textContent = "未就绪"; ready.className = "value-error"; $("systemReadyDetail").textContent = error.message; checks.textContent = error.message; }
   try { const runs = await get("/api/v1/runs", { kind: $("systemRunKind").value, status: $("systemRunStatus").value, limit: 50 }); const body = $("systemRunsBody"); body.replaceChildren(); runs.forEach((run) => { const tr = document.createElement("tr"); [run.kind, run.status, `${run.progress}%`, run.created_at ? new Date(run.created_at).toLocaleString("zh-CN") : "—", run.error_code || "—"].forEach((value) => { const td = document.createElement("td"); td.textContent = value; tr.appendChild(td); }); body.appendChild(tr); }); $("systemRunsState").textContent = `${runs.length} 条记录`; $("systemRunsState").className = "status status-ok"; } catch (error) { $("systemRunsState").textContent = "加载失败"; $("systemRunsState").className = "status status-error"; }
 }
@@ -473,8 +474,10 @@ async function submitFinancial() {
   const state = $("taskState");
   const message = $("taskMessage");
   const download = $("downloadReport");
+  const templateDownload = $("downloadTemplateReport");
   $("financeResult").hidden = true;
   download.hidden = true;
+  templateDownload.hidden = true;
   const power = Number($("powerMw").value);
   const capacity = Number($("capacityMwh").value);
   const duration = capacity / power;
@@ -573,6 +576,11 @@ async function pollRun(runId) {
     if (run.status === "succeeded") {
       download.href = `${apiBase}/api/v1/runs/${runId}/export`;
       download.hidden = false;
+      if (run.kind === "financial" && financialTemplateAvailable) {
+        const templateDownload = $("downloadTemplateReport");
+        templateDownload.href = `${apiBase}/api/v1/runs/${runId}/export?format=xlsm`;
+        templateDownload.hidden = false;
+      }
       return run;
     }
     if (["failed", "cancelled"].includes(run.status)) throw new Error(run.message || "任务未完成");
@@ -622,6 +630,10 @@ document.querySelectorAll("[data-view]").forEach((item) => item.addEventListener
 $("downloadReport").addEventListener("click", (event) => {
   event.preventDefault(); ReportUI.xlsx(event.currentTarget.href, "财务测算.xlsx", event.currentTarget, "taskView");
 });
+$("downloadTemplateReport").addEventListener("click", (event) => {
+  event.preventDefault(); ReportUI.xlsx(event.currentTarget.href, "独立储能项目经济性测算工具.xlsm", event.currentTarget, "taskView");
+});
 ReportUI.init();
 activateView("overviewView");
+refreshSystem();
 loadNodes().then(refresh).catch((error) => { $("notice").textContent = `无法连接 API：${error.message}`; setStatus("API 未连接", "error"); });

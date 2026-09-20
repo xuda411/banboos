@@ -1,3 +1,5 @@
+from zipfile import ZipFile
+
 import pytest
 from openpyxl import load_workbook
 
@@ -6,6 +8,7 @@ from packages.application.financial_template_xlsm import (
     export_financial_xlsm,
     template_input_values,
 )
+from packages.application.financial_xlsm_review import review_native_cached_values
 from packages.contracts.financial import FinancialTaskParameters
 from packages.domain.financial_model import calculate_financials
 
@@ -132,7 +135,7 @@ def test_template_xlsm_mapping_uses_native_units():
     assert values["D38"] == "是"
 
 
-def test_template_xlsm_copies_source_and_preserves_vba(tmp_path):
+def test_template_xlsm_copies_source_and_records_native_review(tmp_path):
     source = r"C:\Users\Laptop\Desktop\晔旭辉能源测算工具\独立储能项目经济性测算工具.xlsm"
     if not __import__("pathlib").Path(source).exists():
         pytest.skip("开发机未提供 1.6.6 原版 XLSM 模板")
@@ -140,9 +143,20 @@ def test_template_xlsm_copies_source_and_preserves_vba(tmp_path):
                                          annual_revenue_yuan=8_000_000)
     result = calculate_financials(parameters.financial())
     result["input_parameters"] = parameters.model_dump(exclude_none=True)
+    result["run_id"] = "xlsm-test"
     destination = export_financial_xlsm(result, tmp_path / "financial.xlsm", source)
     workbook = load_workbook(destination, data_only=False, keep_vba=True)
-    assert workbook.vba_archive is not None
     assert "Banboos2.0快照" in workbook.sheetnames
+    assert "原版对账" in workbook.sheetnames
+    assert "输入映射记录" in workbook.sheetnames
     assert workbook["参数设定 "]["D3"].value == 100
     assert workbook["参数设定 "]["D4"].value == 200
+    assert workbook["容量类"]["D25"].value == 0
+    assert workbook["电量类 "]["D24"].value == 800
+    assert workbook["辅助服务类"]["D37"].value == 0
+    with ZipFile(destination) as archive:
+        assert not any(name.lower().endswith("vbaproject.bin") for name in archive.namelist())
+    cached = review_native_cached_values(destination, result)
+    assert cached["engine_executed"] is False
+    assert cached["formula_equivalence_verified"] is False
+    assert cached["status"] in {"PENDING_RECALCULATION", "DIFFERENCES", "CACHED_VALUES_MATCH"}

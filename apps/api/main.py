@@ -115,7 +115,8 @@ def ready() -> dict:
 @app.get("/api/v1/meta", tags=["system"])
 def meta() -> dict[str, str]:
     return {"product": "Banboos", "platform": "server-web-operations", "api_version": "v1",
-            "data_mode": readonly_service.data_mode}
+            "data_mode": readonly_service.data_mode,
+            "financial_template_available": str(bool(os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")))}
 
 
 @app.get("/api/v1/nodes", tags=["readonly"])
