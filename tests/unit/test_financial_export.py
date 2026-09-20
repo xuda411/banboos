@@ -36,6 +36,11 @@ def test_financial_export_has_typed_sheets_and_frozen_headers(tmp_path):
     assert parity["D78"].value.startswith("=IRR(D76:")
     assert "E40" not in parity["E34"].value
     assert parity["E56"].value == "=SUM(E57:E62)"
+    assert "A6:A27" in {str(range_ref) for range_ref in parity.merged_cells.ranges}
+    assert parity.column_dimensions["A"].width == 18
+    assert parity.column_dimensions["D"].width == 12
+    assert parity["A2"].fill.fgColor.rgb == "00B4C6E7"
+    assert parity["D78"].font.color.rgb == "00C00000"
 
 
 def test_formula_audit_uses_task_inputs_and_preserves_snapshot(tmp_path):

@@ -17,6 +17,10 @@ from packages.application.financial_formula_audit import write_formula_audit
 GREEN = "0B6B53"
 LIGHT_GREEN = "E8F2EE"
 TEXT = "173B35"
+TEMPLATE_HEADER = "B4C6E7"
+TEMPLATE_SECTION = "FFF2CC"
+TEMPLATE_TEXT = "404040"
+TEMPLATE_ALERT = "C00000"
 THIN = Side(style="thin", color="C9D8D2")
 
 
@@ -422,7 +426,9 @@ def _write_template_parity_sheet(sheet, result: dict) -> None:
     last_year_letter = get_column_letter(last_year_column)
     total_letter = get_column_letter(total_column)
     sheet.cell(1, 1, "独立储能项目收益测算具体明细（服务器模板对照）")
-    sheet.cell(1, 1).font = Font(name="Microsoft YaHei", size=16, bold=True, color=TEXT)
+    sheet.cell(1, 1).font = Font(name="Microsoft YaHei", size=16, bold=False, color=TEMPLATE_TEXT)
+    sheet.cell(1, 1).fill = PatternFill("solid", fgColor=TEMPLATE_HEADER)
+    sheet.cell(1, 1).alignment = Alignment(horizontal="center", vertical="center")
     sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_column)
     headers = ["类别", "序号", "指标与参数", 0] + list(range(1, years + 1)) + ["合计"]
     _header(sheet, 2, headers)
@@ -446,8 +452,9 @@ def _write_template_parity_sheet(sheet, result: dict) -> None:
 
     def set_year(row: int, column: int, formula: str, *, percent: bool = False) -> None:
         cell = sheet.cell(row, column, formula)
-        cell.font = Font(name="Microsoft YaHei", color=TEXT)
-        cell.border = Border(bottom=THIN)
+        cell.font = Font(name="Microsoft YaHei", size=9,
+                         color=TEMPLATE_ALERT if row in {65, 78} else TEMPLATE_TEXT)
+        cell.border = Border(left=THIN, right=THIN, bottom=THIN)
         cell.alignment = Alignment(horizontal="right", vertical="center")
         cell.number_format = "0.00%" if percent else "#,##0.00;[Red](#,##0.00);0.00"
 
@@ -500,13 +507,28 @@ def _write_template_parity_sheet(sheet, result: dict) -> None:
         sheet.cell(row, 3, label)
         is_section = row in section_rows
         if is_section:
-            sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=total_column)
+            sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3)
         for column in range(1, total_column + 1):
             cell = sheet.cell(row, column)
-            cell.font = Font(name="Microsoft YaHei", color=TEXT, bold=is_section or column == 3)
-            cell.fill = PatternFill("solid", fgColor="DDEBE5" if is_section else (LIGHT_GREEN if row % 2 else "FFFFFF"))
-            cell.border = Border(bottom=THIN)
+            cell.font = Font(name="Microsoft YaHei", size=9, color=TEMPLATE_TEXT, bold=is_section or column == 3)
+            cell.fill = PatternFill("solid", fgColor=TEMPLATE_SECTION if is_section else "FFFFFF")
+            cell.border = Border(top=THIN if is_section else Side(style=None), bottom=THIN)
             cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+    # Match the original template's compact category hierarchy instead of
+    # repeating the category label on every detail row.
+    for start, end in ((4, 5), (6, 27), (29, 32), (33, 40), (41, 44),
+                       (45, 53), (55, 67), (69, 80)):
+        sheet.merge_cells(start_row=start, start_column=1, end_row=end, end_column=1)
+        sheet.cell(start, 1).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    for row in section_rows:
+        sheet.cell(row, 1).alignment = Alignment(horizontal="left", vertical="center")
+    for column in range(1, total_column + 1):
+        header = sheet.cell(2, column)
+        header.fill = PatternFill("solid", fgColor=TEMPLATE_HEADER)
+        header.font = Font(name="Microsoft YaHei", size=9, bold=True, color=TEMPLATE_TEXT)
+        header.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        header.border = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
     # The existing server sheet is the calculation owner. This sheet only adapts
     # the unit, row order and labels to the xlsm layout so the two can be audited.
@@ -630,6 +652,13 @@ def _write_debt(sheet, result: dict) -> None:
 
 
 def _fit_columns(sheet) -> None:
+    if sheet.title == "财务模板":
+        sheet.column_dimensions["A"].width = 18
+        sheet.column_dimensions["B"].width = 7
+        sheet.column_dimensions["C"].width = 28
+        for column in range(4, sheet.max_column + 1):
+            sheet.column_dimensions[get_column_letter(column)].width = 12
+        return
     for column_cells in sheet.columns:
         letter = get_column_letter(column_cells[0].column)
         longest = max((sum(2 if ord(char) > 127 else 1 for char in str(cell.value or ""))
