@@ -42,6 +42,10 @@ class FinancialTaskParameters(BaseModel):
     vat_rate: float = Field(default=0, ge=0, le=1)
     vat_surcharge_rate: float = Field(default=0.12, ge=0, le=1)
     stamp_tax_rate: float = Field(default=0, ge=0, le=1)
+    input_vat_rate_equipment: float = Field(default=0.13, ge=0, le=1)
+    input_vat_rate_other: float = Field(default=0.09, ge=0, le=1)
+    equipment_investment_share: float = Field(default=1, ge=0, le=1)
+    input_vat_credit_ratio: float = Field(default=1, ge=0, le=1)
     discount_rate: float = 0.08
     loan_ratio: float = Field(default=0, ge=0, le=1)
     loan_years: int = Field(default=10, ge=1, le=100)

@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from itertools import pairwise
 from math import isfinite
 
-MODEL_VERSION = "banboos-financial-1.1.0"
+MODEL_VERSION = "banboos-financial-1.2.0"
 
 
 class FinancialError(ValueError):
@@ -45,6 +45,10 @@ class FinancialParameters:
     vat_rate: float = 0.0
     vat_surcharge_rate: float = 0.12
     stamp_tax_rate: float = 0.0
+    input_vat_rate_equipment: float = 0.13
+    input_vat_rate_other: float = 0.09
+    equipment_investment_share: float = 1.0
+    input_vat_credit_ratio: float = 1.0
     discount_rate: float = 0.08
     loan_ratio: float = 0.0
     loan_years: int = 10
@@ -91,7 +95,9 @@ class FinancialParameters:
             raise FinancialError("换电池年份必须在运营期内")
         for value in (self.om_rate, self.om_growth, self.residual_rate, self.income_tax_rate,
                       self.calendar_eol_decline, self.insurance_rate, self.revenue_share_rate,
-                      self.vat_rate, self.vat_surcharge_rate, self.stamp_tax_rate):
+                      self.vat_rate, self.vat_surcharge_rate, self.stamp_tax_rate,
+                      self.input_vat_rate_equipment, self.input_vat_rate_other,
+                      self.equipment_investment_share, self.input_vat_credit_ratio):
             if value < 0 or value > 1:
                 raise FinancialError("费率和残值率必须在0至1之间")
         if not 0 < self.first_year_eol <= 1 or not 0 < self.final_eol <= 1:
@@ -158,7 +164,15 @@ def calculate_financials(p: FinancialParameters) -> dict:
     yearly: list[dict] = []
     cashflows = [-total_investment]
     equity_cashflows = [-(total_investment - loan_principal)]
+    pre_tax_cashflows = [-total_investment]
+    pre_tax_equity_cashflows = [-(total_investment - loan_principal)]
     remaining_loan = loan_principal
+    equipment_base = p.initial_investment_yuan * p.equipment_investment_share
+    other_base = p.initial_investment_yuan - equipment_base
+    input_vat_credit_balance = (
+        equipment_base / (1 + p.input_vat_rate_equipment) * p.input_vat_rate_equipment
+        + other_base / (1 + p.input_vat_rate_other) * p.input_vat_rate_other
+    ) * p.input_vat_credit_ratio
     for year in range(1, years + 1):
         age = year
         if p.replace_year and year >= p.replace_year:
@@ -180,6 +194,17 @@ def calculate_financials(p: FinancialParameters) -> dict:
         stamp_tax = net_revenue * p.stamp_tax_rate
         revenue_share = max(0.0, net_revenue - p.revenue_share_threshold_yuan) * p.revenue_share_rate
         replacement = p.replace_capex_yuan if p.replace_year == year else 0.0
+        replacement_input_vat = (
+            replacement / (1 + p.input_vat_rate_equipment) * p.input_vat_rate_equipment
+            * p.input_vat_credit_ratio
+            if replacement else 0.0
+        )
+        input_vat_credit_opening = input_vat_credit_balance
+        input_vat_credit_available = input_vat_credit_opening + replacement_input_vat
+        input_vat_credit_used = min(output_vat, input_vat_credit_available)
+        actual_vat = output_vat - input_vat_credit_used
+        input_vat_credit_balance = input_vat_credit_available - input_vat_credit_used
+        vat_surcharge = actual_vat * p.vat_surcharge_rate
         insurance = p.initial_investment_yuan * p.insurance_rate
         operating_cost = (total_investment * p.om_rate * (1 + p.om_growth) ** (year - 1)
                           + p.land_rent_yuan + insurance + p.fixed_operation_cost_yuan
@@ -193,16 +218,26 @@ def calculate_financials(p: FinancialParameters) -> dict:
         if year == years:
             principal += remaining_loan - principal
         remaining_loan = max(0.0, remaining_loan - principal)
-        project_cashflow = net_profit + depreciation_this_year - replacement - output_vat - vat_surcharge - stamp_tax
+        project_pre_tax_cashflow = (revenue - operating_cost - replacement - actual_vat
+                                    - vat_surcharge - stamp_tax)
+        project_cashflow = project_pre_tax_cashflow - income_tax
         equity_taxable_profit = taxable_profit - interest
         equity_tax = max(0.0, equity_taxable_profit * p.income_tax_rate)
-        # This starts from cash revenue, not net profit: depreciation is already excluded.
-        equity_cashflow = net_revenue - operating_cost - replacement - interest - principal - equity_tax - output_vat - vat_surcharge - stamp_tax
+        equity_pre_tax_cashflow = (revenue - operating_cost - replacement - interest - principal
+                                   - actual_vat - vat_surcharge - stamp_tax)
+        equity_cashflow = equity_pre_tax_cashflow - equity_tax
+        pre_tax_cashflows.append(project_pre_tax_cashflow)
+        pre_tax_equity_cashflows.append(equity_pre_tax_cashflow)
         cashflows.append(project_cashflow)
         equity_cashflows.append(equity_cashflow)
         yearly.append({"year": year, "eol": eol, "revenue_yuan": revenue,
                        "gross_revenue_yuan": revenue, "net_revenue_yuan": net_revenue,
                        "output_vat_yuan": output_vat, "vat_surcharge_yuan": vat_surcharge,
+                       "input_vat_yuan": replacement_input_vat,
+                       "input_vat_credit_opening_yuan": input_vat_credit_opening,
+                       "input_vat_credit_used_yuan": input_vat_credit_used,
+                       "input_vat_credit_closing_yuan": input_vat_credit_balance,
+                       "actual_vat_yuan": actual_vat,
                        "stamp_tax_yuan": stamp_tax, "revenue_share_yuan": revenue_share,
                        "insurance_yuan": insurance,
                        "energy_revenue_yuan": energy_revenue,
@@ -215,7 +250,10 @@ def calculate_financials(p: FinancialParameters) -> dict:
                        "loan_principal_yuan": principal, "remaining_loan_yuan": remaining_loan,
                        "equity_tax_yuan": equity_tax,
                        "taxable_profit_yuan": taxable_profit, "income_tax_yuan": income_tax,
-                       "net_profit_yuan": net_profit, "project_cashflow_yuan": project_cashflow,
+                       "net_profit_yuan": net_profit,
+                       "project_pre_tax_cashflow_yuan": project_pre_tax_cashflow,
+                       "project_cashflow_yuan": project_cashflow,
+                       "equity_pre_tax_cashflow_yuan": equity_pre_tax_cashflow,
                        "equity_cashflow_yuan": equity_cashflow})
     cumulative = -total_investment
     payback = None
@@ -232,9 +270,15 @@ def calculate_financials(p: FinancialParameters) -> dict:
         "construction_interest_yuan": construction_interest,
         "total_investment_yuan": total_investment,
         "full_irr": irr(cashflows), "full_npv_yuan": npv(p.discount_rate, cashflows),
+        "full_pre_tax_irr": irr(pre_tax_cashflows),
+        "full_pre_tax_npv_yuan": npv(p.discount_rate, pre_tax_cashflows),
         "payback_year": payback, "equity_irr": irr(equity_cashflows),
         "equity_npv_yuan": npv(p.discount_rate, equity_cashflows),
+        "equity_pre_tax_irr": irr(pre_tax_equity_cashflows),
+        "equity_pre_tax_npv_yuan": npv(p.discount_rate, pre_tax_equity_cashflows),
         "yearly": yearly, "equity_cashflows_yuan": equity_cashflows,
+        "pre_tax_cashflows_yuan": pre_tax_cashflows,
+        "pre_tax_equity_cashflows_yuan": pre_tax_equity_cashflows,
         "model_version": MODEL_VERSION,
         "cashflows_yuan": cashflows,
     }

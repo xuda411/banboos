@@ -108,6 +108,10 @@ def _write_overview(sheet, result: dict) -> None:
         ("全投资回收期", result.get("payback_year"), "年", "静态回收期"),
         ("资本金 IRR", result.get("equity_irr"), "%", "含贷款还本付息"),
         ("资本金 NPV", result.get("equity_npv_yuan"), "元", "含贷款还本付息"),
+        ("全投资税前 IRR", result.get("full_pre_tax_irr"), "%", "未扣所得税"),
+        ("全投资税前 NPV", result.get("full_pre_tax_npv_yuan"), "元", "未扣所得税"),
+        ("资本金税前 IRR", result.get("equity_pre_tax_irr"), "%", "未扣所得税"),
+        ("资本金税前 NPV", result.get("equity_pre_tax_npv_yuan"), "元", "未扣所得税"),
         ("本次任务 ID", result.get("run_id"), "", "对应导出任务，区别于上游任务"),
         ("计算完成时间", result.get("completed_at"), "UTC", "任务快照时间"),
     ]
@@ -126,7 +130,9 @@ def _write_cashflow(sheet, result: dict) -> None:
                "容量租赁（元）", "一次调频（元）", "二次调频（元）", "总收入（元）",
                "运营成本（元）", "折旧（元）", "所得税（元）", "换电池投资（元）",
                "项目现金流（元）", "资本金现金流（元）", "应纳税利润（元）", "净利润（元）", "资本金所得税（元）",
-               "不含税收入（元）", "销项增值税（元）", "增值税附加（元）", "印花税（元）", "收益分成（元）", "保险费（元）"]
+               "不含税收入（元）", "销项增值税（元）", "实际应缴增值税（元）", "进项税抵扣使用（元）",
+               "进项税抵扣余额（元）", "增值税附加（元）", "印花税（元）", "收益分成（元）", "保险费（元）",
+               "项目税前现金流（元）", "资本金税前现金流（元）"]
     _title(sheet, "年度现金流", len(headers))
     _header(sheet, 4, headers)
     keys = ["year", "eol", "energy_revenue_yuan", "capacity_fee_yuan", "subsidy_yuan",
@@ -134,7 +140,10 @@ def _write_cashflow(sheet, result: dict) -> None:
             "revenue_yuan", "operating_cost_yuan", "depreciation_yuan", "income_tax_yuan",
             "replacement_capex_yuan", "project_cashflow_yuan", "equity_cashflow_yuan",
             "taxable_profit_yuan", "net_profit_yuan", "equity_tax_yuan", "net_revenue_yuan",
-            "output_vat_yuan", "vat_surcharge_yuan", "stamp_tax_yuan", "revenue_share_yuan", "insurance_yuan"]
+            "output_vat_yuan", "actual_vat_yuan", "input_vat_credit_used_yuan",
+            "input_vat_credit_closing_yuan", "vat_surcharge_yuan", "stamp_tax_yuan",
+            "revenue_share_yuan", "insurance_yuan", "project_pre_tax_cashflow_yuan",
+            "equity_pre_tax_cashflow_yuan"]
     for row, item in enumerate(result.get("yearly", []), start=5):
         for column, key in enumerate(keys, start=1):
             cell = sheet.cell(row, column, item.get(key))
@@ -181,6 +190,10 @@ def _write_parameters(sheet, result: dict) -> None:
         "vat_rate": ("增值税率", "%"),
         "vat_surcharge_rate": ("增值税附加率", "%"),
         "stamp_tax_rate": ("印花税率", "%"),
+        "input_vat_rate_equipment": ("设备进项税率", "%"),
+        "input_vat_rate_other": ("其他投资进项税率", "%"),
+        "equipment_investment_share": ("设备投资占比", "%"),
+        "input_vat_credit_ratio": ("进项税抵扣比例", "%"),
         "discount_rate": ("折现率", "%"),
         "loan_ratio": ("贷款比例", "%"),
         "loan_years": ("贷款期限", "年"),
@@ -206,7 +219,8 @@ def _write_parameters(sheet, result: dict) -> None:
                 "om_rate", "om_growth", "first_year_eol", "final_eol", "residual_rate",
                 "income_tax_rate", "discount_rate", "loan_ratio", "single_side_efficiency", "dod",
                 "calendar_eol_decline", "insurance_rate", "revenue_share_rate", "vat_rate",
-                "vat_surcharge_rate", "stamp_tax_rate",
+                "vat_surcharge_rate", "stamp_tax_rate", "input_vat_rate_equipment",
+                "input_vat_rate_other", "equipment_investment_share", "input_vat_credit_ratio",
             }:
                 cell.number_format = "0.00%"
             elif column == 2 and isinstance(value, (int, float)):
@@ -275,7 +289,9 @@ def _write_template_mapping(sheet) -> None:
         ("single_side_efficiency / round_trip_efficiency", "%", "参数设定 D5", "效率", "服务器保留单边效率；节点价差任务使用往返效率，禁止直接同值代入"),
         ("dod / annual_cycles / cycle_life_cycles", "%、次", "参数设定 D6/D10", "有效容量与循环衰减", "已接入参数，默认不改变既有年收入口径"),
         ("insurance_rate / fixed_operation_cost_yuan / revenue_share_*", "%、元", "参数设定 D32:D36", "保险、固定运营费、收益分成", "已接入年度运营成本"),
-        ("vat_rate / vat_surcharge_rate / stamp_tax_rate", "%", "参数设定 D55:D58", "增值税及附加、印花税", "已接入现金流；进项税抵扣仍需单独配置"),
+        ("vat_rate / vat_surcharge_rate / stamp_tax_rate", "%", "参数设定 D55:D58", "增值税及附加、印花税", "已接入现金流"),
+        ("input_vat_rate_equipment / input_vat_rate_other", "%", "参数设定 D57:D58", "设备及其他投资进项税率", "已接入进项税抵扣余额"),
+        ("equipment_investment_share / input_vat_credit_ratio", "%", "参数设定 D57:D58", "进项税抵扣范围", "服务器版显式配置"),
         ("yearly[*]", "元/年", "财务指标", "年度收入、成本、税费和现金流", "服务器明细"),
         ("full_irr / equity_irr", "%", "财务指标", "全投资/资本金 IRR", "服务器结果"),
         ("cashflows_yuan", "元", "财务指标", "项目现金流（含建设期）", "服务器结果"),

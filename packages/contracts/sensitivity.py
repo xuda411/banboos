@@ -18,7 +18,8 @@ class SensitivityTaskParameters(BaseModel):
         "cycle_life_cycles", "land_rent_yuan", "insurance_rate",
         "fixed_operation_cost_yuan", "revenue_share_threshold_yuan",
         "revenue_share_rate", "other_operating_cost_yuan", "vat_rate",
-        "vat_surcharge_rate", "stamp_tax_rate"
+        "vat_surcharge_rate", "stamp_tax_rate", "input_vat_rate_equipment",
+        "input_vat_rate_other", "equipment_investment_share", "input_vat_credit_ratio"
     ]
     change_rates: list[float] = Field(min_length=3, max_length=9)
 

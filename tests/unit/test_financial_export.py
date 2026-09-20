@@ -17,6 +17,8 @@ def test_financial_export_has_typed_sheets_and_frozen_headers(tmp_path):
     assert workbook["测算参数"]["B5"].value == 100
     assert workbook["年度现金流"].freeze_panes == "B5"
     assert workbook["年度现金流"]["C5"].value == result["yearly"][0]["energy_revenue_yuan"]
+    assert workbook["年度现金流"]["U4"].value == "实际应缴增值税（元）"
+    assert workbook["年度现金流"]["AB4"].value == "项目税前现金流（元）"
     assert workbook["项目概览"]["B12"].value == result["total_investment_yuan"]
 
 
@@ -55,3 +57,5 @@ def test_formula_audit_includes_template_cost_and_tax_drivers(tmp_path):
     assert "MAX(0" in audit["J5"].value
     assert "B5" in audit["D5"].value
     assert audit["B5"].value.startswith("=IF(")
+    assert "Q5" in audit["P5"].value
+    assert audit["S5"].value.startswith("=(C5-")

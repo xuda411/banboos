@@ -65,6 +65,22 @@ def test_financial_model_supports_template_operating_costs_and_indirect_tax():
     assert first["revenue_share_yuan"] > 0
     assert first["net_revenue_yuan"] < first["gross_revenue_yuan"]
     assert first["eol"] <= parameters.first_year_eol
+    assert first["actual_vat_yuan"] <= first["output_vat_yuan"]
+    assert result["full_pre_tax_irr"] is not None
+
+
+def test_input_vat_credit_carries_forward_and_pre_tax_cashflow_is_exposed():
+    result = calculate_financials(FinancialTaskParameters(
+        power_mw=100, capacity_mwh=200, annual_revenue_yuan=20_000_000,
+        vat_rate=0.13, input_vat_rate_equipment=0.13,
+        equipment_investment_share=1, input_vat_credit_ratio=1,
+    ).financial())
+    first = result["yearly"][0]
+    assert first["input_vat_credit_used_yuan"] == pytest.approx(first["output_vat_yuan"])
+    assert first["actual_vat_yuan"] == pytest.approx(0)
+    assert first["input_vat_credit_closing_yuan"] > 0
+    assert any(item["actual_vat_yuan"] > 0 for item in result["yearly"])
+    assert len(result["pre_tax_cashflows_yuan"]) == len(result["cashflows_yuan"])
 
 
 def test_calendar_cycle_eol_uses_annual_cycles_against_cycle_life():
