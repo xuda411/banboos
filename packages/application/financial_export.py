@@ -13,6 +13,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.workbook.properties import CalcProperties
 
 from packages.application.financial_formula_audit import write_formula_audit
+from packages.application.financial_recalc_audit import write_recalc_audit
 from packages.application.financial_template_audit import write_template_audit
 
 GREEN = "0B6B53"
@@ -44,6 +45,7 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
     if result.get("input_parameters", {}).get("revenue_phases"):
         _write_revenue_phase_sheet(workbook.create_sheet("阶段收益"), result)
     write_template_audit(workbook)
+    write_recalc_audit(workbook, result)
     _write_template_mapping(workbook.create_sheet("模板映射"))
     write_formula_audit(workbook, result, _title, _header)
     for sheet in workbook.worksheets:
