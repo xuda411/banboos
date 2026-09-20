@@ -67,6 +67,15 @@ def test_financial_model_supports_template_operating_costs_and_indirect_tax():
     assert first["eol"] <= parameters.first_year_eol
 
 
+def test_calendar_cycle_eol_uses_annual_cycles_against_cycle_life():
+    parameters = FinancialTaskParameters(
+        power_mw=100, capacity_mwh=200, annual_revenue_yuan=8_000_000,
+        eol_method="calendar_cycle_min", annual_cycles=350, cycle_life_cycles=8_000,
+    )
+    result = calculate_financials(parameters.financial())
+    assert result["yearly"][0]["eol"] == pytest.approx(0.95625)
+
+
 def test_financial_task_is_traceable_to_upstream_run():
     registry = RunRegistry()
     upstream = registry.submit("strict-dispatch")

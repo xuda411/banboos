@@ -165,8 +165,9 @@ def calculate_financials(p: FinancialParameters) -> dict:
             age = year - p.replace_year + 1
         linear_eol = p.first_year_eol + (p.final_eol - p.first_year_eol) * (age - 1) / max(1, years - 1)
         calendar_eol = max(p.final_eol, 1 - p.calendar_eol_decline * age)
-        cycle_decline = p.annual_cycles / p.cycle_life_cycles / max(1e-9, 1 - p.final_eol)
-        cycle_eol = max(p.final_eol, 1 - cycle_decline * age)
+        # Cycle life is the total usable cycle count, so the annual loss is
+        # cumulative cycles divided by that lifetime, bounded by final EOL.
+        cycle_eol = max(p.final_eol, 1 - p.annual_cycles * age / p.cycle_life_cycles)
         eol = min(linear_eol, calendar_eol, cycle_eol) if p.eol_method == "calendar_cycle_min" else linear_eol
         energy_revenue = p.annual_revenue_yuan * eol
         capacity_fee = p.capacity_fee_yuan * eol
