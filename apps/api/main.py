@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from apps.api.security import configured_token, is_production, token_matches
 from apps.edge.gateway import TelemetrySpool
 from packages.application.financial_export import export_financial_xlsx
+from packages.application.financial_template_xlsm import export_financial_xlsm
 from packages.application.operations_service import OperationsService, OperationsUnavailable
 from packages.application.readonly_service import ReadonlyService
 from packages.application.report_export import (
@@ -325,7 +326,7 @@ def cancel_run(run_id: str) -> RunStatus:
 
 
 @app.get("/api/v1/runs/{run_id}/export", tags=["reports"])
-def export_run(run_id: str):
+def export_run(run_id: str, output_format: str = Query(default="xlsx", alias="format")):
     if not re.fullmatch(r"[0-9a-fA-F-]{36}", run_id):
         raise HTTPException(status_code=400, detail="invalid run id")
     item = run_registry.get(run_id)
@@ -333,8 +334,34 @@ def export_run(run_id: str):
         raise HTTPException(status_code=404, detail="run not found")
     if item.kind not in SUPPORTED_TASKS or item.status != "succeeded" or not item.result:
         raise HTTPException(status_code=409, detail="支持的任务必须计算成功后才能导出")
+    normalized_format = output_format.lower().strip()
+    if normalized_format not in {"xlsx", "xlsm"}:
+        raise HTTPException(status_code=400, detail="format 仅支持 xlsx 或 xlsm")
+    if normalized_format == "xlsm" and item.kind != "financial":
+        raise HTTPException(status_code=400, detail="xlsm 模板仅支持财务测算任务")
     if item.kind != "financial":
         return xlsx_response(export_task_xlsx(item), f"{item.kind}-{run_id}.xlsx")
+    if normalized_format == "xlsm":
+        template = os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")
+        if not template:
+            raise HTTPException(
+                status_code=503,
+                detail="未配置 BANBOOS2_FINANCIAL_TEMPLATE，暂不能导出原版 XLSM 模板",
+            )
+        destination = Path(os.getenv("BANBOOS2_EXPORT_DIR", "var/exports")) / f"financial-{run_id}.xlsm"
+        try:
+            path = export_financial_xlsm(
+                item.result | {"run_id": run_id, "completed_at": str(item.completed_at)},
+                destination,
+                template,
+            )
+        except (FileNotFoundError, ValueError) as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        return FileResponse(
+            path,
+            media_type="application/vnd.ms-excel.sheet.macroEnabled.12",
+            filename=path.name,
+        )
     destination = Path(os.getenv("BANBOOS2_EXPORT_DIR", "var/exports")) / f"financial-{run_id}.xlsx"
     path = export_financial_xlsx(item.result | {"run_id": run_id, "completed_at": str(item.completed_at)}, destination)
     return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

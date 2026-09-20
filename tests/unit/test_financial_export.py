@@ -1,6 +1,11 @@
+import pytest
 from openpyxl import load_workbook
 
 from packages.application.financial_export import export_financial_xlsx
+from packages.application.financial_template_xlsm import (
+    export_financial_xlsm,
+    template_input_values,
+)
 from packages.contracts.financial import FinancialTaskParameters
 from packages.domain.financial_model import calculate_financials
 
@@ -109,3 +114,35 @@ def test_phase_schedule_is_serialized_and_rebuilt_in_formula_audit(tmp_path):
     assert "公式复核" in workbook.sheetnames
     assert "SUMIFS" in workbook["公式复核"]["C5"].value
     assert "阶段收益" in workbook["公式复核"]["C5"].value
+
+
+def test_template_xlsm_mapping_uses_native_units():
+    parameters = FinancialTaskParameters(
+        power_mw=100, capacity_mwh=200, annual_revenue_yuan=8_000_000,
+        capacity_fee_yuan=1_000_000, loan_ratio=.7,
+        replace_year=3, replace_capex_yuan=8_000_000,
+    )
+    values = template_input_values({"input_parameters": parameters.model_dump(exclude_none=True)})
+    assert values["D3"] == 100
+    assert values["D4"] == 200
+    assert values["D40"] == .04
+    assert values["D44"] == .7
+    assert values["D50"] == 100
+    assert values["D51"] == 800
+    assert values["D38"] == "是"
+
+
+def test_template_xlsm_copies_source_and_preserves_vba(tmp_path):
+    source = r"C:\Users\Laptop\Desktop\晔旭辉能源测算工具\独立储能项目经济性测算工具.xlsm"
+    if not __import__("pathlib").Path(source).exists():
+        pytest.skip("开发机未提供 1.6.6 原版 XLSM 模板")
+    parameters = FinancialTaskParameters(power_mw=100, capacity_mwh=200,
+                                         annual_revenue_yuan=8_000_000)
+    result = calculate_financials(parameters.financial())
+    result["input_parameters"] = parameters.model_dump(exclude_none=True)
+    destination = export_financial_xlsm(result, tmp_path / "financial.xlsm", source)
+    workbook = load_workbook(destination, data_only=False, keep_vba=True)
+    assert workbook.vba_archive is not None
+    assert "Banboos2.0快照" in workbook.sheetnames
+    assert workbook["参数设定 "]["D3"].value == 100
+    assert workbook["参数设定 "]["D4"].value == 200
