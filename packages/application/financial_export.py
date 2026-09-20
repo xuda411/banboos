@@ -35,15 +35,16 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
     _write_debt(workbook.create_sheet("融资明细"), result)
     _write_timeline(workbook.create_sheet("全周期现金流"), result)
     _write_template_financial_sheet(workbook.create_sheet("财务指标"), result)
+    _write_template_parity_sheet(workbook.create_sheet("财务模板"), result)
     if result.get("input_parameters", {}).get("revenue_phases"):
         _write_revenue_phase_sheet(workbook.create_sheet("阶段收益"), result)
     _write_template_mapping(workbook.create_sheet("模板映射"))
     write_formula_audit(workbook, result, _title, _header)
     for sheet in workbook.worksheets:
         sheet.sheet_view.showGridLines = False
-        sheet.freeze_panes = "D5" if sheet.title == "财务指标" else "B5"
+        sheet.freeze_panes = "D5" if sheet.title == "财务指标" else ("D3" if sheet.title == "财务模板" else "B5")
         _fit_columns(sheet)
-        sheet.print_title_rows = "1:4"
+        sheet.print_title_rows = "1:2" if sheet.title == "财务模板" else "1:4"
         sheet.print_options.horizontalCentered = True
         sheet.page_setup.orientation = "landscape" if sheet.max_column > 6 else "portrait"
         sheet.page_setup.paperSize = sheet.PAPERSIZE_A3 if sheet.max_column > 6 else sheet.PAPERSIZE_A4
@@ -410,6 +411,208 @@ def _write_template_financial_sheet(sheet, result: dict) -> None:
     for row in range(39, 47):
         sheet.cell(row, 4).number_format = "0.00%" if row in {39, 40, 43, 44} else "#,##0.00;[Red](#,##0.00);0.00"
     sheet.auto_filter.ref = f"A4:{get_column_letter(last_column)}46"
+
+
+def _write_template_parity_sheet(sheet, result: dict) -> None:
+    """Render the server result in the row/column shape of the supplied xlsm template."""
+    yearly = result.get("yearly", [])
+    years = len(yearly)
+    last_year_column = 4 + years
+    total_column = last_year_column + 1
+    last_year_letter = get_column_letter(last_year_column)
+    total_letter = get_column_letter(total_column)
+    sheet.cell(1, 1, "独立储能项目收益测算具体明细（服务器模板对照）")
+    sheet.cell(1, 1).font = Font(name="Microsoft YaHei", size=16, bold=True, color=TEXT)
+    sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_column)
+    headers = ["类别", "序号", "指标与参数", 0] + list(range(1, years + 1)) + ["合计"]
+    _header(sheet, 2, headers)
+    for column in range(4, last_year_column + 1):
+        sheet.cell(2, column).number_format = '0" 年"'
+
+    parameter_rows = {sheet.parent["测算参数"].cell(row, 4).value: row
+                      for row in range(5, sheet.parent["测算参数"].max_row + 1)}
+
+    def parameter_ref(key: str) -> str:
+        row = parameter_rows.get(key)
+        return f"'测算参数'!$B${row}" if row else "0"
+
+    def source_formula(column: int, source_row: int, *, divisor: int | None = 10000) -> str:
+        source = f"'财务指标'!{get_column_letter(column)}{source_row}"
+        return f"={source}" if divisor is None else f"={source}/{divisor}"
+
+    def annual_cashflow_formula(column: int, source_column: str) -> str:
+        # Output column E corresponds to the first operating-year row 5.
+        return f"='年度现金流'!{source_column}{column}/10000"
+
+    def set_year(row: int, column: int, formula: str, *, percent: bool = False) -> None:
+        cell = sheet.cell(row, column, formula)
+        cell.font = Font(name="Microsoft YaHei", color=TEXT)
+        cell.border = Border(bottom=THIN)
+        cell.alignment = Alignment(horizontal="right", vertical="center")
+        cell.number_format = "0.00%" if percent else "#,##0.00;[Red](#,##0.00);0.00"
+
+    # The labels and row numbers intentionally follow the original 财务指标 sheet.
+    row_labels = {
+        3: ("1、项目充放电数据与收支明细", "", ""),
+        4: ("1、储能 EOL", 1, "电池容量衰减 EOL"), 5: ("", 2, "年平均 EOL"),
+        6: ("2、收益", 1, "容量租赁收益（万元）"), 7: ("", 2, "容量电费收益（万元）"),
+        8: ("", 3, "容量电费收益-EOL（万元）"), 9: ("", 4, "容量电费浮动比例"),
+        10: ("", 5, "容量电费收益-最终（万元）"), 11: ("", 6, "电能量收益（万元）"),
+        12: ("", 7, "电能量收益-EOL（万元）"), 13: ("", 8, "电能量收益浮动比例"),
+        14: ("", 9, "电能量收益-最终（万元）"), 15: ("", 10, "政策性补贴收益（万元）"),
+        16: ("", 11, "政策性补贴收益-EOL（万元）"), 17: ("", 12, "政策性补贴浮动比例"),
+        18: ("", 13, "政策性补贴收益-最终（万元）"), 19: ("", 14, "一次调频收益（万元）"),
+        20: ("", 15, "一次调频收益-EOL（万元）"), 21: ("", 16, "一次调频收益浮动比例"),
+        22: ("", 17, "一次调频收益-最终（万元）"), 23: ("", 18, "二次调频收益（万元）"),
+        24: ("", 19, "二次调频收益-EOL（万元）"), 25: ("", 20, "二次调频收益浮动比例"),
+        26: ("", 21, "二次调频收益-最终（万元）"), 27: ("", 22, "收益合计（万元）"),
+        28: ("", "", "不含税收益"), 29: ("3、折旧费用", 1, "折旧费用（万元）"),
+        30: ("", 2, "累计折旧（万元）"), 31: ("", 3, "固定资产残值（万元）"),
+        32: ("", 4, "残值（万元）"), 33: ("4、运营成本", 1, "土地租赁费用（万元）"),
+        34: ("", 2, "运维费（万元）"), 35: ("", 3, "保险费（万元）"),
+        36: ("", 4, "运营费-固定部分（万元）"), 37: ("", 5, "运营费-比例分成部分（万元）"),
+        38: ("", 6, "其他费用（万元）"), 39: ("", 7, "换电池费用（万元）"),
+        40: ("", 8, "总运营费用（万元）"), 41: ("5、银行融资", 1, "贷款本金（万元）"),
+        42: ("", 2, "本年付息（万元）"), 43: ("", 3, "本年还本（万元）"),
+        44: ("", 4, "本息合计（万元）"), 45: ("6、税费及抵扣", 1, "应缴纳增值税（万元）"),
+        46: ("", 2, "可抵扣固定资产额（万元）"), 47: ("", 3, "固定资产抵扣（万元）"),
+        48: ("", 4, "实缴增值税（万元）"), 49: ("", 5, "增值税附加（万元）"),
+        50: ("", 6, "印花税（万元）"), 51: ("", 7, "项目利润（万元）"),
+        52: ("", 8, "所得税费用（万元）"), 53: ("", 9, "项目净利润（万元）"),
+        54: ("2、融资模式下收益分析", "", ""), 55: ("现金流与投资收益", 1, "现金流入（万元）"),
+        56: ("", 2, "现金流出（万元）"), 57: ("", 3, "包括：运营成本"),
+        58: ("", 4, "贷款本息"), 59: ("", 5, "增值税费用"), 60: ("", 6, "增值税附加"),
+        61: ("", 7, "印花税"), 62: ("", 8, "所得税费用"), 63: ("", 9, "现金净流入（万元）"),
+        64: ("", 10, "累计现金净流入（万元）"), 65: ("", 11, "所得税前内部收益率 IRR（%）"),
+        66: ("", 12, "净现值 NPV（万元）"), 67: ("", 13, "项目回收周期（年）"),
+        68: ("3、全投资模式下收益分析", "", ""), 69: ("现金流与投资收益", 1, "现金流入（万元）"),
+        70: ("", 2, "现金流出（万元）"), 71: ("", 3, "包括：运营成本"), 72: ("", 4, "增值税费用"),
+        73: ("", 5, "所得税费用"), 74: ("", 6, "增值税附加"), 75: ("", 7, "印花税"),
+        76: ("", 8, "现金净流入（万元）"), 77: ("", 9, "累计现金净流入（万元）"),
+        78: ("", 10, "所得税前内部收益率 IRR（%）"), 79: ("", 11, "净现值 NPV（万元）"),
+        80: ("", 12, "项目回收周期（年）"),
+    }
+    section_rows = {3, 54, 68}
+    for row in range(3, 81):
+        category, sequence, label = row_labels.get(row, ("", "", ""))
+        sheet.cell(row, 1, category)
+        sheet.cell(row, 2, sequence)
+        sheet.cell(row, 3, label)
+        is_section = row in section_rows
+        if is_section:
+            sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=total_column)
+        for column in range(1, total_column + 1):
+            cell = sheet.cell(row, column)
+            cell.font = Font(name="Microsoft YaHei", color=TEXT, bold=is_section or column == 3)
+            cell.fill = PatternFill("solid", fgColor="DDEBE5" if is_section else (LIGHT_GREEN if row % 2 else "FFFFFF"))
+            cell.border = Border(bottom=THIN)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+    # The existing server sheet is the calculation owner. This sheet only adapts
+    # the unit, row order and labels to the xlsm layout so the two can be audited.
+    source_rows = {
+        "eol": (6, None), "capacity_lease": (8, 10000), "capacity_fee": (9, 10000),
+        "energy": (7, 10000), "subsidy": (10, 10000), "primary": (11, 10000),
+        "secondary": (12, 10000), "revenue": (13, 10000), "net_revenue": (14, 10000),
+        "output_vat": (15, 10000), "actual_vat": (16, 10000), "credit_used": (17, 10000),
+        "credit_closing": (18, 10000), "operating_cost": (21, 10000), "depreciation": (22, 10000),
+        "replacement": (23, 10000), "interest": (24, 10000), "principal": (25, 10000),
+        "income_tax": (26, 10000), "vat_surcharge": (27, 10000), "stamp_tax": (28, 10000),
+        "project_pre_tax": (31, 10000), "project_cashflow": (32, 10000),
+        "equity_pre_tax": (33, 10000), "equity_cashflow": (34, 10000),
+        "cumulative_project": (35, 10000), "cumulative_equity": (36, 10000),
+    }
+
+    def src(name: str, column: int) -> str:
+        row, divisor = source_rows[name]
+        return source_formula(column, row, divisor=divisor)
+
+    def amount_from_cashflow(column: int, source_column: str) -> str:
+        return annual_cashflow_formula(column, source_column)
+
+    def write_row(row: int, formula_builder, *, percent: bool = False, total: bool = False) -> None:
+        for year_index, column in enumerate(range(4, last_year_column + 1)):
+            set_year(row, column, formula_builder(year_index, column), percent=percent)
+        if total:
+            set_year(row, total_column, f"=SUM(E{row}:{last_year_letter}{row})", percent=percent)
+
+    write_row(4, lambda _i, column: src("eol", column), percent=True)
+    write_row(5, lambda _i, column: src("eol", column), percent=True)
+    write_row(6, lambda _i, column: src("capacity_lease", column), total=True)
+    write_row(7, lambda _i, column: src("capacity_fee", column), total=True)
+    write_row(8, lambda _i, column: f"={get_column_letter(column)}7*{get_column_letter(column)}5", total=True)
+    write_row(9, lambda _i, _column: "=1", percent=True)
+    write_row(10, lambda _i, column: f"={get_column_letter(column)}8*{get_column_letter(column)}9", total=True)
+    write_row(11, lambda _i, column: src("energy", column), total=True)
+    write_row(12, lambda _i, column: f"={get_column_letter(column)}11", total=True)
+    write_row(13, lambda _i, _column: "=1", percent=True)
+    write_row(14, lambda _i, column: f"={get_column_letter(column)}12*{get_column_letter(column)}13", total=True)
+    write_row(15, lambda _i, column: src("subsidy", column), total=True)
+    write_row(16, lambda _i, column: f"={get_column_letter(column)}15", total=True)
+    write_row(17, lambda _i, _column: "=1", percent=True)
+    write_row(18, lambda _i, column: f"={get_column_letter(column)}16*{get_column_letter(column)}17", total=True)
+    write_row(19, lambda _i, column: src("primary", column), total=True)
+    write_row(20, lambda _i, column: f"={get_column_letter(column)}19", total=True)
+    write_row(21, lambda _i, _column: "=1", percent=True)
+    write_row(22, lambda _i, column: f"={get_column_letter(column)}20*{get_column_letter(column)}21", total=True)
+    write_row(23, lambda _i, column: src("secondary", column), total=True)
+    write_row(24, lambda _i, column: f"={get_column_letter(column)}23", total=True)
+    write_row(25, lambda _i, _column: "=1", percent=True)
+    write_row(26, lambda _i, column: f"={get_column_letter(column)}24*{get_column_letter(column)}25", total=True)
+    write_row(27, lambda _i, column: f"=SUM({get_column_letter(column)}10,{get_column_letter(column)}14,{get_column_letter(column)}18,{get_column_letter(column)}22,{get_column_letter(column)}26)", total=True)
+    write_row(28, lambda _i, column: f"={get_column_letter(column)}27/(1+{parameter_ref('vat_rate')})", total=True)
+    write_row(29, lambda _i, column: src("depreciation", column), total=True)
+    write_row(30, lambda _i, column: f"=SUM($D29:{get_column_letter(column)}29)", total=True)
+    write_row(31, lambda year_index, column: "=0" if year_index == 0 else f"=MAX('项目概览'!$B$10/10000-{get_column_letter(column)}30,0)")
+    write_row(32, lambda _i, _column: "=0")
+    write_row(33, lambda year_index, _column: "=0" if year_index == 0 else f"={parameter_ref('land_rent_yuan')}/10000", total=True)
+    write_row(35, lambda year_index, column: "=0" if year_index == 0 else amount_from_cashflow(column, "AA"), total=True)
+    write_row(36, lambda year_index, _column: "=0" if year_index == 0 else f"={parameter_ref('fixed_operation_cost_yuan')}/10000", total=True)
+    write_row(37, lambda year_index, column: "=0" if year_index == 0 else amount_from_cashflow(column, "Z"), total=True)
+    write_row(38, lambda year_index, _column: "=0" if year_index == 0 else f"={parameter_ref('other_operating_cost_yuan')}/10000", total=True)
+    write_row(34, lambda year_index, column: "=0" if year_index == 0 else f"={src('operating_cost', column)[1:]}-{get_column_letter(column)}33-{get_column_letter(column)}35-{get_column_letter(column)}36-{get_column_letter(column)}37-{get_column_letter(column)}38")
+    write_row(39, lambda _i, column: src("replacement", column), total=True)
+    write_row(40, lambda _i, column: f"=SUM({get_column_letter(column)}33:{get_column_letter(column)}39)", total=True)
+    write_row(41, lambda year_index, column: "='项目概览'!$B$10*" + parameter_ref("loan_ratio") + "/10000" if year_index == 0 else f"={get_column_letter(column - 1)}41-{get_column_letter(column)}43")
+    write_row(42, lambda year_index, column: "='项目概览'!$B$11/10000" if year_index == 0 else src("interest", column), total=True)
+    write_row(43, lambda year_index, column: "=0" if year_index == 0 else src("principal", column), total=True)
+    write_row(44, lambda _i, column: f"=SUM({get_column_letter(column)}42:{get_column_letter(column)}43)", total=True)
+    write_row(45, lambda _i, column: src("output_vat", column), total=True)
+    write_row(46, lambda _i, column: f"={src('credit_closing', column)[1:]}+{src('credit_used', column)[1:]}", total=True)
+    write_row(47, lambda _i, column: src("credit_used", column), total=True)
+    write_row(48, lambda _i, column: src("actual_vat", column), total=True)
+    write_row(49, lambda _i, column: src("vat_surcharge", column), total=True)
+    write_row(50, lambda _i, column: src("stamp_tax", column), total=True)
+    write_row(51, lambda _i, column: amount_from_cashflow(column, "P"), total=True)
+    write_row(52, lambda _i, column: src("income_tax", column), total=True)
+    write_row(53, lambda _i, column: amount_from_cashflow(column, "Q"), total=True)
+    write_row(55, lambda _i, column: f"={get_column_letter(column)}27", total=True)
+    write_row(57, lambda _i, column: f"={get_column_letter(column)}40", total=True)
+    write_row(58, lambda _i, column: f"={get_column_letter(column)}44", total=True)
+    write_row(59, lambda _i, column: f"={get_column_letter(column)}48", total=True)
+    write_row(60, lambda _i, column: f"={get_column_letter(column)}49", total=True)
+    write_row(61, lambda _i, column: f"={get_column_letter(column)}50", total=True)
+    write_row(62, lambda _i, column: f"={get_column_letter(column)}52", total=True)
+    write_row(56, lambda _i, column: f"=SUM({get_column_letter(column)}57:{get_column_letter(column)}62)", total=True)
+    write_row(63, lambda _i, column: src("equity_cashflow", column), total=True)
+    write_row(64, lambda _i, column: src("cumulative_equity", column), total=True)
+    write_row(69, lambda _i, column: f"={get_column_letter(column)}27", total=True)
+    write_row(71, lambda _i, column: f"={get_column_letter(column)}40", total=True)
+    write_row(72, lambda _i, column: f"={get_column_letter(column)}48", total=True)
+    write_row(73, lambda _i, column: f"={get_column_letter(column)}52", total=True)
+    write_row(74, lambda _i, column: f"={get_column_letter(column)}49", total=True)
+    write_row(75, lambda _i, column: f"={get_column_letter(column)}50", total=True)
+    write_row(70, lambda _i, column: f"=SUM({get_column_letter(column)}71:{get_column_letter(column)}75)", total=True)
+    write_row(76, lambda _i, column: src("project_cashflow", column), total=True)
+    write_row(77, lambda _i, column: src("cumulative_project", column), total=True)
+    for row, cashflow_row in ((65, 63), (78, 76)):
+        set_year(row, 4, f"=IRR(D{cashflow_row}:{last_year_letter}{cashflow_row})", percent=True)
+    discount = parameter_ref("discount_rate")
+    set_year(66, 4, f"=NPV({discount},E63:{last_year_letter}63)+D63")
+    set_year(79, 4, f"=NPV({discount},E76:{last_year_letter}76)+D76")
+    set_year(67, 4, "='项目概览'!$B$15")
+    set_year(80, 4, "='项目概览'!$B$15")
+    sheet.auto_filter.ref = f"A2:{total_letter}80"
 
 
 def _write_debt(sheet, result: dict) -> None:
