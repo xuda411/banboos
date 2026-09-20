@@ -92,7 +92,7 @@ def run_once(registry: RunRegistry, readonly_service: ReadonlyService | None = N
                 registry.update_progress(item.run_id, 5 + int(index / len(curves) * 80),
                                          f"正在求解第 {index}/{len(curves)} 个LP历史日")
                 day = solve_day(curve["prices"], battery)
-                daily.append(lp_day_payload(curve["run_date"], curve["prices"], day))
+                daily.append(lp_day_payload(curve["run_date"], curve["prices"], day, battery))
             total = sum(float(day["net_revenue_yuan"]) for day in daily)
             comparisons = lp_compare(daily, battery) if parameters.include_comparison else []
             sensitivity = []

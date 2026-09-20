@@ -8,7 +8,7 @@ from itertools import pairwise
 from packages.domain.storage_dispatch import BatteryParameters, DispatchResult, solve_day
 
 
-def day_payload(run_date: str, prices: list[float], result: DispatchResult) -> dict:
+def day_payload(run_date: str, prices: list[float], result: DispatchResult, p: BatteryParameters) -> dict:
     spread = max(prices) - min(prices)
     average_step = sum(abs(b - a) for a, b in pairwise(prices)) / 95
     return {
@@ -18,12 +18,18 @@ def day_payload(run_date: str, prices: list[float], result: DispatchResult) -> d
         "discharge_energy_mwh": result.discharge_energy_mwh,
         "charge_cost_yuan": result.charge_cost_yuan,
         "discharge_revenue_yuan": result.discharge_revenue_yuan,
+        "surcharge_cost_yuan": result.charge_energy_mwh * (p.line_loss_yuan_per_mwh + p.transmission_yuan_per_mwh + p.system_operation_yuan_per_mwh),
+        "refund_revenue_yuan": result.discharge_energy_mwh * (p.transmission_yuan_per_mwh + p.cross_subsidy_yuan_per_mwh),
         "hurdle_cost_yuan": result.hurdle_cost_yuan,
         "degradation_cost_yuan": result.degradation_cost_yuan,
         "net_revenue_yuan": result.net_revenue_yuan, "cycles": result.cycles,
         "spread_max_yuan_per_mwh": spread, "spread_avg_yuan_per_mwh": average_step,
         "shutdown": result.shutdown, "solver_gap": result.solver_gap,
         "degradation_approximation_bound_yuan": result.degradation_approximation_bound_yuan,
+        "simultaneous_slots": 0,
+        "model_note": "96段严格互斥MILP历史回放；日末SOC复位；结果不是预测或实际运营收益",
+        "message": "OK",
+        "success": True,
     }
 
 

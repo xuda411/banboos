@@ -48,6 +48,8 @@ class LPDayResult(BaseModel):
     discharge_energy_mwh: float
     charge_cost_yuan: float
     discharge_revenue_yuan: float
+    surcharge_cost_yuan: float
+    refund_revenue_yuan: float
     hurdle_cost_yuan: float
     degradation_cost_yuan: float
     net_revenue_yuan: float
@@ -57,6 +59,10 @@ class LPDayResult(BaseModel):
     shutdown: bool
     solver_gap: float
     degradation_approximation_bound_yuan: float
+    simultaneous_slots: int = 0
+    model_note: str = ""
+    message: str = "OK"
+    success: bool = True
 
 
 class LPComparisonResult(BaseModel):

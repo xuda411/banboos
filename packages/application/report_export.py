@@ -83,11 +83,13 @@ def export_task_xlsx(run):
         table(workbook, "逐日调度", ["日期", "净收益（元）", "充电量（MWh）", "放电量（MWh）", "循环次数", "停机", "求解间隙"],
               [[day.get(key) for key in keys] for day in data["days"]], {7: "0.00%"})
     elif run.kind == "lp-analysis":
-        keys = ["run_date", "net_revenue_yuan", "charge_energy_mwh", "discharge_energy_mwh", "cycles",
+        keys = ["run_date", "net_revenue_yuan", "charge_energy_mwh", "discharge_energy_mwh", "surcharge_cost_yuan",
+                "refund_revenue_yuan", "hurdle_cost_yuan", "degradation_cost_yuan", "cycles",
                 "spread_max_yuan_per_mwh", "spread_avg_yuan_per_mwh", "shutdown", "solver_gap"]
-        table(workbook, "LP逐日结果", ["日期", "净收益（元）", "充电量（MWh）", "放电量（MWh）", "循环次数",
+        table(workbook, "LP逐日结果", ["日期", "净收益（元）", "充电量（MWh）", "放电量（MWh）",
+              "充电附加成本（元）", "放电返还（元）", "门槛成本（元）", "衰减成本（元）", "循环次数",
               "最大价差（元/MWh）", "平均价差（元/MWh）", "停机", "求解间隙"],
-              [[day.get(key) for key in keys] for day in data["days"]], {9: "0.00%"})
+              [[day.get(key) for key in keys] for day in data["days"]], {13: "0.00%"})
         trajectory_rows = []
         for day in data["days"]:
             for slot, values in enumerate(zip(day["prices_yuan_per_mwh"], day["charge_mw"], day["discharge_mw"], day["soc"]), 1):
