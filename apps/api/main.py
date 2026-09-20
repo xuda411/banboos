@@ -114,9 +114,12 @@ def ready() -> dict:
 
 @app.get("/api/v1/meta", tags=["system"])
 def meta() -> dict[str, str]:
+    template = os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")
+    template_available = bool(template and Path(template).expanduser().is_file()
+                              and Path(template).suffix.lower() == ".xlsm")
     return {"product": "Banboos", "platform": "server-web-operations", "api_version": "v1",
             "data_mode": readonly_service.data_mode,
-            "financial_template_available": str(bool(os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")))}
+            "financial_template_available": str(template_available)}
 
 
 @app.get("/api/v1/nodes", tags=["readonly"])
@@ -356,7 +359,7 @@ def export_run(run_id: str, output_format: str = Query(default="xlsx", alias="fo
                 destination,
                 template,
             )
-        except (FileNotFoundError, ValueError) as error:
+        except (FileNotFoundError, OSError, ValueError, KeyError, RuntimeError) as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
         return FileResponse(
             path,
