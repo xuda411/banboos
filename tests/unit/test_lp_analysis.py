@@ -28,6 +28,10 @@ def test_lp_analysis_preserves_trajectory_and_aggregates(tmp_path):
     assert result["annual"][0]["revenue_total_yuan"] == round(result["total_net_revenue_yuan"], 2)
     assert result["comparison"][0]["lp_revenue_yuan"] == day["net_revenue_yuan"]
     assert len(export_task_xlsx(completed)) > 1000
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+    assert "LP对账" in load_workbook(BytesIO(export_task_xlsx(completed))).sheetnames
     report = reconcile_lp(result)
     assert report["status"] == "passed"
     assert all(check["status"] == "passed" for check in report["checks"])

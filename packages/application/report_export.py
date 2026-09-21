@@ -10,6 +10,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from packages.application.financial_export import GREEN, LIGHT_GREEN, _fit_columns, _header, _title
+from packages.domain.lp_reconciliation import reconcile_lp
 
 SUPPORTED_TASKS = {"financial", "price-analysis", "investment-scenario", "strict-dispatch", "lp-analysis", "sensitivity", "portfolio-optimization"}
 
@@ -110,6 +111,10 @@ def export_task_xlsx(run):
             sensitivity_keys = ["c_rate", "power_mw", "capacity_mwh", "total_revenue_yuan", "avg_daily_revenue_yuan", "annual_revenue_yuan", "avg_cycles", "capex_yuan"]
             table(workbook, "LP C率敏感性", ["C率", "功率（MW）", "容量（MWh）", "总净收益（元）", "日均净收益（元）", "年化净收益（元）", "平均循环", "投资额（元）"],
                   [[row.get(key) for key in sensitivity_keys] for row in data["sensitivity"]], {1: "0.00%"})
+        audit = reconcile_lp(data)
+        table(workbook, "LP对账", ["检查项", "状态", "实际值", "期望值", "差值", "容差"],
+              [[check["name"], check["status"], check["actual"], check["expected"], check["delta"], check["tolerance"]]
+               for check in audit["checks"]])
     elif run.kind == "price-analysis":
         keys = ["month", "valid_days", "charge_price_yuan_per_mwh", "discharge_price_yuan_per_mwh", "spread_yuan_per_mwh"]
         table(workbook, "月度价差", ["月份", "有效日", "低价均价（元/MWh）", "高价均价（元/MWh）", "价差（元/MWh）"],
