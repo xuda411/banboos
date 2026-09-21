@@ -26,6 +26,13 @@ it never fabricates a price curve.
 `GET /api/v1/price/export` exports the same bounded query to XLSX with source
 metadata, 96-point slot detail, daily statistics and a first-day chart.
 
+`GET /api/v1/price/aggregates/export` exports the matching monthly and annual
+continuous-window statistics, including missing dates and duplicate-source
+dates. `GET /api/v1/operations/report/export` exports the province/month
+operations report, and `GET /api/v1/portfolio/candidates/export` exports the
+real-node candidate snapshot with a capacity-to-power duration check. These
+three exports use the same traceability metadata and workbook layout rules.
+
 `GET /api/v1/weather/series` returns up to 744 filtered meteorology observations
 (`ghi`, wind speed and temperature). Each row includes the source and an
 estimated 100 MW PV/wind output based on the weather values; the estimate is

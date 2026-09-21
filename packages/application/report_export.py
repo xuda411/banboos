@@ -59,8 +59,10 @@ def finish(workbook):
 def workbook_with_source(metadata):
     workbook = Workbook()
     workbook.remove(workbook.active)
+    normalized = dict(metadata)
+    normalized.setdefault("导出格式版本", "banboos-export-2026-09-21")
     rows = [[str(key), value if not isinstance(value, (dict, list)) else str(value)]
-            for key, value in metadata.items()]
+            for key, value in normalized.items()]
     table(workbook, "导出说明", ["项目", "内容"], rows)
     workbook["导出说明"].column_dimensions["B"].width = 90
     return workbook
@@ -179,4 +181,91 @@ def export_weather_xlsx(series, metadata):
     keys = ["data_time", "ghi_w_m2", "wind_speed_m_s", "temp_c", "pv_predict_power_mw", "wind_predict_power_mw", "source", "source_mode", "is_power_simulated"]
     table(workbook, "气象与预计功率", ["数据时间（来源时间）", "辐照度（W/m²）", "风速（m/s）", "温度（℃）", "光伏功率（MW）", "风电功率（MW）", "数据来源", "来源模式", "功率为预计值"],
           [[row.model_dump(mode="json").get(key) for key in keys] for row in series])
+    return finish(workbook)
+
+
+def export_price_aggregate_xlsx(aggregate):
+    """Export monthly/annual price-window statistics with coverage evidence."""
+    payload = aggregate.model_dump(mode="json") if hasattr(aggregate, "model_dump") else dict(aggregate)
+    workbook = workbook_with_source({
+        "报表类型": "节点电价月度/年度统计",
+        "节点 ID": payload.get("node_id"), "市场": payload.get("market"),
+        "统计窗口（小时）": payload.get("duration_hours"),
+        "查询开始日期": payload.get("start_date"), "查询结束日期": payload.get("end_date"),
+        "来源模式": payload.get("source_mode"), "有效日": payload.get("valid_days"),
+        "可用日": payload.get("available_days"), "排除记录": payload.get("excluded_records"),
+        "重复来源日": payload.get("multiple_source_days"),
+        "口径": "月度和年度统计均按完整 96 点日、连续窗口计算；缺失日期和重复来源日期单独列示。",
+    })
+    headers = ["周期类型", "周期", "有效日", "均价（元/MWh）", "低价窗口均价（元/MWh）",
+               "高价窗口均价（元/MWh）", "价差（元/MWh）", "最低价（元/MWh）",
+               "最高价（元/MWh）", "重复来源日"]
+    def rows(items, kind):
+        return [[kind, item.get("period"), item.get("valid_days"),
+                 item.get("average_price_yuan_per_mwh"), item.get("charge_price_yuan_per_mwh"),
+                 item.get("discharge_price_yuan_per_mwh"), item.get("spread_yuan_per_mwh"),
+                 item.get("min_price_yuan_per_mwh"), item.get("max_price_yuan_per_mwh"),
+                 item.get("multiple_source_days")] for item in items or []]
+    table(workbook, "月度统计", headers, rows(payload.get("monthly"), "月度"),
+          {3: "0", 4: "#,##0.00", 5: "#,##0.00", 6: "#,##0.00", 7: "#,##0.00",
+           8: "#,##0.00", 9: "#,##0.00", 10: "0"})
+    table(workbook, "年度统计", headers, rows(payload.get("annual"), "年度"),
+          {3: "0", 4: "#,##0.00", 5: "#,##0.00", 6: "#,##0.00", 7: "#,##0.00",
+           8: "#,##0.00", 9: "#,##0.00", 10: "0"})
+    table(workbook, "覆盖审计", ["项目", "日期"],
+          [["缺失日期", item] for item in payload.get("missing_dates", [])]
+          + [["重复来源日期", item] for item in payload.get("multiple_source_dates", [])])
+    return finish(workbook)
+
+
+def export_operations_report_xlsx(report):
+    """Export the operations report as a reviewable workbook."""
+    payload = report.model_dump(mode="json") if hasattr(report, "model_dump") else dict(report)
+    workbook = workbook_with_source({
+        "报表类型": "运营站点层级汇总", "市场": payload.get("market"),
+        "统计开始日期": payload.get("start_date"), "统计结束日期": payload.get("end_date"),
+        "统计窗口（小时）": payload.get("duration_hours"), "来源模式": payload.get("source_mode"),
+        "节点数": payload.get("node_count"), "有效节点": payload.get("valid_nodes"),
+        "有效日合计": payload.get("total_valid_days"), "数据点合计": payload.get("total_data_points"),
+        "口径": "省级汇总保留节点数、有效节点、有效日和 96 点数据量；月度价差为按有效日加权均值。",
+    })
+    table(workbook, "省级汇总", ["省份", "节点数", "有效节点", "有效日", "数据点"],
+          [[row.get("province"), row.get("node_count"), row.get("valid_nodes"),
+            row.get("valid_days"), row.get("data_points")] for row in payload.get("provinces", [])],
+          {1: "0", 2: "0", 3: "0", 4: "#,##0"})
+    table(workbook, "月度价差", ["月份", "节点数", "有效日", "平均价差（元/MWh）"],
+          [[row.get("period"), row.get("node_count"), row.get("valid_days"),
+            row.get("average_spread_yuan_per_mwh")] for row in payload.get("monthly", [])],
+          {1: "0", 2: "0", 3: "#,##0.00"})
+    return finish(workbook)
+
+
+def export_portfolio_candidates_xlsx(result):
+    """Export immutable candidate inputs and computed outputs with scale checks."""
+    payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
+    workbook = workbook_with_source({
+        "报表类型": "真实节点候选项目", "快照 ID": payload.get("snapshot_id"),
+        "算法版本": payload.get("algorithm_version"), "市场": payload.get("market"),
+        "统计开始日期": payload.get("start_date"), "统计结束日期": payload.get("end_date"),
+        "功率（MW）": payload.get("power_mw"), "容量（MWh）": payload.get("capacity_mwh"),
+        "系统时长（小时）": payload.get("duration_hours"),
+        "往返效率": payload.get("round_trip_efficiency"),
+        "口径": "候选收入来自完整日历史价差均值；候选快照只读保存，手工修改不会覆盖原始快照。",
+    })
+    headers = ["项目", "节点 ID", "省份", "市场", "容量（MWh）", "单位投资（元/Wh）",
+               "年净现金流（万元）", "平均价差（元/MWh）", "有效日", "来源模式"]
+    table(workbook, "候选项目", headers, [[row.get("name"), row.get("node_id"), row.get("province"),
+          row.get("market"), row.get("capacity_mwh"), row.get("unit_investment_yuan_wh"),
+          row.get("annual_revenue_wan"), row.get("spread_yuan_per_mwh"), row.get("valid_days"),
+          row.get("source_mode")] for row in payload.get("candidates", [])],
+          {1: "0", 4: "#,##0.00", 5: "0.0000", 6: "#,##0.00", 7: "#,##0.00", 8: "#,##0"})
+    power = payload.get("power_mw") or 0
+    capacity = payload.get("capacity_mwh") or 0
+    duration = payload.get("duration_hours")
+    table(workbook, "规模校验", ["检查项", "值", "状态", "说明"], [
+        ["功率（MW）", power, "PASS" if power > 0 else "FAIL", "输入功率必须大于 0"],
+        ["容量（MWh）", capacity, "PASS" if capacity > 0 else "FAIL", "输入容量必须大于 0"],
+        ["容量/功率（小时）", duration, "PASS" if duration and 0.25 <= duration <= 24 else "FAIL",
+         "允许 0.25 至 24 小时；2 小时和 4 小时为常见配置而非锁定值"],
+    ], {1: "#,##0.00"})
     return finish(workbook)

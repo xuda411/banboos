@@ -33,8 +33,10 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
     workbook = Workbook()
     workbook.calculation = CalcProperties(calcMode="auto", fullCalcOnLoad=True,
                                            forceFullCalc=True)
-    overview = workbook.active
-    overview.title = "项目概览"
+    export_info = workbook.active
+    export_info.title = "导出说明"
+    _write_export_info(export_info, result)
+    overview = workbook.create_sheet("项目概览")
     _write_overview(overview, result)
     _write_parameters(workbook.create_sheet("测算参数"), result)
     _write_cashflow(workbook.create_sheet("年度现金流"), result)
@@ -84,6 +86,28 @@ def export_financial_xlsx(result: dict, destination: str | Path) -> Path:
         temporary.unlink(missing_ok=True)
         raise
     return target
+
+
+def _write_export_info(sheet, result: dict) -> None:
+    """Keep financial workbooks on the same traceability contract as readonly exports."""
+    _title(sheet, "Banboos 2.0 财务测算导出", 4)
+    _header(sheet, 4, ["项目", "内容", "单位", "说明"])
+    rows = [
+        ("导出格式版本", "banboos-export-2026-09-21", "", "统一 Excel 导出结构版本"),
+        ("报表类型", "独立储能项目财务测算", "", "服务器版结构化结果；原版模板另行导出 XLSM"),
+        ("模型版本", result.get("model_version", ""), "", "计算模型版本"),
+        ("任务 ID", result.get("run_id", ""), "", "本次任务快照"),
+        ("上游任务", result.get("source_run_id") or "直接输入", "", "节点价差或其他任务来源"),
+        ("模板一致性", "财务模板页 + 模板复核 + 重算复核", "", "关键字段、公式和缓存状态均单独列示"),
+        ("计算引擎", "服务器版公式；Excel 打开时自动重算", "", "XLSM 原版宏不在服务器端执行"),
+    ]
+    for row, values in enumerate(rows, start=5):
+        for column, value in enumerate(values, start=1):
+            cell = sheet.cell(row, column, value)
+            cell.font = Font(name="Microsoft YaHei", color=TEXT)
+            cell.fill = PatternFill("solid", fgColor=LIGHT_GREEN if row % 2 else "FFFFFF")
+            cell.border = Border(bottom=THIN)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
 
 
 def _title(sheet, title: str, columns: int) -> None:

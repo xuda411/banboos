@@ -147,6 +147,7 @@ async function generatePortfolioCandidates() {
     portfolioCandidateSource = new Map(result.candidates.map((candidate) => [String(candidate.node_id), structuredClone(candidate)]));
     result.candidates.forEach(addPortfolioProject);
     $("exportPortfolioCandidates").disabled = !result.candidates.length;
+    $("exportPortfolioCandidatesXlsx").disabled = !result.candidates.length;
     $("optimizePortfolioSnapshot").disabled = !portfolioCandidateSnapshotId || !result.candidates.length;
     invalidatePortfolio();
     message.textContent = `已生成 ${result.candidates.length} 个真实节点候选（${result.market}，${result.start_date} 至 ${result.end_date}）；快照 ${result.snapshot_id.slice(0, 12)}…；请确认预算和目标后运行组合优化。`;
@@ -521,13 +522,13 @@ async function loadCurves() {
       get("/api/v1/price/aggregates", {...query, duration_hours: $("curveAggregateDuration").value}),
     ]);
     if (!ReportUI.current("curve", ticket)) return;
-    loadedCurves = curves; loadedAggregates = aggregates; curvePointer = null; $("curveHover").hidden = true; $("exportCurves").disabled = curves.length === 0; $("exportCurveAggregate").disabled = !(aggregates.monthly?.length || aggregates.annual?.length); $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
+    loadedCurves = curves; loadedAggregates = aggregates; curvePointer = null; $("curveHover").hidden = true; $("exportCurves").disabled = curves.length === 0; $("exportCurveAggregate").disabled = !(aggregates.monthly?.length || aggregates.annual?.length); $("exportCurveAggregateXlsx").disabled = !(aggregates.monthly?.length || aggregates.annual?.length); $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
     const dayList = $("curveDays"); dayList.replaceChildren();
     curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.dataset.index = String(index); day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); curvePointer = null; $("curveHover").hidden = true; drawCurves(curves, index); updateCurveStats(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
     $("curveEmpty").hidden = curves.length > 0; $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; $("curveState").textContent = curves.length ? `${curves.length} 天` : "暂无数据"; $("curveState").className = `status ${curves.length ? "status-ok" : "status-muted"}`;
     if (!curves.length) dayList.innerHTML = '<div class="empty-state">数据库暂无完整 96 点曲线</div>'; drawCurves(curves); renderCurveAggregates(aggregates);
     ReportUI.complete("curve", ticket, curves.length, `来源模式：${[...new Set(curves.map(c => c.source_mode))].join("、")} · ${curves[0]?.run_date || ""} 至 ${curves.at(-1)?.run_date || ""} · ${curves.length} 个完整日（上限 ${query.limit} 日） · 选中日按价格渐变，其他日期用于对比`);
-  } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; loadedAggregates = null; $("exportCurves").disabled = true; $("exportCurveAggregate").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveAggregates").hidden = true; $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
+  } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; loadedAggregates = null; $("exportCurves").disabled = true; $("exportCurveAggregate").disabled = true; $("exportCurveAggregateXlsx").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveAggregates").hidden = true; $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
 }
 
 function drawWeather(series) {
@@ -798,7 +799,8 @@ async function loadOperationsReport() {
     });
     state.textContent = `${report.market} · ${report.start_date} 至 ${report.end_date} · ${report.valid_nodes}/${report.node_count} 个节点有效 · ${report.total_valid_days} 个有效日 · 来源 ${report.source_mode}`;
     state.className = "task-progress status-ok";
-  } catch (error) { state.textContent = `运营报告失败：${error.message}`; state.className = "task-progress status-error"; body.innerHTML = '<tr><td colspan="5">请检查日期范围和 API</td></tr>'; }
+    $("exportOperationsReport").disabled = false;
+  } catch (error) { $("exportOperationsReport").disabled = true; state.textContent = `运营报告失败：${error.message}`; state.className = "task-progress status-error"; body.innerHTML = '<tr><td colspan="5">请检查日期范围和 API</td></tr>'; }
 }
 
 function revealFinancialField(id) {
@@ -984,6 +986,13 @@ $("curveChart").addEventListener("mousemove", showCurveHover);
 $("curveChart").addEventListener("mouseleave", hideCurveHover);
 $("loadCurves").addEventListener("click", loadCurves);
 $("exportCurveAggregate").addEventListener("click", exportCurveAggregate);
+$("exportCurveAggregateXlsx").addEventListener("click", (event) => {
+  const params = { node_id: $("curveNode").value, market: $("curveMarket").value,
+    start_date: $("curveStart").value, end_date: $("curveEnd").value,
+    duration_hours: $("curveAggregateDuration").value };
+  ReportUI.download(`${apiBase}/api/v1/price/aggregates/export?${new URLSearchParams(params)}`,
+    `price-aggregates-${params.node_id}-${params.start_date}-${params.end_date}.xlsx`, event.currentTarget, "curve");
+});
 $("exportCurves").addEventListener("click", exportCurves);
 $("exportCurvePng").addEventListener("click", () => ReportUI.png("curve", "curveChart", $("curveTitle").textContent));
 $("exportCurveXlsx").addEventListener("click", (event) => ReportUI.exportQuery("curve", event.currentTarget, apiBase));
@@ -1007,6 +1016,13 @@ $("portfolioObjective").addEventListener("change", syncPortfolioObjective);
 $("addPortfolioProject").addEventListener("click", () => { addPortfolioProject(); invalidatePortfolio(); });
 $("generatePortfolioCandidates").addEventListener("click", generatePortfolioCandidates);
 $("exportPortfolioCandidates").addEventListener("click", exportPortfolioCandidates);
+$("exportPortfolioCandidatesXlsx").addEventListener("click", (event) => {
+  const params = { market: $("portfolioMarket").value, start_date: $("portfolioStart").value,
+    end_date: $("portfolioEnd").value, power_mw: $("portfolioPower").value,
+    capacity_mwh: $("portfolioCapacity").value, round_trip_efficiency: 0.92 };
+  ReportUI.download(`${apiBase}/api/v1/portfolio/candidates/export?${new URLSearchParams(params)}`,
+    `portfolio-candidates-${params.start_date}-${params.end_date}.xlsx`, event.currentTarget, "portfolio");
+});
 $("optimizePortfolioSnapshot").addEventListener("click", optimizePortfolioSnapshot);
 $("resumePortfolio").addEventListener("click", resumePortfolio);
 try { portfolioRunId = localStorage.getItem("banboosPortfolioRun"); $("resumePortfolio").hidden = !portfolioRunId; } catch { /* Optional task recovery. */ }
@@ -1014,6 +1030,21 @@ addPortfolioProject();
 $("refreshSystem").addEventListener("click", refreshSystem);
 if ($("refreshLaunchGate")) $("refreshLaunchGate").addEventListener("click", refreshLaunchGate);
 if ($("loadOperationsReport")) $("loadOperationsReport").addEventListener("click", loadOperationsReport);
+if ($("exportOperationsReport")) $("exportOperationsReport").addEventListener("click", (event) => {
+  const params = { market: $("operationsReportMarket").value, start_date: $("operationsReportStart").value,
+    end_date: $("operationsReportEnd").value };
+  ReportUI.download(`${apiBase}/api/v1/operations/report/export?${new URLSearchParams(params)}`,
+    `operations-${params.start_date}-${params.end_date}.xlsx`, event.currentTarget, "operationsReport");
+});
+[
+  "operationsReportMarket", "operationsReportStart", "operationsReportEnd",
+].forEach((id) => $(id)?.addEventListener("input", () => { $("exportOperationsReport").disabled = true; }));
+[
+  "portfolioMarket", "portfolioStart", "portfolioEnd", "portfolioPower", "portfolioCapacity",
+].forEach((id) => $(id)?.addEventListener("input", () => {
+  $("exportPortfolioCandidates").disabled = true;
+  $("exportPortfolioCandidatesXlsx").disabled = true;
+}));
 $("refreshLegacy").addEventListener("click", refreshLegacyManagement);
 $("legacyTableKind").addEventListener("change", refreshLegacyManagement);
 if ($("importPreviewButton")) $("importPreviewButton").addEventListener("click", previewImport);

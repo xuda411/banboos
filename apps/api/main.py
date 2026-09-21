@@ -25,6 +25,9 @@ from packages.application.operations_service import OperationsService, Operation
 from packages.application.readonly_service import ReadonlyService
 from packages.application.report_export import (
     SUPPORTED_TASKS,
+    export_operations_report_xlsx,
+    export_portfolio_candidates_xlsx,
+    export_price_aggregate_xlsx,
     export_price_xlsx,
     export_task_xlsx,
     export_weather_xlsx,
@@ -234,6 +237,18 @@ def operations_report(market: str = Query(default="实时"), start_date: date = 
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+@app.get("/api/v1/operations/report/export", tags=["reports"])
+def export_operations_report(market: str = Query(default="实时"), start_date: date = Query(...),
+                             end_date: date = Query(...), duration_hours: float = Query(default=2.0, gt=0, le=24)):
+    try:
+        report = readonly_service.operations_report(market, start_date, end_date, duration_hours)
+        content = export_operations_report_xlsx(report)
+        market_label = "realtime" if market == "实时" else "dayahead"
+        return xlsx_response(content, f"operations-{market_label}-{start_date}-{end_date}.xlsx")
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @app.get("/api/v1/price/summary", response_model=PriceSummary, tags=["readonly"])
 def price_summary(node_id: int = Query(gt=0), market: str = Query(...),
                   start_date: date = Query(...), end_date: date = Query(...)) -> PriceSummary:
@@ -271,6 +286,18 @@ def price_aggregates(node_id: int = Query(gt=0), market: str = Query(...),
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+@app.get("/api/v1/price/aggregates/export", tags=["reports"])
+def export_price_aggregates(node_id: int = Query(gt=0), market: str = Query(...),
+                            start_date: date = Query(...), end_date: date = Query(...),
+                            duration_hours: float = Query(default=2.0, gt=0, le=24)):
+    try:
+        aggregate = readonly_service.price_aggregates(node_id, market, start_date, end_date, duration_hours)
+        content = export_price_aggregate_xlsx(aggregate)
+        return xlsx_response(content, f"price-aggregates-{node_id}-{start_date}-{end_date}.xlsx")
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @app.get("/api/v1/portfolio/candidates", response_model=PortfolioCandidatesResult, tags=["readonly"])
 def portfolio_candidates(market: str = Query(...), start_date: date = Query(...), end_date: date = Query(...),
                           power_mw: float = Query(default=100, gt=0), capacity_mwh: float = Query(default=200, gt=0),
@@ -279,6 +306,22 @@ def portfolio_candidates(market: str = Query(...), start_date: date = Query(...)
     try:
         return readonly_service.portfolio_candidates(market, start_date, end_date, power_mw, capacity_mwh,
                                                       round_trip_efficiency, unit_investment_yuan_wh)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/v1/portfolio/candidates/export", tags=["reports"])
+def export_portfolio_candidates(market: str = Query(...), start_date: date = Query(...),
+                                end_date: date = Query(...), power_mw: float = Query(default=100, gt=0),
+                                capacity_mwh: float = Query(default=200, gt=0),
+                                round_trip_efficiency: float = Query(default=0.92, gt=0, le=1),
+                                unit_investment_yuan_wh: float = Query(default=1.2, gt=0)):
+    try:
+        result = readonly_service.portfolio_candidates(market, start_date, end_date, power_mw, capacity_mwh,
+                                                        round_trip_efficiency, unit_investment_yuan_wh)
+        content = export_portfolio_candidates_xlsx(result)
+        market_label = "realtime" if market == "实时" else "dayahead"
+        return xlsx_response(content, f"portfolio-candidates-{market_label}-{start_date}-{end_date}.xlsx")
     except (ValueError, RuntimeError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

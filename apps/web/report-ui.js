@@ -3,7 +3,7 @@ window.ReportUI = (() => {
   const states = new Map();
   const $ = (id) => document.getElementById(id);
   const configs = {
-    curve: { view: "curveView", controls: ["curveNode", "curveMarket", "curveStart", "curveEnd", "curveLimit"], buttons: ["exportCurves", "exportCurvePng", "exportCurveXlsx"] },
+    curve: { view: "curveView", controls: ["curveNode", "curveMarket", "curveStart", "curveEnd", "curveLimit", "curveAggregateDuration"], buttons: ["exportCurves", "exportCurveAggregate", "exportCurveAggregateXlsx", "exportCurvePng", "exportCurveXlsx"] },
     weather: { view: "weatherView", controls: ["weatherNode", "weatherType", "weatherStart", "weatherEnd", "weatherGranularity"], buttons: ["exportWeatherPng", "exportWeatherXlsx"] },
   };
   function notice(key, message) {
@@ -55,7 +55,23 @@ window.ReportUI = (() => {
     } catch (error) { notice(key, `导出失败：${error.message}`); }
     finally { button.disabled = configs[key] ? !states.get(key)?.ready : false; }
   }
-  async function exportQuery(key, button, base) {
+  async function download(url, name, button, messageTarget) {
+    button.disabled = true;
+    const target = messageTarget ? $(`${messageTarget}ExportMessage`) : null;
+    if (target) target.textContent = "正在生成 Excel…";
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(typeof body.detail === "string" ? body.detail : `导出请求失败（HTTP ${response.status}）`);
+      }
+      if (!response.headers.get("Content-Type")?.includes("spreadsheetml")) throw new Error("服务未返回 Excel 文件，请重试。");
+      const blob = await response.blob(); const magic = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
+      if (magic[0] !== 80 || magic[1] !== 75) throw new Error("Excel 文件内容异常，请重试。");
+      save(blob, name); if (target) target.textContent = "Excel 已交给浏览器下载。";
+    } catch (error) { if (target) target.textContent = `导出失败：${error.message}`; }
+    finally { button.disabled = false; }
+  }  async function exportQuery(key, button, base) {
     const state = states.get(key); if (!state?.ready) return;
     const path = key === "curve" ? "price" : "weather";
     await xlsx(`${base}/api/v1/${path}/export?${new URLSearchParams(state.query)}`, `${state.label}-${path}.xlsx`, button, key);
