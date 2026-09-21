@@ -350,6 +350,25 @@ function updateCurveStats(curves, selectedIndex = 0) {
   stats.hidden = false;
   stats.textContent = `${selected.run_date} · ${values.length} 点 · 均值 ${average.toFixed(2)} · 最低 ${Math.min(...values).toFixed(2)} · 最高 ${Math.max(...values).toFixed(2)} 元/MWh${curves.length > 1 ? ` · 共加载 ${curves.length} 天` : ""}`;
 }
+
+function renderCurveAggregates(data) {
+  const section = $("curveAggregates"); const body = $("curveAggregateBody");
+  body.replaceChildren();
+  const rows = [...(data.monthly || []).map((row) => ({...row, period: `${row.period} 月`})),
+    ...(data.annual || []).map((row) => ({...row, period: `${row.period} 年`}))];
+  if (!rows.length) { section.hidden = true; return; }
+  rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    const values = [row.period, row.valid_days, Number(row.average_price_yuan_per_mwh).toFixed(2),
+      Number(row.charge_price_yuan_per_mwh).toFixed(2), Number(row.discharge_price_yuan_per_mwh).toFixed(2),
+      Number(row.spread_yuan_per_mwh).toFixed(2), `${Number(row.min_price_yuan_per_mwh).toFixed(2)} / ${Number(row.max_price_yuan_per_mwh).toFixed(2)}`];
+    values.forEach((value) => { const td = document.createElement("td"); td.textContent = value; tr.appendChild(td); });
+    body.appendChild(tr);
+  });
+  section.hidden = false;
+  $("curveAggregateMeta").textContent = `统计范围 ${data.first_date || "—"} 至 ${data.last_date || "—"} · ${data.valid_days} 个有效日 · ${data.duration_hours} 小时连续窗口 · 来源 ${data.source_mode}`;
+}
+
 function exportCurves() {
   if (!loadedCurves.length) return;
   const header = ["日期", ...Array.from({ length: 96 }, (_, index) => `时段${String(index + 1).padStart(2, "0")}`)];
@@ -367,15 +386,18 @@ async function loadCurves() {
   const ticket = ReportUI.begin("curve", query, $("curveNode").selectedOptions[0].textContent);
   $("curveState").textContent = "加载中"; $("curveState").className = "status status-muted";
   try {
-    const curves = await get("/api/v1/price/curves", query);
+    const [curves, aggregates] = await Promise.all([
+      get("/api/v1/price/curves", query),
+      get("/api/v1/price/aggregates", {...query, duration_hours: $("curveAggregateDuration").value}),
+    ]);
     if (!ReportUI.current("curve", ticket)) return;
     loadedCurves = curves; curvePointer = null; $("curveHover").hidden = true; $("exportCurves").disabled = curves.length === 0; $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
     const dayList = $("curveDays"); dayList.replaceChildren();
     curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.dataset.index = String(index); day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); curvePointer = null; $("curveHover").hidden = true; drawCurves(curves, index); updateCurveStats(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
     $("curveEmpty").hidden = curves.length > 0; $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; $("curveState").textContent = curves.length ? `${curves.length} 天` : "暂无数据"; $("curveState").className = `status ${curves.length ? "status-ok" : "status-muted"}`;
-    if (!curves.length) dayList.innerHTML = '<div class="empty-state">数据库暂无完整 96 点曲线</div>'; drawCurves(curves);
+    if (!curves.length) dayList.innerHTML = '<div class="empty-state">数据库暂无完整 96 点曲线</div>'; drawCurves(curves); renderCurveAggregates(aggregates);
     ReportUI.complete("curve", ticket, curves.length, `来源模式：${[...new Set(curves.map(c => c.source_mode))].join("、")} · ${curves[0]?.run_date || ""} 至 ${curves.at(-1)?.run_date || ""} · ${curves.length} 个完整日（上限 ${query.limit} 日） · 选中日按价格渐变，其他日期用于对比`);
-  } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; $("exportCurves").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
+  } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; $("exportCurves").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveAggregates").hidden = true; $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
 }
 
 function drawWeather(series) {

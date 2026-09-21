@@ -47,6 +47,39 @@ class PriceCurve(BaseModel):
     source_mode: str = "legacy-readonly"
 
 
+class PriceAggregatePeriod(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    period: str = Field(min_length=4, max_length=7)
+    valid_days: int = Field(ge=0)
+    average_price_yuan_per_mwh: float
+    charge_price_yuan_per_mwh: float
+    discharge_price_yuan_per_mwh: float
+    spread_yuan_per_mwh: float
+    min_price_yuan_per_mwh: float
+    max_price_yuan_per_mwh: float
+    multiple_source_days: int = Field(ge=0)
+
+
+class PriceAggregateResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: int
+    market: str
+    start_date: date
+    end_date: date
+    duration_hours: float = Field(gt=0)
+    valid_days: int = Field(ge=0)
+    available_days: int = Field(ge=0)
+    excluded_records: int = Field(ge=0)
+    multiple_source_days: int = Field(ge=0)
+    first_date: date | None = None
+    last_date: date | None = None
+    source_mode: str = "legacy-readonly"
+    monthly: list[PriceAggregatePeriod] = Field(default_factory=list)
+    annual: list[PriceAggregatePeriod] = Field(default_factory=list)
+
+
 class WeatherSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

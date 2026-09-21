@@ -9,6 +9,7 @@ from packages.contracts.analysis import PriceAnalysisResult
 from packages.contracts.readonly import (
     DataQualitySummary,
     NodeSummary,
+    PriceAggregateResult,
     PriceCurve,
     PriceRange,
     PriceSummary,
@@ -17,6 +18,7 @@ from packages.contracts.readonly import (
 )
 from packages.domain.annual_spread import ALGORITHM_VERSION as BASELINE_VERSION
 from packages.domain.annual_spread import annual_window_average
+from packages.domain.price_aggregates import aggregate_periods
 from packages.infrastructure.dispatch_snapshots import DispatchSnapshots
 from packages.infrastructure.legacy_sqlite import LegacySQLiteReader
 from packages.infrastructure.staging_sqlite import StagingSQLiteReader
@@ -79,6 +81,24 @@ class ReadonlyService:
         return [PriceCurve(node_id=node_id, market=market, run_date=row["run_date"],
                            prices=row["prices"], source_mode=self.data_mode)
                 for row in rows[:limit]]
+
+    def price_aggregates(self, node_id: int, market: str, start_date: date,
+                         end_date: date, duration_hours: float = 2.0) -> PriceAggregateResult:
+        if market not in {"日前", "实时"}:
+            raise ValueError("market must be 日前 or 实时")
+        if end_date < start_date:
+            raise ValueError("end_date must be on or after start_date")
+        if not isfinite(duration_hours) or duration_hours < 0.25 or duration_hours > 24:
+            raise ValueError("duration_hours must be between 0.25 and 24")
+        slots = round(duration_hours * 4)
+        if abs(duration_hours * 4 - slots) > 1e-6:
+            raise ValueError("统计窗口时长须为15分钟的整数倍")
+        rows = self._reader.price_curves(node_id, market, start_date, end_date) if self._reader else []
+        aggregate = aggregate_periods(rows, slots)
+        return PriceAggregateResult(
+            node_id=node_id, market=market, start_date=start_date, end_date=end_date,
+            duration_hours=duration_hours, source_mode=self.data_mode, **aggregate,
+        )
 
     def weather(self, node_id: int, start_time: datetime | None = None,
                 end_time: datetime | None = None) -> WeatherSummary:

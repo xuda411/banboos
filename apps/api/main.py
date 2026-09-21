@@ -37,6 +37,7 @@ from packages.contracts.operations import OperationsSummary
 from packages.contracts.portfolio import PortfolioTaskParameters
 from packages.contracts.readonly import (
     DataQualitySummary,
+    PriceAggregateResult,
     PriceCurve,
     PriceRange,
     PriceSummary,
@@ -179,6 +180,16 @@ def price_curves(node_id: int = Query(gt=0), market: str = Query(...),
                  limit: int = Query(default=31, ge=1, le=31)) -> list[PriceCurve]:
     try:
         return readonly_service.curves(node_id, market, start_date, end_date, limit)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/v1/price/aggregates", response_model=PriceAggregateResult, tags=["readonly"])
+def price_aggregates(node_id: int = Query(gt=0), market: str = Query(...),
+                     start_date: date = Query(...), end_date: date = Query(...),
+                     duration_hours: float = Query(default=2.0, gt=0, le=24)) -> PriceAggregateResult:
+    try:
+        return readonly_service.price_aggregates(node_id, market, start_date, end_date, duration_hours)
     except (ValueError, RuntimeError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
