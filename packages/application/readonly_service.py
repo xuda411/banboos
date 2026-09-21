@@ -87,6 +87,32 @@ class ReadonlyService:
             start_date=start_date.isoformat(), end_date=end_date.isoformat(), snapshot_id=snapshot_id,
             algorithm_version="portfolio-candidates-v1", candidates=candidates)
 
+    def portfolio_candidate_snapshot(self, snapshot_id: str) -> PortfolioCandidatesResult:
+        """Read and validate an immutable real-node candidate snapshot."""
+        if snapshot_id == "demo":
+            raise ValueError("演示数据没有可追溯的候选快照")
+        try:
+            payload = DispatchSnapshots().read(snapshot_id)
+        except (FileNotFoundError, IsADirectoryError, OSError) as error:
+            raise ValueError("候选快照不存在") from error
+        if payload.get("kind") != "portfolio-candidates":
+            raise ValueError("快照类型不是候选项目")
+        parameters = payload.get("parameters") or {}
+        try:
+            power_mw = float(parameters["power_mw"])
+            capacity_mwh = float(parameters["capacity_mwh"])
+            duration_hours = capacity_mwh / power_mw
+            return PortfolioCandidatesResult(
+                market=str(parameters["market"]), power_mw=power_mw,
+                capacity_mwh=capacity_mwh, duration_hours=duration_hours,
+                round_trip_efficiency=float(parameters["round_trip_efficiency"]),
+                start_date=str(parameters["start_date"]), end_date=str(parameters["end_date"]),
+                snapshot_id=snapshot_id, algorithm_version=str(payload.get("algorithm_version") or "unknown"),
+                candidates=payload.get("candidates") or [],
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("候选快照内容不完整") from error
+
     def legacy_management(self, kind: str, limit: int = 200) -> dict:
         if not self._legacy_reader:
             return {"items": [], "source_mode": self.data_mode, "table": kind}

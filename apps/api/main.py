@@ -209,6 +209,15 @@ def portfolio_candidates(market: str = Query(...), start_date: date = Query(...)
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+@app.get("/api/v1/portfolio/candidates/{snapshot_id}", response_model=PortfolioCandidatesResult, tags=["readonly"])
+def portfolio_candidate_snapshot(snapshot_id: str = APIPath(..., min_length=64, max_length=64,
+                                                               pattern=r"^[0-9a-f]{64}$")) -> PortfolioCandidatesResult:
+    try:
+        return readonly_service.portfolio_candidate_snapshot(snapshot_id)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
 @app.get("/api/v1/weather/summary", response_model=WeatherSummary, tags=["readonly"])
 def weather_summary(node_id: int = Query(gt=0), start_time: datetime | None = None,
                     end_time: datetime | None = None) -> WeatherSummary:

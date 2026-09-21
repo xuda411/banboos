@@ -10,6 +10,7 @@ def test_api_bootstrap_contract():
     assert any(route.path == "/api/v1/runs/{run_id}/reconciliation" for route in app.routes)
     assert any(route.path == "/api/v1/runs/{run_id}/financial-reconciliation" for route in app.routes)
     assert any(route.path == "/api/v1/portfolio/candidates" for route in app.routes)
+    assert any(route.path == "/api/v1/portfolio/candidates/{snapshot_id}" for route in app.routes)
 
 
 def test_readiness_and_optional_api_token(monkeypatch):

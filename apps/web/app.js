@@ -9,6 +9,8 @@ let portfolioRunId = null;
 let financialTemplateAvailable = false;
 let lpReconcileRunId = null;
 let financialRunId = null;
+let portfolioCandidateSnapshotId = null;
+let portfolioCandidateSource = new Map();
 
 async function get(path, params = {}) {
   const url = new URL(apiBase + path);
@@ -108,6 +110,7 @@ function addPortfolioProject(project = {}) {
   const body = $("portfolioProjectBody");
   if (body.rows.length >= 50) return;
   const row = document.createElement("tr");
+  row.dataset.nodeId = project.node_id == null ? "" : String(project.node_id);
   const number = body.rows.length + 1;
   [["name", "项目名称", "text", null, 120], ["capacity_mwh", "容量", "number", 0.001, 1000000],
     ["unit_investment_yuan_wh", "单位投资", "number", 0.000001, 100],
@@ -139,11 +142,32 @@ async function generatePortfolioCandidates() {
       power_mw: power, capacity_mwh: capacity, round_trip_efficiency: 0.92,
     });
     $("portfolioProjectBody").replaceChildren();
+    portfolioCandidateSnapshotId = result.snapshot_id === "demo" ? null : result.snapshot_id;
+    portfolioCandidateSource = new Map(result.candidates.map((candidate) => [String(candidate.node_id), structuredClone(candidate)]));
     result.candidates.forEach(addPortfolioProject);
+    $("exportPortfolioCandidates").disabled = !result.candidates.length;
     invalidatePortfolio();
     message.textContent = `已生成 ${result.candidates.length} 个真实节点候选（${result.market}，${result.start_date} 至 ${result.end_date}）；快照 ${result.snapshot_id.slice(0, 12)}…；请确认预算和目标后运行组合优化。`;
   } catch (error) { message.textContent = `候选生成失败：${error.message}`; }
   finally { button.disabled = false; }
+}
+
+function exportPortfolioCandidates() {
+  const rows = Array.from($("portfolioProjectBody").rows).map((row) => {
+    const values = Object.fromEntries(Array.from(row.querySelectorAll("input"), (input) => [input.dataset.field, input.value]));
+    return { node_id: row.dataset.nodeId || "", ...values };
+  });
+  if (!rows.length) return;
+  const columns = ["node_id", "name", "capacity_mwh", "unit_investment_yuan_wh", "annual_revenue_wan"];
+  const csv = [
+    `# snapshot_id=${portfolioCandidateSnapshotId || "manual"}`,
+    columns.join(","),
+    ...rows.map((row) => columns.map((column) => `"${String(row[column] ?? "").replaceAll('"', '""')}"`).join(",")),
+  ].join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  const link = document.createElement("a"); link.href = URL.createObjectURL(blob);
+  link.download = `banboos-portfolio-candidates-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click(); URL.revokeObjectURL(link.href);
 }
 
 function renderPortfolioResult(result) {
@@ -182,11 +206,21 @@ async function submitPortfolio(event) {
   }
   const projects = Array.from($("portfolioProjectBody").rows, (row) => Object.fromEntries(
     Array.from(row.querySelectorAll("input"), (input) => [input.dataset.field, input.type === "number" ? Number(input.value) : input.value.trim()])));
+  const changed = projects.filter((project, index) => {
+    const nodeId = $("portfolioProjectBody").rows[index].dataset.nodeId;
+    const source = portfolioCandidateSource.get(nodeId);
+    return source && ["name", "capacity_mwh", "unit_investment_yuan_wh", "annual_revenue_wan"].some((key) =>
+      String(project[key]) !== String(source[key]));
+  }).length;
   const parameters = { objective: $("portfolioObjective").value, projects,
     budget_limit_wan: $("portfolioBudget").value === "" ? null : Number($("portfolioBudget").value),
     revenue_target_wan: $("portfolioRevenueTarget").disabled ? null : Number($("portfolioRevenueTarget").value),
     discount_rate: Number($("portfolioRate").value) / 100, operation_years: Number($("portfolioYears").value) };
-  invalidatePortfolio(); $("portfolioFields").disabled = true; $("resumePortfolio").disabled = true;
+  invalidatePortfolio();
+  if (changed && portfolioCandidateSnapshotId) {
+    $("portfolioOptMessage").textContent = `已基于快照 ${portfolioCandidateSnapshotId.slice(0, 12)}…提交；其中 ${changed} 个节点候选包含手工调整。`;
+  }
+  $("portfolioFields").disabled = true; $("resumePortfolio").disabled = true;
   $("portfolioOptState").textContent = "计算中";
   try {
     const run = await post("/api/v1/runs", { kind: "portfolio-optimization", parameters });
@@ -884,6 +918,7 @@ $("portfolioForm").addEventListener("input", invalidatePortfolio);
 $("portfolioObjective").addEventListener("change", syncPortfolioObjective);
 $("addPortfolioProject").addEventListener("click", () => { addPortfolioProject(); invalidatePortfolio(); });
 $("generatePortfolioCandidates").addEventListener("click", generatePortfolioCandidates);
+$("exportPortfolioCandidates").addEventListener("click", exportPortfolioCandidates);
 $("resumePortfolio").addEventListener("click", resumePortfolio);
 try { portfolioRunId = localStorage.getItem("banboosPortfolioRun"); $("resumePortfolio").hidden = !portfolioRunId; } catch { /* Optional task recovery. */ }
 addPortfolioProject();

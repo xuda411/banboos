@@ -16,3 +16,6 @@ def test_portfolio_candidates_are_derived_from_real_node_curves(tmp_path):
     assert candidate.annual_revenue_wan >= 0
     assert result.snapshot_id
     assert result.algorithm_version == "portfolio-candidates-v1"
+    restored = ReadonlyService(str(db)).portfolio_candidate_snapshot(result.snapshot_id)
+    assert restored.snapshot_id == result.snapshot_id
+    assert restored.candidates[0].node_id == candidate.node_id
