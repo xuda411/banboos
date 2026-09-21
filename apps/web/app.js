@@ -147,9 +147,26 @@ async function generatePortfolioCandidates() {
     portfolioCandidateSource = new Map(result.candidates.map((candidate) => [String(candidate.node_id), structuredClone(candidate)]));
     result.candidates.forEach(addPortfolioProject);
     $("exportPortfolioCandidates").disabled = !result.candidates.length;
+    $("optimizePortfolioSnapshot").disabled = !portfolioCandidateSnapshotId || !result.candidates.length;
     invalidatePortfolio();
     message.textContent = `已生成 ${result.candidates.length} 个真实节点候选（${result.market}，${result.start_date} 至 ${result.end_date}）；快照 ${result.snapshot_id.slice(0, 12)}…；请确认预算和目标后运行组合优化。`;
   } catch (error) { message.textContent = `候选生成失败：${error.message}`; }
+  finally { button.disabled = false; }
+}
+
+async function optimizePortfolioSnapshot() {
+  if (!portfolioCandidateSnapshotId) return;
+  const message = $("portfolioOptMessage"); const button = $("optimizePortfolioSnapshot");
+  button.disabled = true; message.textContent = "正在按原始候选快照提交组合优化…";
+  const parameters = { objective: $("portfolioObjective").value,
+    budget_limit_wan: $("portfolioBudget").value === "" ? null : Number($("portfolioBudget").value),
+    revenue_target_wan: $("portfolioRevenueTarget").disabled ? null : Number($("portfolioRevenueTarget").value),
+    discount_rate: Number($("portfolioRate").value) / 100, operation_years: Number($("portfolioYears").value) };
+  try {
+    const run = await post("/api/v1/portfolio/candidates/" + portfolioCandidateSnapshotId + "/optimize", parameters);
+    portfolioRunId = run.run_id; $("resumePortfolio").hidden = false;
+    await pollPortfolio();
+  } catch (error) { message.textContent = "快照优化失败：" + error.message; }
   finally { button.disabled = false; }
 }
 
@@ -958,6 +975,7 @@ $("portfolioObjective").addEventListener("change", syncPortfolioObjective);
 $("addPortfolioProject").addEventListener("click", () => { addPortfolioProject(); invalidatePortfolio(); });
 $("generatePortfolioCandidates").addEventListener("click", generatePortfolioCandidates);
 $("exportPortfolioCandidates").addEventListener("click", exportPortfolioCandidates);
+$("optimizePortfolioSnapshot").addEventListener("click", optimizePortfolioSnapshot);
 $("resumePortfolio").addEventListener("click", resumePortfolio);
 try { portfolioRunId = localStorage.getItem("banboosPortfolioRun"); $("resumePortfolio").hidden = !portfolioRunId; } catch { /* Optional task recovery. */ }
 addPortfolioProject();

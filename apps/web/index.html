@@ -92,7 +92,7 @@
                 <label>折现率（%）<input id="portfolioRate" type="number" min="0" max="100" step="any" value="8" required /></label>
                 <label>运营年限（年）<input id="portfolioYears" type="number" min="1" max="100" step="1" value="15" required /></label>
               </div>
-              <div class="section-heading portfolio-project-heading"><h3>候选项目 · 手工情景</h3><div><button id="generatePortfolioCandidates" type="button">从真实节点生成候选</button><button id="exportPortfolioCandidates" type="button" disabled>导出候选 CSV</button><button id="addPortfolioProject" type="button">添加手工项目</button></div></div>
+              <div class="section-heading portfolio-project-heading"><h3>候选项目 · 手工情景</h3><div><button id="generatePortfolioCandidates" type="button">从真实节点生成候选</button><button id="exportPortfolioCandidates" type="button" disabled>导出候选 CSV</button><button id="optimizePortfolioSnapshot" type="button" disabled>按原始快照运行</button><button id="addPortfolioProject" type="button">添加手工项目</button></div></div>
               <div class="portfolio-table-wrap"><table class="portfolio-editor"><thead><tr><th>项目名称</th><th>容量（MWh）</th><th>单位投资（元/Wh）</th><th>年净现金流（万元）</th><th>操作</th></tr></thead><tbody id="portfolioProjectBody"></tbody></table></div>
               <div class="portfolio-actions"><button id="submitPortfolio" type="submit" class="primary">运行组合优化</button></div>
             </fieldset>

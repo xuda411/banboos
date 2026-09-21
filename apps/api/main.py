@@ -47,6 +47,7 @@ from packages.contracts.lp_reconciliation import LPReconciliationResult
 from packages.contracts.operations import OperationsSummary
 from packages.contracts.portfolio import PortfolioTaskParameters
 from packages.contracts.portfolio_candidates_result import PortfolioCandidatesResult
+from packages.contracts.portfolio_snapshot import PortfolioSnapshotOptimizationRequest
 from packages.contracts.readonly import (
     DataQualitySummary,
     PriceAggregateResult,
@@ -250,6 +251,31 @@ def portfolio_candidate_snapshot(snapshot_id: str = APIPath(..., min_length=64, 
         return readonly_service.portfolio_candidate_snapshot(snapshot_id)
     except (ValueError, RuntimeError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/v1/portfolio/candidates/{snapshot_id}/optimize", response_model=RunStatus,
+          status_code=202, tags=["runs"])
+def optimize_portfolio_snapshot(snapshot_id: str = APIPath(..., min_length=64, max_length=64,
+                                                            pattern=r"^[0-9a-f]{64}$"),
+                                request: PortfolioSnapshotOptimizationRequest = Body(...),
+                                idempotency_key: str | None = Header(default=None, alias="Idempotency-Key",
+                                                                     max_length=160)) -> RunStatus:
+    try:
+        snapshot = readonly_service.portfolio_candidate_snapshot(snapshot_id)
+        projects = [{"name": item.name, "capacity_mwh": item.capacity_mwh,
+                     "unit_investment_yuan_wh": item.unit_investment_yuan_wh,
+                     "annual_revenue_wan": item.annual_revenue_wan}
+                    for item in snapshot.candidates]
+        if not projects:
+            raise ValueError("候选快照没有可优化项目")
+        parameters = PortfolioTaskParameters(
+            objective=request.objective, projects=projects,
+            budget_limit_wan=request.budget_limit_wan, revenue_target_wan=request.revenue_target_wan,
+            discount_rate=request.discount_rate, operation_years=request.operation_years,
+        )
+        return run_registry.submit("portfolio-optimization", idempotency_key, parameters.model_dump())
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=404 if "快照" in str(error) else 422, detail=str(error)) from error
 
 
 @app.get("/api/v1/weather/summary", response_model=WeatherSummary, tags=["readonly"])
