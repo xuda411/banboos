@@ -2,6 +2,7 @@
 import logging
 import os
 import re
+import tempfile
 from datetime import UTC, date, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -18,6 +19,7 @@ from apps.api.security import configured_token, is_production, token_matches
 from apps.edge.gateway import TelemetrySpool
 from packages.application.financial_export import export_financial_xlsx
 from packages.application.financial_template_xlsm import export_financial_xlsm
+from packages.application.financial_xlsm_review import review_native_cached_values
 from packages.application.operations_service import OperationsService, OperationsUnavailable
 from packages.application.readonly_service import ReadonlyService
 from packages.application.report_export import (
@@ -392,6 +394,33 @@ def reconcile_financial_run(run_id: str) -> FinancialReconciliationResult:
     from packages.domain.financial_reconciliation import reconcile_financial
     report = reconcile_financial(item.result, item.parameters)
     return FinancialReconciliationResult(run_id=run_id, **report)
+
+
+@app.get("/api/v1/runs/{run_id}/financial-template-reconciliation", tags=["reports"])
+def reconcile_financial_template_run(run_id: str):
+    """Inspect key cached cells after a disposable 1.6.6 template export."""
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", run_id):
+        raise HTTPException(status_code=400, detail="invalid run id")
+    item = run_registry.get(run_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    if item.kind != "financial":
+        raise HTTPException(status_code=400, detail="only financial runs support template reconciliation")
+    if item.status != "succeeded" or not item.result:
+        raise HTTPException(status_code=409, detail="run has not succeeded")
+    template = os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")
+    if not template:
+        raise HTTPException(status_code=503, detail="未配置 BANBOOS2_FINANCIAL_TEMPLATE")
+    export_root = Path(os.getenv("BANBOOS2_EXPORT_DIR", "var/exports"))
+    export_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="template-audit-", dir=export_root) as workdir:
+        target = Path(workdir) / f"financial-{run_id}.xlsm"
+        try:
+            export_financial_xlsm(item.result | {"run_id": run_id, "completed_at": str(item.completed_at)},
+                                  target, template)
+            return review_native_cached_values(target, item.result | {"run_id": run_id})
+        except (FileNotFoundError, OSError, ValueError, KeyError, RuntimeError) as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.post("/api/v1/runs/{run_id}/cancel", response_model=RunStatus, tags=["runs"])

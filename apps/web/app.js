@@ -700,7 +700,7 @@ async function submitFinancial() {
   const download = $("downloadReport");
   const templateDownload = $("downloadTemplateReport");
   $("financeResult").hidden = true;
-  financialRunId = null; $("financialReconcileButton").hidden = true; $("financialReconcileState").hidden = true;
+  financialRunId = null; $("financialReconcileButton").hidden = true; $("financialReconcileState").hidden = true; $("financialTemplateAuditButton").hidden = true; $("financialTemplateAuditState").hidden = true;
   download.hidden = true;
   templateDownload.hidden = true;
   const power = Number($("powerMw").value);
@@ -840,7 +840,7 @@ function renderFinancialResult(result) {
   $("resultNpv").textContent = money(result.full_npv_yuan);
   $("resultPayback").textContent = result.payback_year == null ? "—" : `${Number(result.payback_year).toFixed(2)} 年`;
   $("financeResult").hidden = false;
-  if (financialRunId) $("financialReconcileButton").hidden = false;
+  if (financialRunId) { $("financialReconcileButton").hidden = false; $("financialTemplateAuditButton").hidden = false; }
 }
 
 async function reconcileFinancialRun() {
@@ -853,6 +853,20 @@ async function reconcileFinancialRun() {
     state.textContent = `${report.status === "passed" ? "财务复核通过" : "发现财务差异"} · ${report.checks.length} 项检查 · 失败 ${failed} 项 · ${report.model_version}`;
     state.className = `curve-hint ${failed ? "status-error" : "status-ok"}`;
   } catch (error) { state.textContent = `复核失败：${error.message}`; state.className = "curve-hint status-error"; }
+  finally { button.disabled = false; }
+}
+
+async function reconcileFinancialTemplate() {
+  if (!financialRunId) return;
+  const button = $("financialTemplateAuditButton"); const state = $("financialTemplateAuditState");
+  button.disabled = true; state.hidden = false; state.textContent = "正在生成临时 1.6.6 模板并核对关键单元格…";
+  try {
+    const report = await get(`/api/v1/runs/${financialRunId}/financial-template-reconciliation`);
+    const counts = report.counts || {}; const difference = (counts.DIFFERENCE || 0) + (counts.ERROR || 0);
+    const pending = counts.PENDING || 0;
+    state.textContent = `${report.status === "CACHED_VALUES_MATCH" ? "关键单元格缓存一致" : report.status === "PENDING_RECALCULATION" ? "等待 Excel/WPS 重算" : "发现模板差异"} · 匹配 ${counts.MATCH || 0} · 差异 ${difference} · 待重算 ${pending}`;
+    state.className = `curve-hint ${difference ? "status-error" : pending ? "status-muted" : "status-ok"}`;
+  } catch (error) { state.textContent = `模板复核失败：${error.message}`; state.className = "curve-hint status-error"; }
   finally { button.disabled = false; }
 }
 
@@ -911,6 +925,7 @@ if ($("lpReconcileButton")) $("lpReconcileButton").addEventListener("click", rec
 $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
 if ($("financialReconcileButton")) $("financialReconcileButton").addEventListener("click", reconcileFinancialRun);
+if ($("financialTemplateAuditButton")) $("financialTemplateAuditButton").addEventListener("click", reconcileFinancialTemplate);
 $("submitSensitivity").addEventListener("click", submitSensitivity);
 $("loadPortfolio").addEventListener("click", loadPortfolio);
 $("portfolioForm").addEventListener("submit", submitPortfolio);

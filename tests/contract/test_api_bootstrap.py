@@ -9,6 +9,7 @@ def test_api_bootstrap_contract():
     assert any(route.path == "/api/v1/price/aggregates" for route in app.routes)
     assert any(route.path == "/api/v1/runs/{run_id}/reconciliation" for route in app.routes)
     assert any(route.path == "/api/v1/runs/{run_id}/financial-reconciliation" for route in app.routes)
+    assert any(route.path == "/api/v1/runs/{run_id}/financial-template-reconciliation" for route in app.routes)
     assert any(route.path == "/api/v1/portfolio/candidates" for route in app.routes)
     assert any(route.path == "/api/v1/portfolio/candidates/{snapshot_id}" for route in app.routes)
 
@@ -79,6 +80,7 @@ def test_readonly_demo_endpoints():
     assert response.status_code == 200
     assert response.json()["candidates"] == []
     assert response.json()["snapshot_id"]
+    assert client.get("/api/v1/runs/not-a-run/financial-template-reconciliation").status_code == 400
 
     response = client.get("/api/v1/quality/summary", params={
         "node_id": 1, "market": "实时", "start_date": "2026-01-01", "end_date": "2026-01-31",
