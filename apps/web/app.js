@@ -8,6 +8,7 @@ let financialSourceRunId = null;
 let portfolioRunId = null;
 let financialTemplateAvailable = false;
 let lpReconcileRunId = null;
+let financialRunId = null;
 
 async function get(path, params = {}) {
   const url = new URL(apiBase + path);
@@ -645,6 +646,7 @@ async function submitFinancial() {
   const download = $("downloadReport");
   const templateDownload = $("downloadTemplateReport");
   $("financeResult").hidden = true;
+  financialRunId = null; $("financialReconcileButton").hidden = true; $("financialReconcileState").hidden = true;
   download.hidden = true;
   templateDownload.hidden = true;
   const power = Number($("powerMw").value);
@@ -661,6 +663,7 @@ async function submitFinancial() {
   try {
     const parameters = collectFinancialParameters();
     const run = await post("/api/v1/runs", { kind: "financial", parameters });
+    financialRunId = run.run_id;
     message.textContent = `任务 ${run.run_id} 已进入队列`;
     const finished = await pollRun(run.run_id);
     renderFinancialResult(finished.result);
@@ -783,6 +786,20 @@ function renderFinancialResult(result) {
   $("resultNpv").textContent = money(result.full_npv_yuan);
   $("resultPayback").textContent = result.payback_year == null ? "—" : `${Number(result.payback_year).toFixed(2)} 年`;
   $("financeResult").hidden = false;
+  if (financialRunId) $("financialReconcileButton").hidden = false;
+}
+
+async function reconcileFinancialRun() {
+  if (!financialRunId) return;
+  const button = $("financialReconcileButton"); const state = $("financialReconcileState");
+  button.disabled = true; state.hidden = false; state.textContent = "正在核对现金流、NPV、IRR和年度明细…";
+  try {
+    const report = await get(`/api/v1/runs/${financialRunId}/financial-reconciliation`);
+    const failed = (report.checks || []).filter((item) => item.status === "failed").length;
+    state.textContent = `${report.status === "passed" ? "财务复核通过" : "发现财务差异"} · ${report.checks.length} 项检查 · 失败 ${failed} 项 · ${report.model_version}`;
+    state.className = `curve-hint ${failed ? "status-error" : "status-ok"}`;
+  } catch (error) { state.textContent = `复核失败：${error.message}`; state.className = "curve-hint status-error"; }
+  finally { button.disabled = false; }
 }
 
 function updateDurationHint() {
@@ -839,6 +856,7 @@ $("submitDispatch").addEventListener("click", submitDispatch);
 if ($("lpReconcileButton")) $("lpReconcileButton").addEventListener("click", reconcileLpRun);
 $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
+if ($("financialReconcileButton")) $("financialReconcileButton").addEventListener("click", reconcileFinancialRun);
 $("submitSensitivity").addEventListener("click", submitSensitivity);
 $("loadPortfolio").addEventListener("click", loadPortfolio);
 $("portfolioForm").addEventListener("submit", submitPortfolio);

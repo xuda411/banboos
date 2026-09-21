@@ -31,6 +31,7 @@ from packages.application.sqlite_runtime import SQLiteRuntime, runtime_path
 from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.financial import FinancialTaskParameters
+from packages.contracts.financial_reconciliation import FinancialReconciliationResult
 from packages.contracts.investment_scenario import InvestmentScenarioParameters
 from packages.contracts.lp_analysis import LPAnalysisParameters
 from packages.contracts.lp_reconciliation import LPReconciliationResult
@@ -353,6 +354,22 @@ def reconcile_run(run_id: str) -> LPReconciliationResult:
     from packages.domain.lp_reconciliation import reconcile_lp
     report = reconcile_lp(item.result)
     return LPReconciliationResult(run_id=run_id, **report)
+
+
+@app.get("/api/v1/runs/{run_id}/financial-reconciliation", response_model=FinancialReconciliationResult, tags=["reports"])
+def reconcile_financial_run(run_id: str) -> FinancialReconciliationResult:
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", run_id):
+        raise HTTPException(status_code=400, detail="invalid run id")
+    item = run_registry.get(run_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    if item.kind != "financial":
+        raise HTTPException(status_code=400, detail="only financial runs support financial reconciliation")
+    if item.status != "succeeded" or not item.result:
+        raise HTTPException(status_code=409, detail="run has not succeeded")
+    from packages.domain.financial_reconciliation import reconcile_financial
+    report = reconcile_financial(item.result, item.parameters)
+    return FinancialReconciliationResult(run_id=run_id, **report)
 
 
 @app.post("/api/v1/runs/{run_id}/cancel", response_model=RunStatus, tags=["runs"])
