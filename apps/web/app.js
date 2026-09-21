@@ -311,6 +311,21 @@ function priceColor(value, min, max) {
   return `rgb(${rightColor.map((color, index) => Math.round(leftColor[index] + (color - leftColor[index]) * factor)).join(",")})`;
 }
 
+async function refreshLaunchGate() {
+  const state = $("launchGateState"); const target = $("launchGateChecks");
+  state.textContent = "正在检查发布门禁…";
+  try {
+    const report = await get("/api/v1/system/launch-gate");
+    target.replaceChildren();
+    const table = document.createElement("table"); table.innerHTML = "<thead><tr><th>检查项</th><th>状态</th><th>说明</th></tr></thead>";
+    const body = document.createElement("tbody");
+    report.checks.forEach((item) => { const row = document.createElement("tr"); [item.name, item.status, item.detail].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); }); body.appendChild(row); });
+    table.appendChild(body); target.appendChild(table);
+    state.textContent = `${report.status} · 环境 ${report.environment} · 控制模式 ${report.control_mode}`;
+    state.className = `task-progress ${report.status === "staging-ready" ? "status-ok" : "status-error"}`;
+  } catch (error) { state.textContent = `门禁检查失败：${error.message}`; state.className = "task-progress status-error"; }
+}
+
 async function previewImport() {
   const state = $("importState"); const commit = $("importCommitButton");
   importPreviewId = null; commit.disabled = true; state.textContent = "正在校验导入内容…";
@@ -997,6 +1012,7 @@ $("resumePortfolio").addEventListener("click", resumePortfolio);
 try { portfolioRunId = localStorage.getItem("banboosPortfolioRun"); $("resumePortfolio").hidden = !portfolioRunId; } catch { /* Optional task recovery. */ }
 addPortfolioProject();
 $("refreshSystem").addEventListener("click", refreshSystem);
+if ($("refreshLaunchGate")) $("refreshLaunchGate").addEventListener("click", refreshLaunchGate);
 if ($("loadOperationsReport")) $("loadOperationsReport").addEventListener("click", loadOperationsReport);
 $("refreshLegacy").addEventListener("click", refreshLegacyManagement);
 $("legacyTableKind").addEventListener("change", refreshLegacyManagement);

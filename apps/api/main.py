@@ -42,6 +42,7 @@ from packages.contracts.imports import (
     ImportPreviewResult,
 )
 from packages.contracts.investment_scenario import InvestmentScenarioParameters
+from packages.contracts.launch_gate import LaunchGateCheck, LaunchGateReport
 from packages.contracts.lp_analysis import LPAnalysisParameters
 from packages.contracts.lp_reconciliation import LPReconciliationResult
 from packages.contracts.operations import OperationsSummary
@@ -137,6 +138,34 @@ def meta() -> dict[str, str]:
     return {"product": "Banboos", "platform": "server-web-operations", "api_version": "v1",
             "data_mode": readonly_service.data_mode,
             "financial_template_available": str(template_available)}
+
+
+@app.get("/api/v1/system/launch-gate", response_model=LaunchGateReport, tags=["system"])
+def launch_gate() -> LaunchGateReport:
+    environment = os.getenv("BANBOOS2_ENV", "development")
+    configured_auth = bool(configured_token() and len(configured_token() or "") >= 32)
+    configured_db = os.getenv("BANBOOS2_DATABASE_URL", "").startswith("postgresql")
+    configured_redis = bool(os.getenv("BANBOOS2_REDIS_URL"))
+    template = os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")
+    template_ok = bool(template and Path(template).expanduser().is_file())
+    control = os.getenv("BANBOOS2_CONTROL_MODE", "disabled")
+    checks = [
+        LaunchGateCheck(name="api_auth", status="pass" if configured_auth or environment != "production" else "fail",
+                        detail="生产 token 已配置" if configured_auth else "开发环境允许未配置 token" if environment != "production" else "生产必须配置至少 32 位 token"),
+        LaunchGateCheck(name="postgres", status="pass" if configured_db or environment != "production" else "fail",
+                        detail="PostgreSQL URL 已配置" if configured_db else "开发环境可使用本地运行时" if environment != "production" else "生产必须配置 PostgreSQL"),
+        LaunchGateCheck(name="redis", status="pass" if configured_redis or environment != "production" else "fail",
+                        detail="Redis URL 已配置" if configured_redis else "开发环境可使用本地队列" if environment != "production" else "生产必须配置 Redis"),
+        LaunchGateCheck(name="financial_template", status="pass" if template_ok else "warn",
+                        detail="1.6.6 模板可用" if template_ok else "未配置模板，不能导出原版 XLSM"),
+        LaunchGateCheck(name="production_control", status="pass" if control == "disabled" else "fail",
+                        detail="生产控制保持关闭" if control == "disabled" else "生产控制开关必须保持 disabled"),
+        LaunchGateCheck(name="tenant_isolation", status="warn",
+                        detail="租户权限模型已建表，正式租户鉴权仍需预发布验收"),
+    ]
+    blocked = any(item.status == "fail" for item in checks)
+    return LaunchGateReport(status="blocked" if blocked else "staging-ready", environment=environment,
+                            control_mode=control, checks=checks)
 
 
 @app.get("/api/v1/nodes", tags=["readonly"])

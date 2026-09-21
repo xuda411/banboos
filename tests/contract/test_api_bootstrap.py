@@ -15,6 +15,7 @@ def test_api_bootstrap_contract():
     assert any(route.path == "/api/v1/import/preview" for route in app.routes)
     assert any(route.path == "/api/v1/import/commit" for route in app.routes)
     assert any(route.path == "/api/v1/operations/report" for route in app.routes)
+    assert any(route.path == "/api/v1/system/launch-gate" for route in app.routes)
     assert any(route.path == "/api/v1/portfolio/candidates/{snapshot_id}/optimize" for route in app.routes)
 
 
