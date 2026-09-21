@@ -24,12 +24,14 @@ def test_portfolio_api_worker_and_export_snapshot():
     exported = client.get(f'/api/v1/runs/{run_id}/export')
     assert exported.status_code == 200
     book = load_workbook(BytesIO(exported.content))
-    assert book.sheetnames == ['导出说明', '任务参数', '结果摘要', '全部候选项目', '选中项目']
+    assert book.sheetnames == ['导出说明', '任务参数', '结果摘要', '全部候选项目', '选中项目', '组合复核']
     assert book['选中项目']['A5'].value == '=手工假设'
     assert book['选中项目']['A5'].data_type == 's'
     assert book['选中项目']['D5'].value == 300
     assert book['选中项目']['E5'].value == 1000
     assert book['全部候选项目'].freeze_panes == 'B5'
+    assert book['组合复核']['B10'].value == 1
+    assert book['组合复核']['B14'].value == 'optimal'
     assert book['导出说明']['B5'].value == run_id
     payload['parameters']['budget_limit_wan'] = None
     assert client.post('/api/v1/runs', json=payload).status_code == 422

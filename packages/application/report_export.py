@@ -136,6 +136,22 @@ def export_task_xlsx(run):
         table(workbook, "选中项目", headers + ["投资（万元）", "NPV（万元）"],
               [[p.get(key) for key in project_keys + ["investment_wan", "npv_wan"]]
                for p in data["selected_projects"]])
+        task_parameters = run.parameters
+        portfolio_audit = table(workbook, "组合复核", ["检查项", "值", "单位", "说明"], [
+            ["优化目标", data.get("objective", task_parameters.get("objective")), "", "组合筛选目标"],
+            ["预算上限", task_parameters.get("budget_limit_wan"), "万元", "为空表示不设置预算上限"],
+            ["年净现金流目标", task_parameters.get("revenue_target_wan"), "万元", "最小投资目标使用"],
+            ["折现率", task_parameters.get("discount_rate"), "%", "NPV 计算折现率"],
+            ["运营年限", task_parameters.get("operation_years"), "年", "组合现金流周期"],
+            ["选中项目数", len(data.get("selected_projects", [])), "个", "满足约束的项目数"],
+            ["总投资", data.get("total_investment_wan"), "万元", "组合结果"],
+            ["总 NPV", data.get("total_npv_wan"), "万元", "组合结果"],
+            ["组合 IRR", data.get("portfolio_irr"), "%", "无有效根时留空"],
+            ["结果状态", data.get("outcome"), "", data.get("message", "")],
+            ["现金流口径", data.get("cashflow_note"), "", "结果说明"],
+        ], {2: "#,##0.00"})
+        portfolio_audit["B8"].number_format = "0.00%"
+        portfolio_audit["B13"].number_format = "0.00%"
     else:
         keys = ["change_rate", "full_irr", "full_npv_yuan", "payback_year", "first_year_net_profit_yuan"]
         table(workbook, "敏感性分析", ["相对变动率", "项目 IRR", "项目 NPV（元）", "静态回收期（年）", "首年净利润（元）"],
