@@ -2,6 +2,7 @@ from apps.worker.main import run_once
 from packages.application.readonly_service import ReadonlyService
 from packages.application.report_export import export_task_xlsx
 from packages.application.run_registry import RunRegistry
+from packages.domain.lp_reconciliation import reconcile_lp
 from tests.unit.test_legacy_reader import make_fixture
 
 
@@ -27,6 +28,9 @@ def test_lp_analysis_preserves_trajectory_and_aggregates(tmp_path):
     assert result["annual"][0]["revenue_total_yuan"] == round(result["total_net_revenue_yuan"], 2)
     assert result["comparison"][0]["lp_revenue_yuan"] == day["net_revenue_yuan"]
     assert len(export_task_xlsx(completed)) > 1000
+    report = reconcile_lp(result)
+    assert report["status"] == "passed"
+    assert all(check["status"] == "passed" for check in report["checks"])
 
 
 def test_lp_analysis_optional_sensitivity_is_bounded(tmp_path):

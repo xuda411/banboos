@@ -33,6 +33,7 @@ from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.financial import FinancialTaskParameters
 from packages.contracts.investment_scenario import InvestmentScenarioParameters
 from packages.contracts.lp_analysis import LPAnalysisParameters
+from packages.contracts.lp_reconciliation import LPReconciliationResult
 from packages.contracts.operations import OperationsSummary
 from packages.contracts.portfolio import PortfolioTaskParameters
 from packages.contracts.readonly import (
@@ -336,6 +337,22 @@ def get_run(run_id: str) -> RunStatus:
     if item is None:
         raise HTTPException(status_code=404, detail="run not found")
     return item
+
+
+@app.get("/api/v1/runs/{run_id}/reconciliation", response_model=LPReconciliationResult, tags=["reports"])
+def reconcile_run(run_id: str) -> LPReconciliationResult:
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", run_id):
+        raise HTTPException(status_code=400, detail="invalid run id")
+    item = run_registry.get(run_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    if item.kind != "lp-analysis":
+        raise HTTPException(status_code=400, detail="only lp-analysis runs support reconciliation")
+    if item.status != "succeeded" or not item.result:
+        raise HTTPException(status_code=409, detail="run has not succeeded")
+    from packages.domain.lp_reconciliation import reconcile_lp
+    report = reconcile_lp(item.result)
+    return LPReconciliationResult(run_id=run_id, **report)
 
 
 @app.post("/api/v1/runs/{run_id}/cancel", response_model=RunStatus, tags=["runs"])

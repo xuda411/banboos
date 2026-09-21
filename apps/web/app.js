@@ -7,6 +7,7 @@ let analysisScale = null;
 let financialSourceRunId = null;
 let portfolioRunId = null;
 let financialTemplateAvailable = false;
+let lpReconcileRunId = null;
 
 async function get(path, params = {}) {
   const url = new URL(apiBase + path);
@@ -534,11 +535,11 @@ async function submitDispatch() {
   if (!nodeId) { message.textContent = "请选择节点"; return; }
   const power = Number($("dispatchPower").value); const capacity = Number($("dispatchCapacity").value);
   if (!Number.isFinite(power) || !Number.isFinite(capacity) || power <= 0 || capacity <= 0 || capacity / power < 0.25 || capacity / power > 24) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
-  state.textContent = "提交中"; state.className = "status status-muted"; $("dispatchResult").hidden = true;
+  state.textContent = "提交中"; state.className = "status status-muted"; $("dispatchResult").hidden = true; lpReconcileRunId = null; $("lpReconcileButton").hidden = true; $("lpReconcileState").hidden = true;
   const parameters = { node_id: Number(nodeId), market: $("dispatchMarket").value, start_date: $("dispatchStart").value, end_date: $("dispatchEnd").value, power_mw: power, capacity_mwh: capacity, eta_charge: Number($("dispatchEta").value) / 100, eta_discharge: Number($("dispatchEta").value) / 100, max_daily_cycles: Number($("dispatchCycles").value), hurdle_yuan_per_mwh: Number($("dispatchHurdle").value) };
   const kind = $("dispatchMode").value || "strict-dispatch";
   if (kind === "lp-analysis") Object.assign(parameters, { include_comparison: true, include_sensitivity: false });
-  try { const run = await post("/api/v1/runs", { kind, parameters }); $("dispatchRunId").textContent = run.run_id; const finished = await pollDispatch(run.run_id); renderDispatchResult(finished.result); ReportUI.run("dispatchView", run.run_id, kind === "lp-analysis" ? "LP详细回放" : "逐日调度", apiBase); } catch (error) { state.textContent = "回放失败"; state.className = "status status-error"; message.textContent = error.message; }
+  try { const run = await post("/api/v1/runs", { kind, parameters }); lpReconcileRunId = kind === "lp-analysis" ? run.run_id : null; $("dispatchRunId").textContent = run.run_id; const finished = await pollDispatch(run.run_id); renderDispatchResult(finished.result); ReportUI.run("dispatchView", run.run_id, kind === "lp-analysis" ? "LP详细回放" : "逐日调度", apiBase); } catch (error) { state.textContent = "回放失败"; state.className = "status status-error"; message.textContent = error.message; }
 }
 
 async function pollDispatch(runId) {
@@ -552,6 +553,21 @@ function renderDispatchResult(result) {
   const body = $("dispatchDays"); body.replaceChildren(); (result.days || []).forEach((day) => { const row = document.createElement("tr"); [day.run_date, money(day.net_revenue_yuan), Number(day.charge_energy_mwh).toFixed(1), Number(day.discharge_energy_mwh).toFixed(1), Number(day.cycles).toFixed(2), day.shutdown ? "低于门槛" : "已执行"].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); }); body.appendChild(row); });
   const detail = $("lpResultDetails"); const months = $("lpMonths"); months.replaceChildren(); if (result.monthly?.length) { result.monthly.forEach((item) => { const row = document.createElement("tr"); [item.month, item.days, Number(item.revenue_total_yuan).toFixed(2), Number(item.revenue_avg_yuan).toFixed(2), Number(item.discharge_energy_total_mwh).toFixed(1), Number(item.cycles_avg).toFixed(3)].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); }); months.appendChild(row); }); detail.hidden = false; } else detail.hidden = true;
   $("dispatchResult").hidden = false;
+  const reconcileButton = $("lpReconcileButton");
+  if (reconcileButton) reconcileButton.hidden = !lpReconcileRunId;
+}
+
+async function reconcileLpRun() {
+  if (!lpReconcileRunId) return;
+  const button = $("lpReconcileButton"); const state = $("lpReconcileState");
+  button.disabled = true; state.hidden = false; state.textContent = "正在核对逐日轨迹、现金流和月/年汇总…";
+  try {
+    const report = await get(`/api/v1/runs/${lpReconcileRunId}/reconciliation`);
+    const failed = (report.checks || []).filter((item) => item.status === "failed").length;
+    state.textContent = `${report.status === "passed" ? "对账通过" : "发现差异"} · ${report.checks.length} 项检查 · 失败 ${failed} 项 · 算法 ${report.algorithm_version}`;
+    state.className = `curve-hint ${failed ? "status-error" : "status-ok"}`;
+  } catch (error) { state.textContent = `对账失败：${error.message}`; state.className = "curve-hint status-error"; }
+  finally { button.disabled = false; }
 }
 
 function aggregateWeather(series, granularity) {
@@ -820,6 +836,7 @@ $("submitAnalysis").addEventListener("click", submitAnalysis);
 if ($("createInvestmentScenario")) $("createInvestmentScenario").addEventListener("click", createInvestmentScenario);
 $("useAnalysisForFinance").addEventListener("click", useAnalysisForFinance);
 $("submitDispatch").addEventListener("click", submitDispatch);
+if ($("lpReconcileButton")) $("lpReconcileButton").addEventListener("click", reconcileLpRun);
 $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
 $("submitSensitivity").addEventListener("click", submitSensitivity);
