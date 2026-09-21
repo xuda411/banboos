@@ -106,6 +106,17 @@ def test_calendar_cycle_eol_uses_annual_cycles_against_cycle_life():
     assert result["yearly"][0]["eol"] == pytest.approx(0.95625)
 
 
+def test_auxiliary_cycles_are_traceable_and_reduce_cycle_eol():
+    parameters = FinancialTaskParameters(
+        power_mw=100, capacity_mwh=200, annual_revenue_yuan=8_000_000,
+        eol_method="calendar_cycle_min", annual_cycles=350,
+        auxiliary_annual_cycles=150, cycle_life_cycles=8_000,
+    )
+    result = calculate_financials(parameters.financial())
+    assert result["yearly"][0]["eol"] == pytest.approx(0.9375)
+    assert parameters.model_dump()["auxiliary_annual_cycles"] == 150
+
+
 def test_financial_task_is_traceable_to_upstream_run():
     registry = RunRegistry()
     upstream = registry.submit("strict-dispatch")

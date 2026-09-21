@@ -615,7 +615,24 @@ async function submitFinancial() {
   }
 }
 
+function revealFinancialField(id) {
+  const label = document.getElementById(id)?.closest("label");
+  const group = label?.querySelector("[id]") ? Object.entries(FINANCE_GROUP_FIELDS).find(([, fields]) => fields.has(id))?.[0] : null;
+  if (group && $("financialParameterGroup")) {
+    $("financialParameterGroup").value = group;
+    syncFinancialParameterGroup();
+  }
+}
+
+function validateFinancialInputs() {
+  const numeric = ["powerMw", "capacityMwh", "annualRevenue", "capex", "operationYears", "singleSideEfficiency", "dod", "annualCycles", "auxiliaryEquivalentCycles"];
+  if (numeric.some((id) => !Number.isFinite(Number($(id).value)))) throw new Error("财务参数中存在无法识别的数字，请检查输入。");
+  if (Number($("powerMw").value) <= 0 || Number($("capacityMwh").value) <= 0) throw new Error("功率和容量必须大于 0。");
+  if (Number($("annualRevenue").value) < 0 || Number($("capex").value) <= 0 || Number($("operationYears").value) < 1) throw new Error("收入、单位投资和运营年限参数无效。");
+}
+
 function collectFinancialParameters() {
+  validateFinancialInputs();
   const percent = (id) => Number($(id).value) / 100;
   const optionalNumber = (id) => $(id).value === "" ? null : Number($(id).value);
   const phaseText = $("revenuePhases").value.trim();
@@ -628,23 +645,34 @@ function collectFinancialParameters() {
   }
   const power = Number($("powerMw").value); const capacity = Number($("capacityMwh").value);
   const efficiency = percent("singleSideEfficiency"); const dod = percent("dod");
-  const cycles = Number($("annualCycles").value) + Number($("auxiliaryEquivalentCycles").value || 0);
-  const lease = Number($("capacityLeaseEnabled").value) ? power * 1000 * Number($("capacityLeasePricePerKw").value) * Number($("capacityLeaseUtilization").value) * 10000 : 0;
-  const capacityFee = Number($("capacityFeeEnabled").value) ? power * Number($("capacityFeePerMw").value) * Number($("capacityFeeSupplyCoeff").value) * Number($("capacityFeeDodCoeff").value) * 10000 : 0;
+  const cycles = Number($("annualCycles").value);
+  const component = (modeId, annualId, calculated) => {
+    const mode = $(modeId).value;
+    return mode === "1" ? calculated : mode === "2" ? Number($(annualId).value) : 0;
+  };
+  let lease = component("capacityLeaseEnabled", "capacityLease", power * 1000 * Number($("capacityLeasePricePerKw").value) * Number($("capacityLeaseUtilization").value));
+  const capacityFee = component("capacityFeeEnabled", "capacityFee", power * Number($("capacityFeePerMw").value) * Number($("capacityFeeSupplyCoeff").value) * Number($("capacityFeeDodCoeff").value) * 10000);
   const dischargeEnergy = capacity * dod * efficiency * cycles;
-  const subsidy = Number($("subsidyEnabled").value) ? dischargeEnergy * 1000 * Number($("subsidyPerKwh").value) : 0;
-  const primary = Number($("primaryFrequencyEnabled").value) ? Number($("primaryFrequencyMileage").value) * Number($("primaryFrequencyPrice").value) * Number($("primaryFrequencyK").value) : 0;
-  const secondary = Number($("secondaryFrequencyEnabled").value) ? Number($("secondaryFrequencyMileage").value) * Number($("secondaryFrequencyPrice").value) * Number($("secondaryFrequencyK").value) : 0;
+  let subsidy = component("subsidyEnabled", "subsidy", dischargeEnergy * 1000 * Number($("subsidyPerKwh").value));
+  const primary = component("primaryFrequencyEnabled", "primaryFrequency", Number($("primaryFrequencyMileage").value) * Number($("primaryFrequencyPrice").value) * Number($("primaryFrequencyK").value));
+  const secondary = component("secondaryFrequencyEnabled", "secondaryFrequency", Number($("secondaryFrequencyMileage").value) * Number($("secondaryFrequencyPrice").value) * Number($("secondaryFrequencyK").value));
   const legacyCapacity = Number($("capacityIncomeWan").value) * 10000;
   const legacyAuxiliary = Number($("auxiliaryIncomeWan").value) * 10000;
+  if (lease === 0 && capacityFee === 0) lease = legacyCapacity;
+  if (subsidy === 0 && primary === 0 && secondary === 0) subsidy = legacyAuxiliary;
   const replaceEnabled = Number($("replaceBatteryEnabled").value) > 0;
   const replaceCost = replaceEnabled
-    ? capacity * 1000000 * Number($("replaceUnitPriceYuanWh").value)
-    : Number($("replaceCapex").value);
+    ? (Number($("replaceCapex").value) || capacity * 1000000 * Number($("replaceUnitPriceYuanWh").value))
+    : 0;
+  if (replaceEnabled && (!optionalNumber("replaceYear") || Number($("replaceYear").value) > Number($("operationYears").value))) {
+    revealFinancialField("replaceYear");
+    throw new Error("启用换电池时，请填写运营期内的更换年份；不更换请选择关闭。");
+  }
   return {
     power_mw: power, capacity_mwh: capacity, annual_revenue_yuan: financialSourceRunId ? null : Number($("annualRevenue").value),
-    capacity_lease_yuan: lease || (Number($("capacityLease").value) || legacyCapacity), capacity_fee_yuan: capacityFee || Number($("capacityFee").value), subsidy_yuan: subsidy || Number($("subsidy").value), revenue_phases: revenuePhases,
-    primary_frequency_yuan: primary || Number($("primaryFrequency").value), secondary_frequency_yuan: secondary || Number($("secondaryFrequency").value) || legacyAuxiliary, capex_yuan_per_wh: Number($("capex").value), source_run_id: financialSourceRunId || undefined,
+    capacity_lease_yuan: lease, capacity_fee_yuan: capacityFee, subsidy_yuan: subsidy, revenue_phases: revenuePhases,
+    primary_frequency_yuan: primary, secondary_frequency_yuan: secondary, capex_yuan_per_wh: Number($("capex").value), source_run_id: financialSourceRunId || undefined,
+    auxiliary_annual_cycles: Number($("auxiliaryEquivalentCycles").value),
     operation_years: Number($("operationYears").value), single_side_efficiency: efficiency, dod, annual_cycles: cycles, eol_method: $("eolMethod").value, calendar_eol_decline: percent("calendarEolDecline"), cycle_life_cycles: Number($("cycleLifeCycles").value), om_rate: percent("omRate"), om_growth: percent("omGrowth"), land_rent_yuan: Number($("landRent").value), insurance_rate: percent("insuranceRate"), fixed_operation_cost_yuan: Number($("fixedOperationCost").value), revenue_share_threshold_yuan: Number($("revenueShareThreshold").value), revenue_share_rate: percent("revenueShareRate"), other_operating_cost_yuan: Number($("otherOperatingCost").value), vat_rate: percent("vatRate"), vat_surcharge_rate: percent("vatSurchargeRate"), stamp_tax_rate: percent("stampTaxRate"), input_vat_rate_equipment: percent("inputVatRateEquipment"), input_vat_rate_other: percent("inputVatRateOther"), equipment_investment_share: percent("equipmentInvestmentShare"), input_vat_credit_ratio: percent("inputVatCreditRatio"), first_year_eol: percent("firstEol"), final_eol: percent("finalEol"), residual_rate: percent("residualRate"), income_tax_rate: percent("incomeTaxRate"), discount_rate: percent("discountRate"), loan_ratio: percent("loanRatio"), loan_years: Number($("loanYears").value), loan_rate: percent("loanRate"), construction_years: Number($("constructionYears").value), construction_loan_rate: percent("constructionLoanRate"), replace_year: replaceEnabled ? optionalNumber("replaceYear") : null, replace_capex_yuan: replaceCost,
   };
 }

@@ -36,6 +36,7 @@ class FinancialTaskParameters(BaseModel):
     single_side_efficiency: float = Field(default=0.92, gt=0, le=1)
     dod: float = Field(default=0.95, gt=0, le=1)
     annual_cycles: float = Field(default=350, ge=0)
+    auxiliary_annual_cycles: float = Field(default=0, ge=0)
     eol_method: Literal["linear", "calendar_cycle_min"] = "linear"
     calendar_eol_decline: float = Field(default=0.015, ge=0, le=1)
     cycle_life_cycles: float = Field(default=8000, gt=0)

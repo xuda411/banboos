@@ -177,6 +177,7 @@ def _write_parameters(sheet, result: dict) -> None:
         "single_side_efficiency": ("单边系统效率", "%"),
         "dod": ("放电深度 DOD", "%"),
         "annual_cycles": ("年循环次数", "次/年"),
+        "auxiliary_annual_cycles": ("辅助服务等效循环（仅用于寿命衰减）", "次/年"),
         "eol_method": ("EOL 计算方式", ""),
         "calendar_eol_decline": ("日历衰减率", "%"),
         "cycle_life_cycles": ("循环寿命", "次"),

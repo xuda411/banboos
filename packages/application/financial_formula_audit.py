@@ -40,7 +40,7 @@ def write_formula_audit(workbook, result, title, header):
         "revenue_share_threshold_yuan": 0.0, "revenue_share_rate": 0.0,
         "other_operating_cost_yuan": 0.0, "vat_rate": 0.0,
         "stamp_tax_rate": 0.0, "calendar_eol_decline": 0.015,
-        "annual_cycles": 350.0, "cycle_life_cycles": 8000.0,
+        "annual_cycles": 350.0, "auxiliary_annual_cycles": 0.0, "cycle_life_cycles": 8000.0,
         "input_vat_rate_equipment": 0.13, "input_vat_rate_other": 0.09,
         "equipment_investment_share": 1.0, "input_vat_credit_ratio": 1.0,
     }.items()) or inputs.get("eol_method", "linear") != "linear" or phase_enabled
@@ -79,7 +79,7 @@ def write_formula_audit(workbook, result, title, header):
         equity_pre_tax = f"(C{row}-D{row}-F{row}-G{row}-H{row}-P{row}-{vat_surcharge}-{stamp_tax})"
         formulas = {
             "A": str(year),
-            "B": f"IF({p('eol_method')}=\"linear\",{p('first_year_eol')}+({p('final_eol')}-{p('first_year_eol')})*(A{row}-1)/MAX(1,{years}-1),MIN(MAX({p('final_eol')},1-{p('calendar_eol_decline')}*A{row}),MAX({p('final_eol')},1-{p('annual_cycles')}/{p('cycle_life_cycles')}*A{row})))",
+            "B": f"IF({p('eol_method')}=\"linear\",{p('first_year_eol')}+({p('final_eol')}-{p('first_year_eol')})*(A{row}-1)/MAX(1,{years}-1),MIN(MAX({p('final_eol')},1-{p('calendar_eol_decline')}*A{row}),MAX({p('final_eol')},1-({p('annual_cycles')}+{p('auxiliary_annual_cycles')})/{p('cycle_life_cycles')}*A{row})))",
             "C": gross_revenue,
             "D": f"{total}*{p('om_rate')}*(1+{p('om_growth')})^(A{row}-1)+{p('land_rent_yuan')}+{insurance}+{p('fixed_operation_cost_yuan')}+{p('other_operating_cost_yuan')}+{revenue_share}",
             "E": f"{initial}*(1-{p('residual_rate')})/{years}+IF(AND({replace_year}>0,A{row}>={replace_year}),{replace_capex}*(1-{p('residual_rate')})/MAX(1,{years}-{replace_year}+1),0)",

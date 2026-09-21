@@ -23,10 +23,14 @@ from packages.contracts.financial import FinancialTaskParameters
 def validated_template_parameters(result: dict) -> dict:
     """Do not silently fill incomplete historical task snapshots with defaults."""
     inputs = result.get("input_parameters") or {}
-    required = set(FinancialTaskParameters.model_fields) - {"replace_year", "source_run_id"}
+    required = set(FinancialTaskParameters.model_fields) - {
+        "replace_year", "source_run_id", "auxiliary_annual_cycles",
+    }
     if required - inputs.keys():
         raise ValueError("任务参数快照不完整，请重新测算后导出原版模板")
     p = FinancialTaskParameters.model_validate(inputs).model_dump()
+    if p["auxiliary_annual_cycles"]:
+        raise ValueError("原版模板尚未映射辅助服务等效循环，请导出标准 XLSX（包含完整参数与寿命公式）")
     if p["operation_years"] > 25:
         raise ValueError("原版模板仅覆盖 25 个运营年度，超过 25 年请导出标准 XLSX")
     if p["revenue_phases"]:

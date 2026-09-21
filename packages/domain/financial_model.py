@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, field
 from itertools import pairwise
 from math import isfinite
 
-MODEL_VERSION = "banboos-financial-1.3.0"
+MODEL_VERSION = "banboos-financial-1.3.1"
 
 
 class FinancialError(ValueError):
@@ -36,6 +36,7 @@ class FinancialParameters:
     single_side_efficiency: float = 0.92
     dod: float = 0.95
     annual_cycles: float = 350.0
+    auxiliary_annual_cycles: float = 0.0
     eol_method: str = "linear"
     calendar_eol_decline: float = 0.015
     cycle_life_cycles: float = 8000.0
@@ -84,7 +85,7 @@ class FinancialParameters:
             raise FinancialError("功率和容量必须为正")
         if not 0 < self.single_side_efficiency <= 1 or not 0 < self.dod <= 1:
             raise FinancialError("单边效率和DOD必须在(0,1]之间")
-        if self.annual_cycles < 0 or self.cycle_life_cycles <= 0:
+        if self.annual_cycles < 0 or self.auxiliary_annual_cycles < 0 or self.cycle_life_cycles <= 0:
             raise FinancialError("循环次数和循环寿命必须有效")
         if self.eol_method not in {"linear", "calendar_cycle_min"}:
             raise FinancialError("不支持的EOL计算方式")
@@ -219,7 +220,8 @@ def calculate_financials(p: FinancialParameters) -> dict:
         calendar_eol = max(p.final_eol, 1 - p.calendar_eol_decline * age)
         # Cycle life is the total usable cycle count, so the annual loss is
         # cumulative cycles divided by that lifetime, bounded by final EOL.
-        cycle_eol = max(p.final_eol, 1 - p.annual_cycles * age / p.cycle_life_cycles)
+        cycle_eol = max(p.final_eol, 1 - (p.annual_cycles + p.auxiliary_annual_cycles)
+                        * age / p.cycle_life_cycles)
         eol = min(linear_eol, calendar_eol, cycle_eol) if p.eol_method == "calendar_cycle_min" else linear_eol
         energy_revenue = _phase_revenue(p, "annual_revenue_yuan", p.annual_revenue_yuan, year, eol)
         capacity_lease = _phase_revenue(p, "capacity_lease_yuan", p.capacity_lease_yuan, year, eol)
