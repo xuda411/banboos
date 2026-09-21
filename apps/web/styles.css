@@ -173,3 +173,10 @@ button { cursor: pointer; font-weight: 700; }
 .group-summary { align-self: end; padding-bottom: 8px; color: #176b50; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .input-hint { font-size: 11px; }
 @media (max-width: 860px) { .group-summary { flex: 1 1 100%; padding-bottom: 0; } }
+
+.finance-downloads { align-items: center; flex-wrap: wrap; }
+.finance-downloads span { flex: 1 1 320px; min-width: 0; overflow-wrap: anywhere; }
+.finance-downloads a { display: inline-flex; align-items: center; min-height: 34px; padding: 0 11px; border: 1px solid #b8c9bf; border-radius: 7px; background: #f3f8f5; }
+.finance-result-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding-top: 4px; border-top: 1px solid #edf2ef; }
+.finance-result-actions p { flex: 1 1 100%; margin: 0; }
+@media (max-width: 860px) { .finance-downloads a { flex: 1 1 220px; justify-content: center; } .finance-result-actions button { flex: 1 1 220px; } }
