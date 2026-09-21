@@ -13,4 +13,6 @@ class PortfolioCandidatesResult(BaseModel):
     round_trip_efficiency: float = Field(gt=0, le=1)
     start_date: str
     end_date: str
+    snapshot_id: str
+    algorithm_version: str
     candidates: list[PortfolioCandidate] = Field(default_factory=list)

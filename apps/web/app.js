@@ -141,7 +141,7 @@ async function generatePortfolioCandidates() {
     $("portfolioProjectBody").replaceChildren();
     result.candidates.forEach(addPortfolioProject);
     invalidatePortfolio();
-    message.textContent = `已生成 ${result.candidates.length} 个真实节点候选（${result.market}，${result.start_date} 至 ${result.end_date}）；请确认预算和目标后运行组合优化。`;
+    message.textContent = `已生成 ${result.candidates.length} 个真实节点候选（${result.market}，${result.start_date} 至 ${result.end_date}）；快照 ${result.snapshot_id.slice(0, 12)}…；请确认预算和目标后运行组合优化。`;
   } catch (error) { message.textContent = `候选生成失败：${error.message}`; }
   finally { button.disabled = false; }
 }

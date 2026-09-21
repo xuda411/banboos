@@ -72,9 +72,20 @@ class ReadonlyService:
                 "spread_yuan_per_mwh": baseline.spread_yuan_per_mwh,
                 "valid_days": aggregate.valid_days, "source_mode": aggregate.source_mode,
             })
+        snapshot_id = "demo"
+        if self._reader:
+            snapshot_id = DispatchSnapshots().put({
+                "kind": "portfolio-candidates", "algorithm_version": "portfolio-candidates-v1",
+                "parameters": {"market": market, "start_date": start_date.isoformat(), "end_date": end_date.isoformat(),
+                               "power_mw": power_mw, "capacity_mwh": capacity_mwh,
+                               "round_trip_efficiency": round_trip_efficiency,
+                               "unit_investment_yuan_wh": unit_investment_yuan_wh},
+                "candidates": candidates,
+            })
         return PortfolioCandidatesResult(market=market, power_mw=power_mw, capacity_mwh=capacity_mwh,
             duration_hours=duration, round_trip_efficiency=round_trip_efficiency,
-            start_date=start_date.isoformat(), end_date=end_date.isoformat(), candidates=candidates)
+            start_date=start_date.isoformat(), end_date=end_date.isoformat(), snapshot_id=snapshot_id,
+            algorithm_version="portfolio-candidates-v1", candidates=candidates)
 
     def legacy_management(self, kind: str, limit: int = 200) -> dict:
         if not self._legacy_reader:

@@ -14,3 +14,5 @@ def test_portfolio_candidates_are_derived_from_real_node_curves(tmp_path):
     assert candidate.market == "实时"
     assert candidate.valid_days == 1
     assert candidate.annual_revenue_wan >= 0
+    assert result.snapshot_id
+    assert result.algorithm_version == "portfolio-candidates-v1"
