@@ -169,3 +169,7 @@ button { cursor: pointer; font-weight: 700; }
 .weather-chart-card.weather-empty { min-height: 0; }
 .weather-chart-card.weather-empty canvas { display: none; }
 .weather-chart-card.weather-empty #weatherEmpty { padding: 34px 0 18px; }
+
+.group-summary { align-self: end; padding-bottom: 8px; color: #176b50; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.input-hint { font-size: 11px; }
+@media (max-width: 860px) { .group-summary { flex: 1 1 100%; padding-bottom: 0; } }

@@ -904,9 +904,12 @@ const FINANCE_GROUP_FIELDS = {
 function syncFinancialParameterGroup() {
   const selector = $("financialParameterGroup"); if (!selector) return;
   const allowed = FINANCE_GROUP_FIELDS[selector.value] || FINANCE_GROUP_FIELDS.storage;
-  document.querySelectorAll(".advanced-grid > label").forEach((label) => {
+  const fields = [...document.querySelectorAll(".advanced-grid > label")];
+  fields.forEach((label) => {
     const control = label.querySelector("[id]"); label.hidden = !control || !allowed.has(control.id);
   });
+  const summary = $("financialGroupSummary");
+  if (summary) summary.textContent = "当前组显示 " + fields.filter((label) => !label.hidden).length + " 项 · 共 " + fields.length + " 项参数";
 }
 
 async function submitSensitivity() {
@@ -977,7 +980,15 @@ function updateDurationHint() {
   const power = Number($("powerMw").value);
   const capacity = Number($("capacityMwh").value);
   const duration = capacity / power;
-  $("durationHint").textContent = Number.isFinite(duration) ? `时长：${duration.toFixed(2)} 小时` : "请输入有效功率和容量";
+  const hint = $("durationHint");
+  if (!Number.isFinite(duration) || duration <= 0) {
+    hint.textContent = "请输入有效功率和容量";
+    hint.className = "input-hint status-error";
+    return;
+  }
+  const standard = Math.abs(duration - 2) < 0.01 || Math.abs(duration - 4) < 0.01;
+  hint.textContent = "时长：" + duration.toFixed(2) + " 小时 · " + (standard ? "标准 " + duration.toFixed(0) + " 小时制" : "请核对功率/容量比例");
+  hint.className = "input-hint " + (standard ? "status-ok" : "status-muted");
 }
 
 async function pollRun(runId) {
