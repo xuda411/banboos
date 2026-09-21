@@ -81,6 +81,21 @@ def test_readonly_service_exposes_weather_and_estimated_power(tmp_path):
     assert series[0].is_power_simulated is True
 
 
+def test_readonly_service_uses_explicit_province_preset_when_weather_is_empty(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    make_fixture(path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("DELETE FROM node_meteorology_data")
+        connection.commit()
+    service = ReadonlyService(path)
+    series = service.weather_series(1, limit=4)
+    assert len(series) == 4
+    assert series[0].source_mode == "province-preset"
+    assert "湖北" in (series[0].source or "")
+    assert series[0].pv_predict_power_mw is not None
+    assert service.weather(1).source_mode == "province-preset"
+
+
 def test_management_rows_use_fixed_allowlist_and_missing_tables_are_empty(tmp_path):
     path = tmp_path / "legacy.sqlite3"
     make_fixture(path)

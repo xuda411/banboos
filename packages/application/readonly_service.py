@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime
-from math import isfinite
+from datetime import UTC, date, datetime, timedelta
+from math import cos, isfinite, pi, sin
 
 from packages.contracts.analysis import PriceAnalysisResult
 from packages.contracts.readonly import (
@@ -83,8 +83,25 @@ class ReadonlyService:
     def weather(self, node_id: int, start_time: datetime | None = None,
                 end_time: datetime | None = None) -> WeatherSummary:
         if self._legacy_reader:
-            return WeatherSummary.model_validate(self._legacy_reader.weather_summary(node_id, start_time, end_time))
-        return WeatherSummary(node_id=node_id, observations=0, source_mode="unavailable")
+            observed = WeatherSummary.model_validate(
+                self._legacy_reader.weather_summary(node_id, start_time, end_time)
+            )
+            if observed.observations:
+                return observed
+        if not self._reader:
+            return WeatherSummary(node_id=node_id, observations=0, source_mode="unavailable")
+        preset = self._preset_weather(node_id, start_time, end_time, 744)
+        return WeatherSummary(
+            node_id=node_id,
+            start_time=preset[0]["data_time"] if preset else None,
+            end_time=preset[-1]["data_time"] if preset else None,
+            observations=len(preset),
+            source=preset[0]["source"] if preset else None,
+            avg_ghi_w_m2=_mean(preset, "ghi_w_m2"),
+            avg_wind_speed_m_s=_mean(preset, "wind_speed_m_s"),
+            avg_temp_c=_mean(preset, "temp_c"),
+            source_mode="province-preset",
+        )
 
     def weather_series(self, node_id: int, start_time: datetime | None = None,
                        end_time: datetime | None = None, limit: int = 744) -> list[WeatherObservation]:
@@ -92,9 +109,14 @@ class ReadonlyService:
             raise ValueError("end_time must be on or after start_time")
         if not 1 <= limit <= 744:
             raise ValueError("limit must be between 1 and 744")
-        if not self._legacy_reader:
-            return []
-        observations = self._legacy_reader.weather_observations(node_id, start_time, end_time, limit)
+        observations = (
+            self._legacy_reader.weather_observations(node_id, start_time, end_time, limit)
+            if self._legacy_reader else []
+        )
+        source_mode = "legacy-readonly"
+        if not observations and self._reader:
+            observations = self._preset_weather(node_id, start_time, end_time, limit)
+            source_mode = "province-preset"
         result = []
         for row in observations:
             ghi = _finite_or_none(row["ghi_w_m2"])
@@ -108,8 +130,50 @@ class ReadonlyService:
             result.append(WeatherObservation(node_id=node_id, data_time=row["data_time"],
                 source=row["source"], ghi_w_m2=ghi, wind_speed_m_s=wind, temp_c=temp,
                 pv_predict_power_mw=round(pv, 4) if pv is not None else None,
-                wind_predict_power_mw=round(wind_power, 4) if wind_power is not None else None, source_mode="legacy-readonly"))
+                wind_predict_power_mw=round(wind_power, 4) if wind_power is not None else None,
+                source_mode=source_mode))
         return result
+
+    def _preset_weather(self, node_id: int, start_time: datetime | None,
+                        end_time: datetime | None, limit: int) -> list[dict]:
+        """Create transparent province-level display data when no observations exist."""
+        start = start_time or datetime(2026, 1, 1, tzinfo=UTC)
+        end = end_time or start + timedelta(days=1)
+        if end < start:
+            raise ValueError("end_time must be on or after start_time")
+        province = self._province_for_node(node_id)
+        profiles = {
+            "海南": (760.0, 5.8, 25.5), "广东": (700.0, 4.8, 23.0),
+            "广西": (680.0, 4.5, 22.5), "湖北": (620.0, 3.8, 16.0),
+            "山西": (640.0, 4.2, 13.0), "新疆": (820.0, 3.6, 12.0),
+            "甘肃": (800.0, 4.0, 11.0), "内蒙古": (760.0, 5.0, 10.0),
+        }
+        ghi_peak, wind_base, temp_base = profiles.get(province, (650.0, 4.2, 18.0))
+        source = f"省级预设·{province}（展示数据）"
+        rows: list[dict] = []
+        current = start.replace(minute=0, second=0, microsecond=0)
+        while current <= end and len(rows) < limit:
+            hour = current.hour + current.minute / 60
+            daylight = max(0.0, sin((hour - 6.0) / 12.0 * pi))
+            seasonal = 1.0 + 0.1 * cos((current.timetuple().tm_yday - 172) / 365.0 * 2 * pi)
+            ghi = round(ghi_peak * daylight * seasonal, 2)
+            wind = round(max(0.1, wind_base + 1.2 * sin((hour + 2.0) / 24.0 * 2 * pi)), 2)
+            temp = round(temp_base + 5.0 * sin((hour - 8.0) / 24.0 * 2 * pi), 2)
+            rows.append({"data_time": current, "source": source,
+                         "ghi_w_m2": ghi, "wind_speed_m_s": wind, "temp_c": temp})
+            current += timedelta(hours=1)
+        return rows
+
+    def _province_for_node(self, node_id: int) -> str:
+        if self._reader:
+            try:
+                rows = self._reader.list_nodes()
+                for row in rows:
+                    if int(row["id"]) == node_id:
+                        return str(row.get("province") or "全国")
+            except (KeyError, TypeError, ValueError, RuntimeError):
+                pass
+        return "全国"
 
     def quality(self, node_id: int, market: str, start_date: date,
                 end_date: date) -> DataQualitySummary:
@@ -186,6 +250,11 @@ def _finite_or_none(value):
     except (TypeError, ValueError):
         return None
     return number if isfinite(number) else None
+
+
+def _mean(rows: list[dict], key: str) -> float | None:
+    values = [float(row[key]) for row in rows if row.get(key) is not None]
+    return sum(values) / len(values) if values else None
 
 
 def _wind_power(speed: float, capacity: float) -> float:
