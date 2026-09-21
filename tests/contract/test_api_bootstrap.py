@@ -9,6 +9,7 @@ def test_api_bootstrap_contract():
     assert any(route.path == "/api/v1/price/aggregates" for route in app.routes)
     assert any(route.path == "/api/v1/runs/{run_id}/reconciliation" for route in app.routes)
     assert any(route.path == "/api/v1/runs/{run_id}/financial-reconciliation" for route in app.routes)
+    assert any(route.path == "/api/v1/portfolio/candidates" for route in app.routes)
 
 
 def test_readiness_and_optional_api_token(monkeypatch):
@@ -71,6 +72,11 @@ def test_readonly_demo_endpoints():
     assert response.json()["source_mode"] == "demo"
     assert response.json()["monthly"] == []
     assert len(response.json()["missing_dates"]) == 31
+    response = client.get("/api/v1/portfolio/candidates", params={
+        "market": "实时", "start_date": "2026-01-01", "end_date": "2026-01-31",
+    })
+    assert response.status_code == 200
+    assert response.json()["candidates"] == []
 
     response = client.get("/api/v1/quality/summary", params={
         "node_id": 1, "market": "实时", "start_date": "2026-01-01", "end_date": "2026-01-31",

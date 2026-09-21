@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from math import cos, isfinite, pi, sin
 
 from packages.contracts.analysis import PriceAnalysisResult
+from packages.contracts.portfolio_candidates_result import PortfolioCandidatesResult
 from packages.contracts.readonly import (
     DataQualitySummary,
     NodeSummary,
@@ -43,6 +44,37 @@ class ReadonlyService:
 
     def node_count(self) -> int:
         return self._reader.node_count() if self._reader else len(self.nodes())
+
+    def portfolio_candidates(self, market: str, start_date: date, end_date: date,
+                             power_mw: float = 100, capacity_mwh: float = 200,
+                             round_trip_efficiency: float = 0.92,
+                             unit_investment_yuan_wh: float = 1.2) -> PortfolioCandidatesResult:
+        if market not in {"日前", "实时"}:
+            raise ValueError("market must be 日前 or 实时")
+        if end_date < start_date or power_mw <= 0 or capacity_mwh <= 0:
+            raise ValueError("节点、规模或日期范围无效")
+        duration = capacity_mwh / power_mw
+        if duration < 0.25 or duration > 24 or not 0 < round_trip_efficiency <= 1:
+            raise ValueError("容量/功率时长或效率无效")
+        candidates = []
+        for node in self.nodes()[:50]:
+            aggregate = self.price_aggregates(node.id, market, start_date, end_date, duration)
+            if not aggregate.annual:
+                continue
+            baseline = aggregate.annual[0]
+            daily = max(0.0, (baseline.discharge_price_yuan_per_mwh * round_trip_efficiency
+                              - baseline.charge_price_yuan_per_mwh) * capacity_mwh)
+            candidates.append({
+                "name": f"{node.name}·{market}", "node_id": node.id, "province": node.province,
+                "market": market, "capacity_mwh": capacity_mwh,
+                "unit_investment_yuan_wh": unit_investment_yuan_wh,
+                "annual_revenue_wan": daily * 365 / 10000,
+                "spread_yuan_per_mwh": baseline.spread_yuan_per_mwh,
+                "valid_days": aggregate.valid_days, "source_mode": aggregate.source_mode,
+            })
+        return PortfolioCandidatesResult(market=market, power_mw=power_mw, capacity_mwh=capacity_mwh,
+            duration_hours=duration, round_trip_efficiency=round_trip_efficiency,
+            start_date=start_date.isoformat(), end_date=end_date.isoformat(), candidates=candidates)
 
     def legacy_management(self, kind: str, limit: int = 200) -> dict:
         if not self._legacy_reader:

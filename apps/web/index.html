@@ -79,7 +79,7 @@
       </section>
       <section id="portfolioView" class="view" hidden>
         <section class="hero"><div><p class="eyebrow">项目组合预筛选</p><h1>组合筛选</h1><p>查看候选节点的数据覆盖，或编辑手工项目假设进行投资组合优化。</p></div><div class="hero-badge">只读评估</div></section>
-        <section class="filters card portfolio-filters"><label>市场<select id="portfolioMarket"><option>实时</option><option>日前</option></select></label><label>开始日期<input id="portfolioStart" type="date" value="2026-01-01" /></label><label>结束日期<input id="portfolioEnd" type="date" value="2026-01-31" /></label><button id="loadPortfolio" class="primary">比较候选节点</button></section>
+        <section class="filters card portfolio-filters"><label>市场<select id="portfolioMarket"><option>实时</option><option>日前</option></select></label><label>开始日期<input id="portfolioStart" type="date" value="2026-01-01" /></label><label>结束日期<input id="portfolioEnd" type="date" value="2026-01-31" /></label><label>功率（MW）<input id="portfolioPower" type="number" min="0.01" step="0.01" value="100" /></label><label>容量（MWh）<input id="portfolioCapacity" type="number" min="0.01" step="0.01" value="200" /></label><button id="loadPortfolio" class="primary">比较候选节点</button></section>
         <section class="card portfolio-card" id="portfolioOptimizer">
           <div class="section-heading"><h2>投资组合优化</h2><span id="portfolioOptState" class="status status-muted">未提交</span></div>
           <p class="portfolio-note">逐项填写手工假设。年净现金流应已扣除运营支出，不能直接使用营业收入；当前模型按第 0 年投资、运营期每年现金流恒定计算，未自动带入节点收益。</p>
@@ -92,7 +92,7 @@
                 <label>折现率（%）<input id="portfolioRate" type="number" min="0" max="100" step="any" value="8" required /></label>
                 <label>运营年限（年）<input id="portfolioYears" type="number" min="1" max="100" step="1" value="15" required /></label>
               </div>
-              <div class="section-heading portfolio-project-heading"><h3>候选项目 · 手工情景</h3><button id="addPortfolioProject" type="button">添加手工项目</button></div>
+              <div class="section-heading portfolio-project-heading"><h3>候选项目 · 手工情景</h3><div><button id="generatePortfolioCandidates" type="button">从真实节点生成候选</button><button id="addPortfolioProject" type="button">添加手工项目</button></div></div>
               <div class="portfolio-table-wrap"><table class="portfolio-editor"><thead><tr><th>项目名称</th><th>容量（MWh）</th><th>单位投资（元/Wh）</th><th>年净现金流（万元）</th><th>操作</th></tr></thead><tbody id="portfolioProjectBody"></tbody></table></div>
               <div class="portfolio-actions"><button id="submitPortfolio" type="submit" class="primary">运行组合优化</button></div>
             </fieldset>

@@ -126,6 +126,26 @@ function addPortfolioProject(project = {}) {
   $("addPortfolioProject").disabled = body.rows.length >= 50;
 }
 
+async function generatePortfolioCandidates() {
+  const button = $("generatePortfolioCandidates"); const message = $("portfolioOptMessage");
+  const power = Number($("portfolioPower").value); const capacity = Number($("portfolioCapacity").value);
+  if (!Number.isFinite(power) || !Number.isFinite(capacity) || capacity / power < 0.25 || capacity / power > 24) {
+    message.textContent = "候选项目规模无效：容量/功率时长须在 0.25 至 24 小时之间。"; return;
+  }
+  button.disabled = true; message.textContent = "正在读取真实节点并生成候选项目…";
+  try {
+    const result = await get("/api/v1/portfolio/candidates", {
+      market: $("portfolioMarket").value, start_date: $("portfolioStart").value, end_date: $("portfolioEnd").value,
+      power_mw: power, capacity_mwh: capacity, round_trip_efficiency: 0.92,
+    });
+    $("portfolioProjectBody").replaceChildren();
+    result.candidates.forEach(addPortfolioProject);
+    invalidatePortfolio();
+    message.textContent = `已生成 ${result.candidates.length} 个真实节点候选（${result.market}，${result.start_date} 至 ${result.end_date}）；请确认预算和目标后运行组合优化。`;
+  } catch (error) { message.textContent = `候选生成失败：${error.message}`; }
+  finally { button.disabled = false; }
+}
+
 function renderPortfolioResult(result) {
   const body = $("portfolioOptBody"); body.replaceChildren();
   result.selected_projects.forEach((project) => {
@@ -863,6 +883,7 @@ $("portfolioForm").addEventListener("submit", submitPortfolio);
 $("portfolioForm").addEventListener("input", invalidatePortfolio);
 $("portfolioObjective").addEventListener("change", syncPortfolioObjective);
 $("addPortfolioProject").addEventListener("click", () => { addPortfolioProject(); invalidatePortfolio(); });
+$("generatePortfolioCandidates").addEventListener("click", generatePortfolioCandidates);
 $("resumePortfolio").addEventListener("click", resumePortfolio);
 try { portfolioRunId = localStorage.getItem("banboosPortfolioRun"); $("resumePortfolio").hidden = !portfolioRunId; } catch { /* Optional task recovery. */ }
 addPortfolioProject();

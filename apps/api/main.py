@@ -37,6 +37,7 @@ from packages.contracts.lp_analysis import LPAnalysisParameters
 from packages.contracts.lp_reconciliation import LPReconciliationResult
 from packages.contracts.operations import OperationsSummary
 from packages.contracts.portfolio import PortfolioTaskParameters
+from packages.contracts.portfolio_candidates_result import PortfolioCandidatesResult
 from packages.contracts.readonly import (
     DataQualitySummary,
     PriceAggregateResult,
@@ -192,6 +193,18 @@ def price_aggregates(node_id: int = Query(gt=0), market: str = Query(...),
                      duration_hours: float = Query(default=2.0, gt=0, le=24)) -> PriceAggregateResult:
     try:
         return readonly_service.price_aggregates(node_id, market, start_date, end_date, duration_hours)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/v1/portfolio/candidates", response_model=PortfolioCandidatesResult, tags=["readonly"])
+def portfolio_candidates(market: str = Query(...), start_date: date = Query(...), end_date: date = Query(...),
+                          power_mw: float = Query(default=100, gt=0), capacity_mwh: float = Query(default=200, gt=0),
+                          round_trip_efficiency: float = Query(default=0.92, gt=0, le=1),
+                          unit_investment_yuan_wh: float = Query(default=1.2, gt=0)) -> PortfolioCandidatesResult:
+    try:
+        return readonly_service.portfolio_candidates(market, start_date, end_date, power_mw, capacity_mwh,
+                                                      round_trip_efficiency, unit_investment_yuan_wh)
     except (ValueError, RuntimeError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
