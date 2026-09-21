@@ -13,6 +13,18 @@ let portfolioCandidateSnapshotId = null;
 let portfolioCandidateSource = new Map();
 let importPreviewId = null;
 
+function displaySource(value) {
+  if (!value) return "未标注来源";
+  const text = String(value);
+  if (/^[A-Za-z]:[\\/]/.test(text) || text.includes("\\")) {
+    const fileName = text.split(/[\\/]/).filter(Boolean).at(-1);
+    if (!fileName) return "本地数据文件";
+    const shortName = fileName.length > 24 ? fileName.slice(0, 20) + "…" + fileName.slice(-4) : fileName;
+    return "本地文件 · " + shortName;
+  }
+  return text;
+}
+
 async function get(path, params = {}) {
   const url = new URL(apiBase + path);
   Object.entries(params).filter(([, value]) => value !== "" && value != null).forEach(([key, value]) => url.searchParams.set(key, value));
@@ -533,7 +545,7 @@ async function loadCurves() {
     loadedCurves = curves; loadedAggregates = aggregates; curvePointer = null; $("curveHover").hidden = true; $("exportCurves").disabled = curves.length === 0; $("exportCurveAggregate").disabled = !(aggregates.monthly?.length || aggregates.annual?.length); $("exportCurveAggregateXlsx").disabled = !(aggregates.monthly?.length || aggregates.annual?.length); $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
     const dayList = $("curveDays"); dayList.replaceChildren();
     curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.dataset.index = String(index); day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); curvePointer = null; $("curveHover").hidden = true; drawCurves(curves, index); updateCurveStats(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
-    $("curveEmpty").hidden = curves.length > 0; $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; $("curveState").textContent = curves.length ? `${curves.length} 天` : "暂无数据"; $("curveState").className = `status ${curves.length ? "status-ok" : "status-muted"}`;
+    $("curveEmpty").hidden = curves.length > 0; document.querySelector(".curve-card").classList.toggle("curve-empty", !curves.length); $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; $("curveState").textContent = curves.length ? `${curves.length} 天` : "暂无数据"; $("curveState").className = `status ${curves.length ? "status-ok" : "status-muted"}`;
     if (!curves.length) dayList.innerHTML = '<div class="empty-state">数据库暂无完整 96 点曲线</div>'; drawCurves(curves); renderCurveAggregates(aggregates);
     ReportUI.complete("curve", ticket, curves.length, `来源模式：${[...new Set(curves.map(c => c.source_mode))].join("、")} · ${curves[0]?.run_date || ""} 至 ${curves.at(-1)?.run_date || ""} · ${curves.length} 个完整日（上限 ${query.limit} 日） · 选中日按价格渐变，其他日期用于对比`);
   } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; loadedAggregates = null; $("exportCurves").disabled = true; $("exportCurveAggregate").disabled = true; $("exportCurveAggregateXlsx").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveAggregates").hidden = true; $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
@@ -561,7 +573,7 @@ async function loadWeather() {
     if (!ReportUI.current("weather", ticket)) return;
     const series = aggregateWeather(rawSeries, $("weatherGranularity").value);
     const mean = (key) => { const values = series.map((row) => row[key]).filter((value) => value != null); return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1) : "—"; };
-    $("weatherObservations").textContent = series.length; $("weatherGhi").textContent = mean("ghi_w_m2"); $("weatherWind").textContent = mean("wind_speed_m_s"); $("weatherTemp").textContent = mean("temp_c"); $("weatherSourceDetail").textContent = series.length ? `${series[0].source || "未标注来源"} · ${series[0].is_power_simulated ? "功率估算" : "功率实测"}` : "当前范围暂无气象观测"; $("weatherChartTitle").textContent = series.length ? `${series[0].data_time.slice(0, 10)} 至 ${series[series.length - 1].data_time.slice(0, 10)}` : "当前范围暂无观测"; $("weatherEmpty").hidden = series.length > 0; if (!series.length) $("weatherEmpty").textContent = "数据库暂无气象观测"; $("exportWeatherPng").disabled = !series.length; $("exportWeatherXlsx").disabled = !series.length; drawWeather(series);
+    $("weatherObservations").textContent = series.length; $("weatherGhi").textContent = mean("ghi_w_m2"); $("weatherWind").textContent = mean("wind_speed_m_s"); $("weatherTemp").textContent = mean("temp_c"); $("weatherSourceDetail").textContent = series.length ? `${series[0].source || "未标注来源"} · ${series[0].is_power_simulated ? "功率估算" : "功率实测"}` : "当前范围暂无气象观测"; $("weatherChartTitle").textContent = series.length ? `${series[0].data_time.slice(0, 10)} 至 ${series[series.length - 1].data_time.slice(0, 10)}` : "当前范围暂无观测"; $("weatherEmpty").hidden = series.length > 0; document.querySelector(".weather-chart-card").classList.toggle("weather-empty", !series.length); if (!series.length) $("weatherEmpty").textContent = "数据库暂无气象观测"; $("exportWeatherPng").disabled = !series.length; $("exportWeatherXlsx").disabled = !series.length; drawWeather(series);
     ReportUI.complete("weather", ticket, series.length, `来源：${[...new Set(rawSeries.map(r => r.source || r.source_mode))].join("、")} · ${rawSeries.length} 条原始观测（上限 744 条） · 图表粒度：${$("weatherGranularity").value} · 各曲线独立缩放，仅用于趋势比较；辐照度 W/m²，风速 m/s，功率 MW（模型预计）`);
   } catch (error) { if (!ReportUI.current("weather", ticket)) return; ReportUI.invalidate("weather", "加载失败，请重试。"); $("weatherEmpty").hidden = false; $("weatherEmpty").textContent = `读取失败：${error.message}`; }
 }
@@ -744,9 +756,9 @@ async function refresh() {
     $("weatherRows").textContent = weather.observations;
     $("coverage").textContent = `${(quality.coverage_ratio * 100).toFixed(1)}%`;
     $("qualityDetail").textContent = quality.total_records ? `${quality.complete_records}/${quality.total_records} 条完整记录` : "暂无记录";
-    $("priceSource").textContent = price.sources.length ? price.sources.join("、") : "演示/暂无来源文件";
+    $("priceSource").textContent = price.sources.length ? price.sources.map(displaySource).join("、") : "演示/暂无来源文件";
     $("priceRange").textContent = price.first_date ? `${price.first_date} 至 ${price.last_date}` : "所选范围暂无有效日";
-    $("weatherSource").textContent = weather.source || "暂无气象观测";
+    $("weatherSource").textContent = weather.source ? displaySource(weather.source) : "暂无气象观测";
     $("overviewValidDays").textContent = price.valid_days;
     $("overviewDataPoints").textContent = price.data_points.toLocaleString();
     $("overviewCoverage").textContent = `${(quality.coverage_ratio * 100).toFixed(1)}%`;
