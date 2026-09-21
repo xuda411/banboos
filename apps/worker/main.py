@@ -251,6 +251,9 @@ def main() -> None:
     logging.basicConfig(level=os.getenv("BANBOOS2_LOG_LEVEL", "INFO"))
     registry = build_registry()
     readonly_service = ReadonlyService()
+    recovered = registry.recover_running()
+    if recovered:
+        LOGGER.warning("requeued %s task(s) after worker restart", recovered)
     LOGGER.info("Banboos 2.0 worker started")
     while True:
         run_once(registry, readonly_service)

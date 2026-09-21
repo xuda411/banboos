@@ -162,6 +162,22 @@ class RunRegistry:
             self._store.save(updated)
             return updated
 
+    def recover_running(self) -> int:
+        """Requeue tasks left in ``running`` state after a worker restart."""
+        recovered = 0
+        with self._lock:
+            running = self._store.list(status="running", limit=500)
+            for item in running:
+                updated = item.model_copy(update={
+                    "status": "queued", "progress": 0,
+                    "message": "检测到执行器重启，任务已重新排队",
+                    "error_code": None,
+                })
+                self._store.save(updated)
+                self._queue.enqueue(TaskEnvelope(run_id=item.run_id, kind=item.kind))
+                recovered += 1
+        return recovered
+
     def complete(self, run_id: str, message: str = "任务完成",
                  result: dict | None = None) -> RunStatus | None:
         return self._transition(run_id, "succeeded", 100, message, result=result)
