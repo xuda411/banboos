@@ -6,6 +6,11 @@ from datetime import UTC, date, datetime, timedelta
 from math import cos, isfinite, pi, sin
 
 from packages.contracts.analysis import PriceAnalysisResult
+from packages.contracts.operations_report import (
+    OperationsReport,
+    OperationsReportPeriod,
+    OperationsReportProvince,
+)
 from packages.contracts.portfolio_candidates_result import PortfolioCandidatesResult
 from packages.contracts.readonly import (
     DataQualitySummary,
@@ -44,6 +49,48 @@ class ReadonlyService:
 
     def node_count(self) -> int:
         return self._reader.node_count() if self._reader else len(self.nodes())
+
+    def operations_report(self, market: str, start_date: date, end_date: date,
+                         duration_hours: float = 2.0) -> OperationsReport:
+        if market not in {"日前", "实时"}:
+            raise ValueError("market must be 日前 or 实时")
+        if end_date < start_date:
+            raise ValueError("end_date must be on or after start_date")
+        if duration_hours < 0.25 or duration_hours > 24:
+            raise ValueError("duration_hours must be between 0.25 and 24")
+        province_map: dict[str, dict] = {}
+        period_map: dict[str, dict] = {}
+        valid_nodes = total_days = total_points = 0
+        nodes = self.nodes()
+        for node in nodes:
+            aggregate = self.price_aggregates(node.id, market, start_date, end_date, duration_hours)
+            province = node.province or "未配置省份"
+            entry = province_map.setdefault(province, {"node_count": 0, "valid_nodes": 0,
+                                                       "valid_days": 0, "data_points": 0})
+            entry["node_count"] += 1
+            entry["valid_days"] += aggregate.valid_days
+            entry["data_points"] += aggregate.valid_days * 96
+            if aggregate.valid_days:
+                entry["valid_nodes"] += 1
+                valid_nodes += 1
+            total_days += aggregate.valid_days
+            total_points += aggregate.valid_days * 96
+            for item in aggregate.monthly:
+                period = period_map.setdefault(item.period, {"node_count": 0, "valid_days": 0,
+                                                              "spread_total": 0.0})
+                period["node_count"] += 1
+                period["valid_days"] += item.valid_days
+                period["spread_total"] += item.spread_yuan_per_mwh * item.valid_days
+        monthly = [OperationsReportPeriod(period=period, node_count=data["node_count"],
+                    valid_days=data["valid_days"], average_spread_yuan_per_mwh=(
+                        data["spread_total"] / data["valid_days"] if data["valid_days"] else 0.0))
+                   for period, data in sorted(period_map.items())]
+        provinces = [OperationsReportProvince(province=province, **data)
+                     for province, data in sorted(province_map.items())]
+        return OperationsReport(market=market, start_date=start_date.isoformat(), end_date=end_date.isoformat(),
+                                duration_hours=duration_hours, node_count=len(nodes), valid_nodes=valid_nodes,
+                                total_valid_days=total_days, total_data_points=total_points,
+                                provinces=provinces, monthly=monthly, source_mode=self.data_mode)
 
     def portfolio_candidates(self, market: str, start_date: date, end_date: date,
                              power_mw: float = 100, capacity_mwh: float = 200,

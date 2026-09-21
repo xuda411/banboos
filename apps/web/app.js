@@ -769,6 +769,23 @@ async function submitFinancial() {
   }
 }
 
+async function loadOperationsReport() {
+  const state = $("operationsReportState"); const body = $("operationsReportBody");
+  state.textContent = "正在汇总节点数据…"; body.replaceChildren();
+  try {
+    const report = await get("/api/v1/operations/report", { market: $("operationsReportMarket").value,
+      start_date: $("operationsReportStart").value, end_date: $("operationsReportEnd").value });
+    report.provinces.forEach((item) => {
+      const row = document.createElement("tr");
+      [item.province, item.node_count, item.valid_nodes, item.valid_days, item.data_points.toLocaleString()].forEach((value) => {
+        const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell);
+      }); body.appendChild(row);
+    });
+    state.textContent = `${report.market} · ${report.start_date} 至 ${report.end_date} · ${report.valid_nodes}/${report.node_count} 个节点有效 · ${report.total_valid_days} 个有效日 · 来源 ${report.source_mode}`;
+    state.className = "task-progress status-ok";
+  } catch (error) { state.textContent = `运营报告失败：${error.message}`; state.className = "task-progress status-error"; body.innerHTML = '<tr><td colspan="5">请检查日期范围和 API</td></tr>'; }
+}
+
 function revealFinancialField(id) {
   const label = document.getElementById(id)?.closest("label");
   const group = label?.querySelector("[id]") ? Object.entries(FINANCE_GROUP_FIELDS).find(([, fields]) => fields.has(id))?.[0] : null;
@@ -980,6 +997,7 @@ $("resumePortfolio").addEventListener("click", resumePortfolio);
 try { portfolioRunId = localStorage.getItem("banboosPortfolioRun"); $("resumePortfolio").hidden = !portfolioRunId; } catch { /* Optional task recovery. */ }
 addPortfolioProject();
 $("refreshSystem").addEventListener("click", refreshSystem);
+if ($("loadOperationsReport")) $("loadOperationsReport").addEventListener("click", loadOperationsReport);
 $("refreshLegacy").addEventListener("click", refreshLegacyManagement);
 $("legacyTableKind").addEventListener("change", refreshLegacyManagement);
 if ($("importPreviewButton")) $("importPreviewButton").addEventListener("click", previewImport);

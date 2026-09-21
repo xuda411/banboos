@@ -45,6 +45,7 @@ from packages.contracts.investment_scenario import InvestmentScenarioParameters
 from packages.contracts.lp_analysis import LPAnalysisParameters
 from packages.contracts.lp_reconciliation import LPReconciliationResult
 from packages.contracts.operations import OperationsSummary
+from packages.contracts.operations_report import OperationsReport
 from packages.contracts.portfolio import PortfolioTaskParameters
 from packages.contracts.portfolio_candidates_result import PortfolioCandidatesResult
 from packages.contracts.portfolio_snapshot import PortfolioSnapshotOptimizationRequest
@@ -193,6 +194,15 @@ def operations_summary(response: Response) -> OperationsSummary:
                     "message": "运营摘要暂不可用，请稍后重试"},
             headers={"Retry-After": "5", "Cache-Control": "no-store"},
         ) from error
+
+
+@app.get("/api/v1/operations/report", response_model=OperationsReport, tags=["operations"])
+def operations_report(market: str = Query(default="实时"), start_date: date = Query(...),
+                      end_date: date = Query(...), duration_hours: float = Query(default=2.0, gt=0, le=24)) -> OperationsReport:
+    try:
+        return readonly_service.operations_report(market, start_date, end_date, duration_hours)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/v1/price/summary", response_model=PriceSummary, tags=["readonly"])
