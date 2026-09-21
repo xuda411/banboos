@@ -137,21 +137,29 @@ async function generatePortfolioCandidates() {
     message.textContent = "候选项目规模无效：容量/功率时长须在 0.25 至 24 小时之间。"; return;
   }
   button.disabled = true; message.textContent = "正在读取真实节点并生成候选项目…";
+  const query = { market: $("portfolioMarket").value, start_date: $("portfolioStart").value,
+    end_date: $("portfolioEnd").value, power_mw: power, capacity_mwh: capacity, round_trip_efficiency: 0.92 };
+  const ticket = ReportUI.begin("portfolioCandidates", query, "原始候选快照");
+  $("exportPortfolioCandidates").disabled = true;
+  $("optimizePortfolioSnapshot").disabled = true;
   try {
-    const result = await get("/api/v1/portfolio/candidates", {
-      market: $("portfolioMarket").value, start_date: $("portfolioStart").value, end_date: $("portfolioEnd").value,
-      power_mw: power, capacity_mwh: capacity, round_trip_efficiency: 0.92,
-    });
+    const result = await get("/api/v1/portfolio/candidates", query);
+    if (!ReportUI.current("portfolioCandidates", ticket)) return;
     $("portfolioProjectBody").replaceChildren();
     portfolioCandidateSnapshotId = result.snapshot_id === "demo" ? null : result.snapshot_id;
     portfolioCandidateSource = new Map(result.candidates.map((candidate) => [String(candidate.node_id), structuredClone(candidate)]));
     result.candidates.forEach(addPortfolioProject);
     $("exportPortfolioCandidates").disabled = !result.candidates.length;
-    $("exportPortfolioCandidatesXlsx").disabled = !result.candidates.length;
+    ReportUI.complete("portfolioCandidates", ticket, portfolioCandidateSnapshotId ? result.candidates.length : 0,
+      result.algorithm_version, { snapshot_id: portfolioCandidateSnapshotId });
     $("optimizePortfolioSnapshot").disabled = !portfolioCandidateSnapshotId || !result.candidates.length;
     invalidatePortfolio();
     message.textContent = `已生成 ${result.candidates.length} 个真实节点候选（${result.market}，${result.start_date} 至 ${result.end_date}）；快照 ${result.snapshot_id.slice(0, 12)}…；请确认预算和目标后运行组合优化。`;
-  } catch (error) { message.textContent = `候选生成失败：${error.message}`; }
+  } catch (error) {
+    if (!ReportUI.current("portfolioCandidates", ticket)) return;
+    ReportUI.invalidate("portfolioCandidates", `候选生成失败：${error.message}`);
+    message.textContent = `候选生成失败：${error.message}`;
+  }
   finally { button.disabled = false; }
 }
 
@@ -513,7 +521,7 @@ function exportCurves() {
 async function loadCurves() {
   const nodeId = $("curveNode").value;
   if (!nodeId) { $("curveState").textContent = "请选择节点"; return; }
-  const query = { node_id: nodeId, market: $("curveMarket").value, start_date: $("curveStart").value, end_date: $("curveEnd").value, limit: $("curveLimit").value };
+  const query = { node_id: nodeId, market: $("curveMarket").value, start_date: $("curveStart").value, end_date: $("curveEnd").value, limit: $("curveLimit").value, duration_hours: $("curveAggregateDuration").value };
   const ticket = ReportUI.begin("curve", query, $("curveNode").selectedOptions[0].textContent);
   $("curveState").textContent = "加载中"; $("curveState").className = "status status-muted";
   try {
@@ -787,10 +795,13 @@ async function submitFinancial() {
 
 async function loadOperationsReport() {
   const state = $("operationsReportState"); const body = $("operationsReportBody");
+  const query = { market: $("operationsReportMarket").value,
+    start_date: $("operationsReportStart").value, end_date: $("operationsReportEnd").value };
+  const ticket = ReportUI.begin("operationsReport", query, "运营汇总");
   state.textContent = "正在汇总节点数据…"; body.replaceChildren();
   try {
-    const report = await get("/api/v1/operations/report", { market: $("operationsReportMarket").value,
-      start_date: $("operationsReportStart").value, end_date: $("operationsReportEnd").value });
+    const report = await get("/api/v1/operations/report", query);
+    if (!ReportUI.current("operationsReport", ticket)) return;
     report.provinces.forEach((item) => {
       const row = document.createElement("tr");
       [item.province, item.node_count, item.valid_nodes, item.valid_days, item.data_points.toLocaleString()].forEach((value) => {
@@ -799,8 +810,13 @@ async function loadOperationsReport() {
     });
     state.textContent = `${report.market} · ${report.start_date} 至 ${report.end_date} · ${report.valid_nodes}/${report.node_count} 个节点有效 · ${report.total_valid_days} 个有效日 · 来源 ${report.source_mode}`;
     state.className = "task-progress status-ok";
-    $("exportOperationsReport").disabled = false;
-  } catch (error) { $("exportOperationsReport").disabled = true; state.textContent = `运营报告失败：${error.message}`; state.className = "task-progress status-error"; body.innerHTML = '<tr><td colspan="5">请检查日期范围和 API</td></tr>'; }
+    ReportUI.complete("operationsReport", ticket, report.node_count, report.source_mode);
+  } catch (error) {
+    if (!ReportUI.current("operationsReport", ticket)) return;
+    ReportUI.invalidate("operationsReport", `运营报告失败：${error.message}`);
+    state.textContent = `运营报告失败：${error.message}`; state.className = "task-progress status-error";
+    body.innerHTML = '<tr><td colspan="5">请检查日期范围和 API</td></tr>';
+  }
 }
 
 function revealFinancialField(id) {
@@ -987,9 +1003,8 @@ $("curveChart").addEventListener("mouseleave", hideCurveHover);
 $("loadCurves").addEventListener("click", loadCurves);
 $("exportCurveAggregate").addEventListener("click", exportCurveAggregate);
 $("exportCurveAggregateXlsx").addEventListener("click", (event) => {
-  const params = { node_id: $("curveNode").value, market: $("curveMarket").value,
-    start_date: $("curveStart").value, end_date: $("curveEnd").value,
-    duration_hours: $("curveAggregateDuration").value };
+  const params = ReportUI.loadedQuery("curve");
+  if (!params) return;
   ReportUI.download(`${apiBase}/api/v1/price/aggregates/export?${new URLSearchParams(params)}`,
     `price-aggregates-${params.node_id}-${params.start_date}-${params.end_date}.xlsx`, event.currentTarget, "curve");
 });
@@ -1017,11 +1032,10 @@ $("addPortfolioProject").addEventListener("click", () => { addPortfolioProject()
 $("generatePortfolioCandidates").addEventListener("click", generatePortfolioCandidates);
 $("exportPortfolioCandidates").addEventListener("click", exportPortfolioCandidates);
 $("exportPortfolioCandidatesXlsx").addEventListener("click", (event) => {
-  const params = { market: $("portfolioMarket").value, start_date: $("portfolioStart").value,
-    end_date: $("portfolioEnd").value, power_mw: $("portfolioPower").value,
-    capacity_mwh: $("portfolioCapacity").value, round_trip_efficiency: 0.92 };
-  ReportUI.download(`${apiBase}/api/v1/portfolio/candidates/export?${new URLSearchParams(params)}`,
-    `portfolio-candidates-${params.start_date}-${params.end_date}.xlsx`, event.currentTarget, "portfolio");
+  const params = ReportUI.loadedQuery("portfolioCandidates");
+  if (!params?.snapshot_id) return;
+  ReportUI.download(`${apiBase}/api/v1/portfolio/candidates/${params.snapshot_id}/export`,
+    `portfolio-snapshot-${params.snapshot_id.slice(0, 12)}.xlsx`, event.currentTarget, "portfolioCandidates");
 });
 $("optimizePortfolioSnapshot").addEventListener("click", optimizePortfolioSnapshot);
 $("resumePortfolio").addEventListener("click", resumePortfolio);
@@ -1031,19 +1045,17 @@ $("refreshSystem").addEventListener("click", refreshSystem);
 if ($("refreshLaunchGate")) $("refreshLaunchGate").addEventListener("click", refreshLaunchGate);
 if ($("loadOperationsReport")) $("loadOperationsReport").addEventListener("click", loadOperationsReport);
 if ($("exportOperationsReport")) $("exportOperationsReport").addEventListener("click", (event) => {
-  const params = { market: $("operationsReportMarket").value, start_date: $("operationsReportStart").value,
-    end_date: $("operationsReportEnd").value };
+  const params = ReportUI.loadedQuery("operationsReport");
+  if (!params) return;
   ReportUI.download(`${apiBase}/api/v1/operations/report/export?${new URLSearchParams(params)}`,
     `operations-${params.start_date}-${params.end_date}.xlsx`, event.currentTarget, "operationsReport");
 });
-[
-  "operationsReportMarket", "operationsReportStart", "operationsReportEnd",
-].forEach((id) => $(id)?.addEventListener("input", () => { $("exportOperationsReport").disabled = true; }));
 [
   "portfolioMarket", "portfolioStart", "portfolioEnd", "portfolioPower", "portfolioCapacity",
 ].forEach((id) => $(id)?.addEventListener("input", () => {
   $("exportPortfolioCandidates").disabled = true;
   $("exportPortfolioCandidatesXlsx").disabled = true;
+  $("optimizePortfolioSnapshot").disabled = true;
 }));
 $("refreshLegacy").addEventListener("click", refreshLegacyManagement);
 $("legacyTableKind").addEventListener("change", refreshLegacyManagement);

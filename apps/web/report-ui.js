@@ -1,10 +1,13 @@
 /* Export controls bind to the loaded query, never to subsequently edited inputs. */
 window.ReportUI = (() => {
   const states = new Map();
+  const busy = new WeakSet();
   const $ = (id) => document.getElementById(id);
   const configs = {
     curve: { view: "curveView", controls: ["curveNode", "curveMarket", "curveStart", "curveEnd", "curveLimit", "curveAggregateDuration"], buttons: ["exportCurves", "exportCurveAggregate", "exportCurveAggregateXlsx", "exportCurvePng", "exportCurveXlsx"] },
     weather: { view: "weatherView", controls: ["weatherNode", "weatherType", "weatherStart", "weatherEnd", "weatherGranularity"], buttons: ["exportWeatherPng", "exportWeatherXlsx"] },
+    operationsReport: { view: "overviewView", controls: ["operationsReportMarket", "operationsReportStart", "operationsReportEnd"], buttons: ["exportOperationsReport"] },
+    portfolioCandidates: { view: "portfolioView", controls: ["portfolioMarket", "portfolioStart", "portfolioEnd", "portfolioPower", "portfolioCapacity"], buttons: ["exportPortfolioCandidatesXlsx"] },
   };
   function notice(key, message) {
     let element = $(`${key}ExportMessage`);
@@ -28,11 +31,16 @@ window.ReportUI = (() => {
     return epoch;
   }
   function current(key, epoch) { return states.get(key)?.epoch === epoch; }
-  function complete(key, epoch, count, source) {
+  function loadedQuery(key) {
+    const state = states.get(key);
+    return state?.ready ? { ...state.query } : null;
+  }
+  function complete(key, epoch, count, source, query = null) {
     if (!current(key, epoch)) return false;
     Object.assign(states.get(key), { ready: count > 0, source, loadedAt: new Date().toLocaleString("zh-CN") });
-    configs[key].buttons.forEach((id) => { $(id).disabled = !count; });
-    notice(key, count ? "PNG 保存当前图表；Excel 按本次加载条件重新读取原始明细（含日数/条数上限）。" : "没有有效数据，不能导出。");
+    if (query) states.get(key).query = { ...query };
+    configs[key].buttons.forEach((id) => { $(id).disabled = !count || busy.has($(id)); });
+    notice(key, count ? (key === "portfolioCandidates" ? "Excel 导出已生成的原始候选快照；表格手工调整请使用 CSV 或重新运行组合优化。" : key === "operationsReport" ? "Excel 按本次加载条件导出省级汇总和月度统计。" : "PNG 保存当前图表；Excel 按本次加载条件重新读取原始明细（含日数/条数上限）。") : "没有有效数据，不能导出。");
     return true;
   }
   function save(blob, name) {
@@ -41,6 +49,11 @@ window.ReportUI = (() => {
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   }
   async function xlsx(url, name, button, key) {
+    if (busy.has(button) || (configs[key] && !states.get(key)?.ready)) return;
+    const epoch = states.get(key)?.epoch;
+    const stillCurrent = () => !configs[key] || (current(key, epoch) && states.get(key)?.ready);
+    busy.add(button);
+    button.setAttribute("aria-busy", "true");
     button.disabled = true; notice(key, "正在生成 Excel…");
     try {
       const response = await fetch(url);
@@ -48,30 +61,22 @@ window.ReportUI = (() => {
         const body = await response.json().catch(() => ({}));
         throw new Error(typeof body.detail === "string" ? body.detail : `导出请求失败（HTTP ${response.status}）`);
       }
-      if (!response.headers.get("Content-Type")?.includes("spreadsheetml")) throw new Error("服务未返回 Excel 文件，请重试。");
+      const mime = (response.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
+      const expected = name.toLowerCase().endsWith(".xlsm")
+        ? "application/vnd.ms-excel.sheet.macroenabled.12"
+        : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      if (mime !== expected) throw new Error("服务返回的文件格式与请求不一致，请重试。");
       const blob = await response.blob(); const magic = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
       if (magic[0] !== 80 || magic[1] !== 75) throw new Error("Excel 文件内容异常，请重试。");
+      if (!stillCurrent()) return;
       save(blob, name); notice(key, "文件已交给浏览器下载，请在下载列表查看。");
-    } catch (error) { notice(key, `导出失败：${error.message}`); }
-    finally { button.disabled = configs[key] ? !states.get(key)?.ready : false; }
+    } catch (error) { if (stillCurrent()) notice(key, `导出失败：${error.message}，可再次点击重试。`); }
+    finally {
+      busy.delete(button); button.removeAttribute("aria-busy");
+      button.disabled = configs[key] ? !states.get(key)?.ready : false;
+    }
   }
-  async function download(url, name, button, messageTarget) {
-    button.disabled = true;
-    const target = messageTarget ? $(`${messageTarget}ExportMessage`) : null;
-    if (target) target.textContent = "正在生成 Excel…";
-    try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(typeof body.detail === "string" ? body.detail : `导出请求失败（HTTP ${response.status}）`);
-      }
-      if (!response.headers.get("Content-Type")?.includes("spreadsheetml")) throw new Error("服务未返回 Excel 文件，请重试。");
-      const blob = await response.blob(); const magic = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
-      if (magic[0] !== 80 || magic[1] !== 75) throw new Error("Excel 文件内容异常，请重试。");
-      save(blob, name); if (target) target.textContent = "Excel 已交给浏览器下载。";
-    } catch (error) { if (target) target.textContent = `导出失败：${error.message}`; }
-    finally { button.disabled = false; }
-  }  async function exportQuery(key, button, base) {
+  async function exportQuery(key, button, base) {
     const state = states.get(key); if (!state?.ready) return;
     const path = key === "curve" ? "price" : "weather";
     await xlsx(`${base}/api/v1/${path}/export?${new URLSearchParams(state.query)}`, `${state.label}-${path}.xlsx`, button, key);
@@ -120,5 +125,5 @@ window.ReportUI = (() => {
       config.controls.forEach((id) => $(id).addEventListener("change", () => invalidate(key)));
     });
   }
-  return { begin, current, complete, invalidate, init, exportQuery, png, run, clearRun, xlsx };
+  return { begin, current, complete, loadedQuery, invalidate, init, exportQuery, png, run, clearRun, xlsx, download: xlsx };
 })();

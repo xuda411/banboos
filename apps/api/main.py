@@ -335,6 +335,17 @@ def portfolio_candidate_snapshot(snapshot_id: str = APIPath(..., min_length=64, 
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
+@app.get("/api/v1/portfolio/candidates/{snapshot_id}/export", tags=["reports"])
+def export_portfolio_candidate_snapshot(snapshot_id: str = APIPath(
+        ..., min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")):
+    try:
+        snapshot = readonly_service.portfolio_candidate_snapshot(snapshot_id)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return xlsx_response(export_portfolio_candidates_xlsx(snapshot),
+                         f"portfolio-snapshot-{snapshot_id}.xlsx")
+
+
 @app.post("/api/v1/portfolio/candidates/{snapshot_id}/optimize", response_model=RunStatus,
           status_code=202, tags=["runs"])
 def optimize_portfolio_snapshot(snapshot_id: str = APIPath(..., min_length=64, max_length=64,
