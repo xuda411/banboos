@@ -11,6 +11,7 @@ let lpReconcileRunId = null;
 let financialRunId = null;
 let portfolioCandidateSnapshotId = null;
 let portfolioCandidateSource = new Map();
+let importPreviewId = null;
 
 async function get(path, params = {}) {
   const url = new URL(apiBase + path);
@@ -291,6 +292,29 @@ function priceColor(value, min, max) {
   const [rightStop, rightColor] = stops[upper]; const [leftStop, leftColor] = stops[upper - 1];
   const factor = (ratio - leftStop) / (rightStop - leftStop);
   return `rgb(${rightColor.map((color, index) => Math.round(leftColor[index] + (color - leftColor[index]) * factor)).join(",")})`;
+}
+
+async function previewImport() {
+  const state = $("importState"); const commit = $("importCommitButton");
+  importPreviewId = null; commit.disabled = true; state.textContent = "正在校验导入内容…";
+  let rows;
+  try { rows = JSON.parse($("importRows").value); } catch { state.textContent = "预览失败：内容必须是 JSON 数组。"; return; }
+  try {
+    const result = await post("/api/v1/import/preview", { source_name: $("importSourceName").value.trim() || "manual-preview.json", market: $("importMarket").value, rows });
+    importPreviewId = result.preview_id; commit.disabled = result.status !== "ready";
+    state.textContent = `${result.status === "ready" ? "预览通过" : "预览拒绝"} · ${result.accepted_count}/${result.row_count} 行有效 · ${result.rejected_count} 个错误 · ${result.preview_id.slice(0, 12)}…${result.errors.length ? ` · ${result.errors[0]}` : ""}`;
+    state.className = `task-progress ${result.status === "ready" ? "status-ok" : "status-error"}`;
+  } catch (error) { state.textContent = `预览失败：${error.message}`; state.className = "task-progress status-error"; }
+}
+
+async function commitImport() {
+  if (!importPreviewId) return;
+  const state = $("importState"); const commit = $("importCommitButton"); commit.disabled = true; state.textContent = "正在写入导入审计记录…";
+  try {
+    const result = await post("/api/v1/import/commit", { preview_id: importPreviewId, confirm: true });
+    state.textContent = `已记录导入审计 ${result.audit_id} · ${result.accepted_count} 行通过校验；当前仍为隔离只读模式，未写入生产数据库。`;
+    state.className = "task-progress status-ok";
+  } catch (error) { state.textContent = `导入未提交：${error.message}`; state.className = "task-progress status-error"; commit.disabled = false; }
 }
 
 function curveScale(values) {
@@ -940,6 +964,8 @@ addPortfolioProject();
 $("refreshSystem").addEventListener("click", refreshSystem);
 $("refreshLegacy").addEventListener("click", refreshLegacyManagement);
 $("legacyTableKind").addEventListener("change", refreshLegacyManagement);
+if ($("importPreviewButton")) $("importPreviewButton").addEventListener("click", previewImport);
+if ($("importCommitButton")) $("importCommitButton").addEventListener("click", commitImport);
 $("systemRunKind").addEventListener("change", refreshSystem);
 $("systemRunStatus").addEventListener("change", refreshSystem);
 $("powerMw").addEventListener("input", updateDurationHint);

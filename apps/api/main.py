@@ -20,6 +20,7 @@ from apps.edge.gateway import TelemetrySpool
 from packages.application.financial_export import export_financial_xlsx
 from packages.application.financial_template_xlsm import export_financial_xlsm
 from packages.application.financial_xlsm_review import review_native_cached_values
+from packages.application.import_service import ImportService
 from packages.application.operations_service import OperationsService, OperationsUnavailable
 from packages.application.readonly_service import ReadonlyService
 from packages.application.report_export import (
@@ -35,6 +36,7 @@ from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.financial import FinancialTaskParameters
 from packages.contracts.financial_reconciliation import FinancialReconciliationResult
 from packages.contracts.investment_scenario import InvestmentScenarioParameters
+from packages.contracts.imports import ImportCommitRequest, ImportCommitResult, ImportPreviewRequest, ImportPreviewResult
 from packages.contracts.lp_analysis import LPAnalysisParameters
 from packages.contracts.lp_reconciliation import LPReconciliationResult
 from packages.contracts.operations import OperationsSummary
@@ -70,6 +72,7 @@ local_runtime = SQLiteRuntime(runtime_path()) if not redis_url else None
 run_registry = RunRegistry(RedisTaskQueue(redis_url) if redis_url else local_runtime,
                            RedisStateStore(redis_url) if redis_url else local_runtime)
 edge_spool = TelemetrySpool(os.getenv("BANBOOS2_EDGE_SPOOL", "var/edge/telemetry.sqlite"))
+import_service = ImportService()
 
 allowed_origins = [item.strip() for item in os.getenv(
     "BANBOOS2_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173"
@@ -142,6 +145,30 @@ def legacy_management(kind: str = APIPath(..., pattern="^(import-logs|field-mapp
     try:
         return readonly_service.legacy_management(kind, limit)
     except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/v1/import/preview", response_model=ImportPreviewResult, tags=["imports"])
+def import_preview(request: ImportPreviewRequest) -> ImportPreviewResult:
+    try:
+        return import_service.preview(request)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/v1/import/commit", response_model=ImportCommitResult, tags=["imports"])
+def import_commit(request: ImportCommitRequest) -> ImportCommitResult:
+    try:
+        return import_service.commit(request)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.get("/api/v1/import/audit", tags=["imports"])
+def import_audit(limit: int = Query(default=100, ge=1, le=500)) -> dict:
+    try:
+        return {"items": import_service.audit_rows(limit), "source_mode": "import-audit"}
+    except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
