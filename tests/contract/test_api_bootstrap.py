@@ -68,6 +68,7 @@ def test_readonly_demo_endpoints():
     assert response.status_code == 200
     assert response.json()["source_mode"] == "demo"
     assert response.json()["monthly"] == []
+    assert len(response.json()["missing_dates"]) == 31
 
     response = client.get("/api/v1/quality/summary", params={
         "node_id": 1, "market": "实时", "start_date": "2026-01-01", "end_date": "2026-01-31",

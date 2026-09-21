@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from math import isfinite
 
 
-def aggregate_periods(records: list[dict], slots: int) -> dict:
+def aggregate_periods(records: list[dict], slots: int,
+                      start_date: date | None = None, end_date: date | None = None) -> dict:
     """Aggregate complete 96-point curves with the finance window rule."""
     if type(slots) is not int or not 1 <= slots <= 96:
         raise ValueError("窗口点数必须为1至96的整数")
@@ -66,6 +67,15 @@ def aggregate_periods(records: list[dict], slots: int) -> dict:
             })
         return result
 
+    multiple_source_dates = [row["day"].isoformat() for row in daily if row["source_count"] > 1]
+    missing_dates = []
+    if start_date is not None and end_date is not None and end_date >= start_date:
+        valid_dates = {row["day"] for row in daily}
+        cursor = start_date
+        while cursor <= end_date:
+            if cursor not in valid_dates:
+                missing_dates.append(cursor.isoformat())
+            cursor += timedelta(days=1)
     return {
         "monthly": build("%Y-%m"),
         "annual": build("%Y"),
@@ -73,6 +83,8 @@ def aggregate_periods(records: list[dict], slots: int) -> dict:
         "available_days": len(grouped),
         "excluded_records": excluded,
         "multiple_source_days": sum(row["source_count"] > 1 for row in daily),
+        "multiple_source_dates": multiple_source_dates,
+        "missing_dates": missing_dates,
         "first_date": daily[0]["day"].isoformat() if daily else None,
         "last_date": daily[-1]["day"].isoformat() if daily else None,
     }

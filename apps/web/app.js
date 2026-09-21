@@ -307,6 +307,7 @@ function drawCurves(curves, selectedIndex = 0, pointer = null) {
 }
 
 let loadedCurves = [];
+let loadedAggregates = null;
 
 function formatCurveTime(slot) {
   const minutes = (slot + 1) * 15; const hour = Math.floor(minutes / 60) % 24; const minute = minutes % 60;
@@ -369,6 +370,23 @@ function renderCurveAggregates(data) {
   $("curveAggregateMeta").textContent = `统计范围 ${data.first_date || "—"} 至 ${data.last_date || "—"} · ${data.valid_days} 个有效日 · ${data.duration_hours} 小时连续窗口 · 来源 ${data.source_mode}`;
 }
 
+function exportCurveAggregate() {
+  if (!loadedAggregates) return;
+  const rows = [
+    ["类型", "周期", "有效日", "均价（元/MWh）", "低价窗口", "高价窗口", "价差", "最低", "最高", "重复来源日"],
+    ...(loadedAggregates.monthly || []).map((row) => ["月度", row.period, row.valid_days, row.average_price_yuan_per_mwh,
+      row.charge_price_yuan_per_mwh, row.discharge_price_yuan_per_mwh, row.spread_yuan_per_mwh,
+      row.min_price_yuan_per_mwh, row.max_price_yuan_per_mwh, row.multiple_source_days]),
+    ...(loadedAggregates.annual || []).map((row) => ["年度", row.period, row.valid_days, row.average_price_yuan_per_mwh,
+      row.charge_price_yuan_per_mwh, row.discharge_price_yuan_per_mwh, row.spread_yuan_per_mwh,
+      row.min_price_yuan_per_mwh, row.max_price_yuan_per_mwh, row.multiple_source_days]),
+  ];
+  const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `price-aggregates-${Date.now()}.csv`; link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 0);
+}
+
 function exportCurves() {
   if (!loadedCurves.length) return;
   const header = ["日期", ...Array.from({ length: 96 }, (_, index) => `时段${String(index + 1).padStart(2, "0")}`)];
@@ -391,13 +409,13 @@ async function loadCurves() {
       get("/api/v1/price/aggregates", {...query, duration_hours: $("curveAggregateDuration").value}),
     ]);
     if (!ReportUI.current("curve", ticket)) return;
-    loadedCurves = curves; curvePointer = null; $("curveHover").hidden = true; $("exportCurves").disabled = curves.length === 0; $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
+    loadedCurves = curves; loadedAggregates = aggregates; curvePointer = null; $("curveHover").hidden = true; $("exportCurves").disabled = curves.length === 0; $("exportCurveAggregate").disabled = !(aggregates.monthly?.length || aggregates.annual?.length); $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
     const dayList = $("curveDays"); dayList.replaceChildren();
     curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.dataset.index = String(index); day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); curvePointer = null; $("curveHover").hidden = true; drawCurves(curves, index); updateCurveStats(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
     $("curveEmpty").hidden = curves.length > 0; $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; $("curveState").textContent = curves.length ? `${curves.length} 天` : "暂无数据"; $("curveState").className = `status ${curves.length ? "status-ok" : "status-muted"}`;
     if (!curves.length) dayList.innerHTML = '<div class="empty-state">数据库暂无完整 96 点曲线</div>'; drawCurves(curves); renderCurveAggregates(aggregates);
     ReportUI.complete("curve", ticket, curves.length, `来源模式：${[...new Set(curves.map(c => c.source_mode))].join("、")} · ${curves[0]?.run_date || ""} 至 ${curves.at(-1)?.run_date || ""} · ${curves.length} 个完整日（上限 ${query.limit} 日） · 选中日按价格渐变，其他日期用于对比`);
-  } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; $("exportCurves").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveAggregates").hidden = true; $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
+  } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; loadedAggregates = null; $("exportCurves").disabled = true; $("exportCurveAggregate").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveAggregates").hidden = true; $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
 }
 
 function drawWeather(series) {
@@ -791,6 +809,7 @@ $("curveMarket").addEventListener("change", () => syncCurveDateRange().catch(() 
 $("curveChart").addEventListener("mousemove", showCurveHover);
 $("curveChart").addEventListener("mouseleave", hideCurveHover);
 $("loadCurves").addEventListener("click", loadCurves);
+$("exportCurveAggregate").addEventListener("click", exportCurveAggregate);
 $("exportCurves").addEventListener("click", exportCurves);
 $("exportCurvePng").addEventListener("click", () => ReportUI.png("curve", "curveChart", $("curveTitle").textContent));
 $("exportCurveXlsx").addEventListener("click", (event) => ReportUI.exportQuery("curve", event.currentTarget, apiBase));

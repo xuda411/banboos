@@ -73,6 +73,8 @@ class PriceAggregateResult(BaseModel):
     available_days: int = Field(ge=0)
     excluded_records: int = Field(ge=0)
     multiple_source_days: int = Field(ge=0)
+    multiple_source_dates: list[date] = Field(default_factory=list)
+    missing_dates: list[date] = Field(default_factory=list)
     first_date: date | None = None
     last_date: date | None = None
     source_mode: str = "legacy-readonly"

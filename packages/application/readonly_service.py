@@ -93,8 +93,17 @@ class ReadonlyService:
         slots = round(duration_hours * 4)
         if abs(duration_hours * 4 - slots) > 1e-6:
             raise ValueError("统计窗口时长须为15分钟的整数倍")
-        rows = self._reader.price_curves(node_id, market, start_date, end_date) if self._reader else []
-        aggregate = aggregate_periods(rows, slots)
+        rows = []
+        if self._reader:
+            try:
+                # Full staging/legacy snapshots retain every source candidate,
+                # which lets the aggregate expose duplicate-source dates.
+                rows = [row for row in self._reader.baseline_curves(node_id, market)
+                        if start_date <= date.fromisoformat(str(row["run_date"])[:10]) <= end_date]
+            except (ValueError, RuntimeError):
+                # Date-bounded staging samples may not have a full-history scope.
+                rows = self._reader.price_curves(node_id, market, start_date, end_date)
+        aggregate = aggregate_periods(rows, slots, start_date, end_date)
         return PriceAggregateResult(
             node_id=node_id, market=market, start_date=start_date, end_date=end_date,
             duration_hours=duration_hours, source_mode=self.data_mode, **aggregate,
