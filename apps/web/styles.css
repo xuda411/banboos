@@ -264,3 +264,32 @@ button { cursor: pointer; font-weight: 700; }
 .auth-code-line { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 10px; }.auth-code-line label { min-width: 0; }.auth-code-line button { min-height: 50px; white-space: nowrap; }.auth-account-form .auth-submit { margin-top: 4px; }
 .auth-token-fallback { margin-top: 24px; border-top: 1px solid #edf2ef; padding-top: 14px; }.auth-token-fallback summary { color: #6a7b72; font-size: 11px; cursor: pointer; }.auth-token-fallback > p { margin: 10px 0; color: #8a9991; font-size: 11px; line-height: 1.5; }.auth-token-fallback[open] { padding-bottom: 2px; }.auth-token-fallback .auth-submit { margin-top: 4px; }
 @media (max-width: 420px) { .auth-code-line { grid-template-columns: 1fr; }.auth-code-line button { width: 100%; } }
+
+/* Banboos ink-and-bamboo visual layer: atmospheric, quiet, and always behind data. */
+:root {
+  --banboos-ink: #123f35;
+  --banboos-bamboo: #176b50;
+  --banboos-mist: #eaf3ee;
+  --banboos-paper: #f8fbf9;
+  --banboos-ochre: #b28a42;
+}
+body {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(135deg, #f1f6f2 0%, #e8f2ec 47%, #f8faf8 100%);
+}
+.topbar { background: rgba(250, 253, 251, .88); border-bottom-color: rgba(23, 107, 80, .16); backdrop-filter: blur(16px); }
+.page, .view { position: relative; z-index: 1; }
+.card, .dashboard-card, .overview-kpi, .overview-signal { background-color: rgba(255, 255, 255, .91); }
+.ink-bamboo-watermark { position: fixed; z-index: 0; right: -28px; bottom: 0; width: min(58vw, 760px); height: min(46vh, 390px); pointer-events: none; opacity: .15; overflow: visible; }
+.ink-bamboo-watermark svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.ink-bamboo-stem { fill: none; stroke: var(--banboos-ink); stroke-width: 8; stroke-linecap: round; opacity: .78; }
+.ink-bamboo-node { fill: none; stroke: var(--banboos-bamboo); stroke-width: 4; stroke-linecap: round; opacity: .7; }
+.ink-bamboo-leaf { fill: none; stroke: var(--banboos-bamboo); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; opacity: .78; }
+.ink-bamboo-wash { fill: #9fc8b0; opacity: .28; }
+@media (max-width: 760px) {
+  .ink-bamboo-watermark { right: -100px; width: 92vw; height: 300px; opacity: .1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ink-bamboo-watermark { opacity: .1; }
+}
