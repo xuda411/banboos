@@ -555,15 +555,28 @@ async function loadCurves() {
   } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; loadedAggregates = null; $("exportCurves").disabled = true; $("exportCurveAggregate").disabled = true; $("exportCurveAggregateXlsx").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveAggregates").hidden = true; $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
 }
 
-function drawWeather(series) {
+function drawWeather(series, pointerIndex = null) {
   const canvas = $("weatherChart"); const width = canvas.clientWidth || 760; const height = 330; const ratio = Math.max(2, window.devicePixelRatio || 1);
   canvas.width = width * ratio; canvas.height = height * ratio; const context = canvas.getContext("2d"); context.scale(ratio, ratio); context.clearRect(0, 0, width, height);
   if (!series.length) return;
   const ghi = series.map((row) => row.ghi_w_m2).filter((value) => value != null); const pv = series.map((row) => row.pv_predict_power_mw).filter((value) => value != null); const wind = series.map((row) => row.wind_speed_m_s).filter((value) => value != null); const maxGhi = Math.max(1, ...ghi); const maxPv = Math.max(1, ...pv); const maxWind = Math.max(1, ...wind); const pad = {left: 46, right: 20, top: 20, bottom: 30}; const x = (index) => pad.left + (width - pad.left - pad.right) * index / Math.max(1, series.length - 1);
-  const line = (key, color, max) => { context.strokeStyle = color; context.lineWidth = 2; context.beginPath(); series.forEach((row, index) => { const value = row[key]; if (value == null) return; const y = pad.top + (height - pad.top - pad.bottom) * (1 - value / max); index ? context.lineTo(x(index), y) : context.moveTo(x(index), y); }); context.stroke(); };
+  const line = (key, color, max) => { context.strokeStyle = color; context.lineWidth = 2; context.beginPath(); let hasPoint = false; series.forEach((row, index) => { const value = Number(row[key]); if (!Number.isFinite(value)) { hasPoint = false; return; } const y = pad.top + (height - pad.top - pad.bottom) * (1 - value / max); hasPoint ? context.lineTo(x(index), y) : context.moveTo(x(index), y); hasPoint = true; }); context.stroke(); };
   context.strokeStyle = "#dfe5e2"; context.lineWidth = 1; for (let step = 0; step <= 4; step += 1) { const y = pad.top + (height - pad.top - pad.bottom) * step / 4; context.beginPath(); context.moveTo(pad.left, y); context.lineTo(width - pad.right, y); context.stroke(); }
   line("ghi_w_m2", "#d9a441", maxGhi); line("pv_predict_power_mw", "#f07832", maxPv); line("wind_speed_m_s", "#3c8b72", maxWind); line("wind_predict_power_mw", "#6d55b5", Math.max(1, ...series.map((row) => row.wind_predict_power_mw || 0)));
+  if (Number.isInteger(pointerIndex) && pointerIndex >= 0 && pointerIndex < series.length) { const px = x(pointerIndex); context.strokeStyle = "rgba(23,107,80,.35)"; context.lineWidth = 1; context.setLineDash([4, 4]); context.beginPath(); context.moveTo(px, pad.top); context.lineTo(px, height - pad.bottom); context.stroke(); context.setLineDash([]); }
   context.font = "11px Microsoft YaHei"; context.fillStyle = "#d9a441"; context.fillText("辐照度", pad.left, 13); context.fillStyle = "#f07832"; context.fillText("光伏功率（预计）", pad.left + 58, 13); context.fillStyle = "#3c8b72"; context.fillText("风速", pad.left + 168, 13); context.fillStyle = "#6d55b5"; context.fillText("风电功率（预计）", pad.left + 210, 13);
+  canvas._weatherGeometry = { series, width, height, pad };
+}
+
+function hideWeatherHover() { const hover = $("weatherHover"); if (hover) hover.hidden = true; const geometry = $("weatherChart")._weatherGeometry; if (geometry) drawWeather(geometry.series); }
+
+function showWeatherHover(event) {
+  const canvas = $("weatherChart"); const geometry = canvas._weatherGeometry; if (!geometry?.series?.length) return;
+  const rect = canvas.getBoundingClientRect(); const xPos = event.clientX - rect.left; if (xPos < geometry.pad.left || xPos > geometry.width - geometry.pad.right) { hideWeatherHover(); return; }
+  const plotWidth = geometry.width - geometry.pad.left - geometry.pad.right; const index = Math.max(0, Math.min(geometry.series.length - 1, Math.round((xPos - geometry.pad.left) / plotWidth * (geometry.series.length - 1)))); const row = geometry.series[index];
+  drawWeather(geometry.series, index); const hover = $("weatherHover"); const format = (value, digits = 1) => Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "—";
+  hover.innerHTML = `<strong>${row.data_time || "未标注时间"}</strong><br>辐照度：${format(row.ghi_w_m2)} W/m²　风速：${format(row.wind_speed_m_s)} m/s<br>光伏功率（预计）：${format(row.pv_predict_power_mw, 2)} MW<br>风电功率（预计）：${format(row.wind_predict_power_mw, 2)} MW`;
+  hover.hidden = false; const left = Math.max(8, Math.min(xPos + 14, rect.width - hover.offsetWidth - 8)); const top = Math.max(8, Math.min(event.clientY - rect.top - hover.offsetHeight - 10, rect.height - hover.offsetHeight - 8)); hover.style.left = `${left}px`; hover.style.top = `${top}px`;
 }
 
 async function loadWeather() {
@@ -1044,6 +1057,8 @@ $("exportCurveXlsx").addEventListener("click", (event) => ReportUI.exportQuery("
 $("exportWeatherPng").addEventListener("click", () => ReportUI.png("weather", "weatherChart", $("weatherChartTitle").textContent));
 $("exportWeatherXlsx").addEventListener("click", (event) => ReportUI.exportQuery("weather", event.currentTarget, apiBase));
 $("loadWeather").addEventListener("click", loadWeather);
+$("weatherChart").addEventListener("mousemove", showWeatherHover);
+$("weatherChart").addEventListener("mouseleave", hideWeatherHover);
 $("submitAnalysis").addEventListener("click", submitAnalysis);
 if ($("createInvestmentScenario")) $("createInvestmentScenario").addEventListener("click", createInvestmentScenario);
 $("useAnalysisForFinance").addEventListener("click", useAnalysisForFinance);
