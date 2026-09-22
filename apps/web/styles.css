@@ -71,7 +71,7 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; }
 .dispatch-days-wrap table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .dispatch-days-wrap th, .dispatch-days-wrap td { padding: 8px 10px; border-bottom: 1px solid #e1e8e4; text-align: right; white-space: nowrap; }
 .dispatch-days-wrap th:first-child, .dispatch-days-wrap td:first-child { text-align: left; }
-.portfolio-filters { grid-template-columns: repeat(3, minmax(160px, 1fr)) auto; }
+.portfolio-filters { grid-template-columns: repeat(5, minmax(130px, 1fr)) auto; }
 .portfolio-card { margin-top: 16px; }
 .portfolio-table-wrap { overflow-x: auto; }
 .portfolio-table-wrap table { width: 100%; border-collapse: collapse; }
