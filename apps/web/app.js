@@ -108,14 +108,14 @@ const readyCheckLabels = { api: "接口服务", redis: "任务队列", auth: "�
 function runKindLabel(value) { return runKindLabels[value] || value || "—"; }
 const runStatusLabels = { queued: "排队中", running: "执行中", succeeded: "已完成", failed: "失败", cancelled: "已取消" };
 function runStatusLabel(status, progress) { return `${runStatusLabels[status] || status || "处理中"} ${progress ?? 0}%`; }
-function runStatusClass(status) { return status === "succeeded" ? "status-ok" : ["failed", "cancelled"].includes(status) ? "status-error" : "status-muted"; }
+function runStatusClass(status) { return status === "succeeded" ? "status-ok" : ["failed", "cancelled"].includes(status) ? "status-error" : ["queued", "running"].includes(status) ? "status-progress" : "status-muted"; }
 function readyCheckText(value) { return { ok: "正常", "not-configured": "未配置（本地开发模式）", unavailable: "不可用", "not-ready": "未就绪" }[value] || value || "未知"; }
 function renderReadyChecks(checks) {
   const target = $("systemChecks"); target.replaceChildren();
   Object.entries(checks || {}).forEach(([key, value]) => {
     const row = document.createElement("div"); row.className = "system-check-row";
     const label = document.createElement("strong"); label.textContent = readyCheckLabels[key] || key;
-    const status = document.createElement("small"); status.textContent = readyCheckText(value); status.className = value === "ok" || value === "not-configured" ? "value-ok" : "value-error";
+    const status = document.createElement("small"); status.textContent = readyCheckText(value); status.className = value === "ok" ? "value-ok" : value === "not-configured" ? "value-warning" : "value-error";
     row.append(label, status); target.append(row);
   });
 }
@@ -144,7 +144,16 @@ function setStatus(text, kind = "muted") {
 }
 
 function activateView(viewId) {
-  document.querySelectorAll(".view").forEach((view) => { view.hidden = view.id !== viewId; });
+  document.querySelectorAll(".view").forEach((view) => {
+    const active = view.id === viewId;
+    view.hidden = !active;
+    if (active) {
+      view.classList.remove("view-enter");
+      void view.offsetWidth;
+      view.classList.add("view-enter");
+      window.setTimeout(() => view.classList.remove("view-enter"), 280);
+    }
+  });
   document.querySelectorAll(".nav-item").forEach((item) => { const active = item.dataset.view === viewId; item.classList.toggle("active", active); item.toggleAttribute("aria-current", active); if (active) item.setAttribute("aria-current", "page"); });
 }
 
@@ -437,7 +446,7 @@ async function refreshLaunchGate() {
     target.replaceChildren();
     const table = document.createElement("table"); table.innerHTML = "<thead><tr><th>检查项</th><th>状态</th><th>说明</th></tr></thead>";
     const body = document.createElement("tbody");
-    report.checks.forEach((item) => { const row = document.createElement("tr"); const name = document.createElement("td"); name.textContent = gateCheckLabels[item.name] || item.name; const status = document.createElement("td"); const badge = document.createElement("span"); const passed = item.status === "pass" || item.status === "ok" || item.status === "ready"; badge.className = `status ${passed ? "status-ok" : item.status === "warn" ? "status-muted" : "status-error"}`; badge.textContent = passed ? "通过" : item.status === "warn" ? "提示" : "未通过"; status.appendChild(badge); const detail = document.createElement("td"); detail.textContent = item.detail; row.append(name, status, detail); body.appendChild(row); });
+    report.checks.forEach((item) => { const row = document.createElement("tr"); const name = document.createElement("td"); name.textContent = gateCheckLabels[item.name] || item.name; const status = document.createElement("td"); const badge = document.createElement("span"); const passed = item.status === "pass" || item.status === "ok" || item.status === "ready"; badge.className = `status ${passed ? "status-ok" : item.status === "warn" ? "status-warning" : "status-error"}`; badge.textContent = passed ? "通过" : item.status === "warn" ? "提示" : "未通过"; status.appendChild(badge); const detail = document.createElement("td"); detail.textContent = item.detail; row.append(name, status, detail); body.appendChild(row); });
     table.appendChild(body); target.appendChild(table);
     state.textContent = `${report.status === "staging-ready" ? "隔离环境已就绪" : "门禁未通过"} · ${report.environment || "未知环境"} · ${report.control_mode || "未知控制模式"}`;
     state.className = `task-progress ${report.status === "staging-ready" ? "status-ok" : "status-error"}`;
@@ -632,7 +641,7 @@ async function loadCurves() {
   if (!nodeId) { $("curveState").textContent = "请选择节点"; return; }
   const query = { node_id: nodeId, market: $("curveMarket").value, start_date: $("curveStart").value, end_date: $("curveEnd").value, limit: $("curveLimit").value, duration_hours: $("curveAggregateDuration").value };
   const ticket = ReportUI.begin("curve", query, $("curveNode").selectedOptions[0].textContent);
-  $("curveState").textContent = "加载中"; $("curveState").className = "status status-muted";
+  $("curveState").textContent = "正在加载"; $("curveState").className = "status status-progress";
   try {
     const [curves, aggregates] = await Promise.all([
       get("/api/v1/price/curves", query),
@@ -698,7 +707,7 @@ async function submitAnalysis() {
   const duration = capacity / power;
   if (!nodeId) { resultBox.hidden = false; state.textContent = "请选择节点"; state.className = "status status-error"; return; }
   if (!Number.isFinite(duration) || duration < 0.25 || duration > 24) { resultBox.hidden = false; state.textContent = "参数无效"; state.className = "status status-error"; $("analysisMessage").textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
-  resultBox.hidden = false; $("analysisMonthly").hidden = true; state.textContent = "提交中"; state.className = "status status-muted"; $("analysisMessage").textContent = "正在读取完整历史日并计算价差…"; $("analysisAnnual").textContent = "—"; $("analysisDays").textContent = "—"; analysisSourceRunId = null; analysisScenarioRunId = null; analysisAnnualRevenueYuan = null; $("submitAnalysis").disabled = true; $("submitAnalysis").setAttribute("aria-busy", "true");
+  resultBox.hidden = false; $("analysisMonthly").hidden = true; state.textContent = "正在计算"; state.className = "status status-progress"; $("analysisMessage").textContent = "正在读取完整历史日并计算价差，请稍候…"; $("analysisAnnual").textContent = "—"; $("analysisDays").textContent = "—"; analysisSourceRunId = null; analysisScenarioRunId = null; analysisAnnualRevenueYuan = null; $("submitAnalysis").disabled = true; $("submitAnalysis").setAttribute("aria-busy", "true");
   try {
     const run = await post("/api/v1/runs", { kind: "price-analysis", parameters: { node_id: Number(nodeId), market: $("market").value, start_date: $("startDate").value, end_date: $("endDate").value, power_mw: power, capacity_mwh: capacity, round_trip_efficiency: Number($("analysisEta").value) / 100 } });
     const finished = await pollAnalysis(run.run_id); const data = finished.result || {};
@@ -778,7 +787,7 @@ async function submitDispatch() {
   if (!nodeId) { message.textContent = "请选择节点"; return; }
   const power = Number($("dispatchPower").value); const capacity = Number($("dispatchCapacity").value);
   if (!Number.isFinite(power) || !Number.isFinite(capacity) || power <= 0 || capacity <= 0 || capacity / power < 0.25 || capacity / power > 24) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
-  state.textContent = "提交中"; state.className = "status status-muted"; submitButton.disabled = true; submitButton.setAttribute("aria-busy", "true"); $("dispatchResult").hidden = true; lpReconcileRunId = null; $("lpReconcileButton").hidden = true; $("lpReconcileState").hidden = true;
+  state.textContent = "正在回放"; state.className = "status status-progress"; submitButton.disabled = true; submitButton.setAttribute("aria-busy", "true"); $("dispatchResult").hidden = true; lpReconcileRunId = null; $("lpReconcileButton").hidden = true; $("lpReconcileState").hidden = true;
   const parameters = { node_id: Number(nodeId), market: $("dispatchMarket").value, start_date: $("dispatchStart").value, end_date: $("dispatchEnd").value, power_mw: power, capacity_mwh: capacity, eta_charge: Number($("dispatchEta").value) / 100, eta_discharge: Number($("dispatchEta").value) / 100, max_daily_cycles: Number($("dispatchCycles").value), hurdle_yuan_per_mwh: Number($("dispatchHurdle").value) };
   const kind = $("dispatchMode").value || "strict-dispatch";
   if (kind === "lp-analysis") Object.assign(parameters, { include_comparison: true, include_sensitivity: false });
@@ -901,8 +910,8 @@ async function submitFinancial() {
     message.textContent = "容量/功率时长须在 0.25 至 24 小时之间。2 小时、4 小时仅是常见配置，不锁死具体规模。";
     return;
   }
-  state.textContent = "提交中";
-  state.className = "status status-muted";
+  state.textContent = "正在提交";
+  state.className = "status status-progress";
   submitButton.disabled = true;
   submitButton.setAttribute("aria-busy", "true");
   try {
@@ -1039,7 +1048,7 @@ async function submitSensitivity() {
   if (!Number.isFinite(down) || !Number.isFinite(up) || !Number.isFinite(step) || down >= up || step <= 0 || Math.ceil((up - down) / step) + 1 > 9) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "请检查上下限和步长，情景点数须为 3 至 9 个"; return; }
   const changeRates = []; for (let value = down; value <= up + 1e-9; value += step) changeRates.push(Number(value.toFixed(6)));
   if (changeRates.length < 3) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "至少需要 3 个情景点"; return; }
-  state.textContent = "提交中"; state.className = "status status-muted"; message.textContent = "正在生成敏感性情景…"; resultBox.hidden = true; $("submitSensitivity").disabled = true; $("submitSensitivity").setAttribute("aria-busy", "true");
+  state.textContent = "正在生成"; state.className = "status status-progress"; message.textContent = "正在生成敏感性情景，请稍候…"; resultBox.hidden = true; $("submitSensitivity").disabled = true; $("submitSensitivity").setAttribute("aria-busy", "true");
   try {
     const run = await post("/api/v1/runs", { kind: "sensitivity", parameters: { base: collectFinancialParameters(), variable: $("sensitivityVariable").value, change_rates: changeRates } });
     $("sensitivityRunId").textContent = run.run_id; const finished = await pollSensitivity(run.run_id); renderSensitivityResult(finished.result); ReportUI.run("taskView", run.run_id, "敏感性分析", apiBase); state.textContent = "计算完成"; state.className = "status status-ok"; message.textContent = "情景结果已绑定当前财务参数。";
