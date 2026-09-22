@@ -38,6 +38,14 @@ from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
 from packages.contracts.financial import FinancialTaskParameters
 from packages.contracts.financial_reconciliation import FinancialReconciliationResult
+from packages.contracts.identity import (
+    AdminUsersResponse,
+    AuthMethodsResponse,
+    AuthProviderDescriptor,
+    VerificationChallengeRequest,
+    VerificationChallengeResponse,
+    VerificationLoginRequest,
+)
 from packages.contracts.imports import (
     ImportCommitRequest,
     ImportCommitResult,
@@ -102,6 +110,17 @@ AUTH_ROLE_CATALOG = [
     {"key": "finance_analyst", "label": "财务分析员", "scope": "项目级", "permissions": ["read", "analyze", "export"]},
     {"key": "auditor", "label": "审计只读", "scope": "授权范围", "permissions": ["read", "export"]},
 ]
+
+IDENTITY_PROVIDER_ENV = {
+    "phone": "BANBOOS2_SMS_PROVIDER",
+    "email": "BANBOOS2_EMAIL_PROVIDER",
+    "wechat": "BANBOOS2_WECHAT_CLIENT_ID",
+}
+IDENTITY_PROVIDER_META = {
+    "phone": ("手机号", "sms", "短信服务配置完成后可用"),
+    "email": ("邮箱", "email", "邮件服务配置完成后可用"),
+    "wechat": ("微信", "oauth", "微信开放平台回调配置完成后可用"),
+}
 
 allowed_origins = [item.strip() for item in os.getenv(
     "BANBOOS2_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173"
@@ -175,6 +194,70 @@ def auth_session() -> dict:
     }
 
 
+def _identity_provider_status(provider: str) -> str:
+    return "ready" if os.getenv(IDENTITY_PROVIDER_ENV[provider]) else "pending"
+
+
+@app.get("/api/v1/auth/methods", response_model=AuthMethodsResponse, tags=["auth"])
+def auth_methods() -> AuthMethodsResponse:
+    providers = [
+        AuthProviderDescriptor(
+            key=key,
+            label=meta[0],
+            status=_identity_provider_status(key),
+            delivery=meta[1],
+            hint=meta[2],
+        )
+        for key, meta in IDENTITY_PROVIDER_META.items()
+    ]
+    return AuthMethodsResponse(
+        version="2026-09-22",
+        default_provider="phone",
+        providers=providers,
+        legacy_token={"status": "fallback-only", "label": "开发联调令牌", "scope": "仅预发布联调"},
+    )
+
+
+@app.post("/api/v1/auth/challenges", response_model=VerificationChallengeResponse, tags=["auth"])
+def create_auth_challenge(request: VerificationChallengeRequest) -> VerificationChallengeResponse:
+    """Issue a verification challenge once the corresponding delivery adapter is configured.
+
+    Provider delivery is intentionally not faked in the foundation milestone. The endpoint
+    gives the web client a stable contract and returns an actionable configuration error until
+    SMS, email or WeChat infrastructure is connected.
+    """
+    if _identity_provider_status(request.provider) != "ready":
+        label = IDENTITY_PROVIDER_META[request.provider][0]
+        raise HTTPException(status_code=503, detail=f"{label}登录服务尚未配置，请联系管理员。")
+    raise HTTPException(status_code=501, detail="验证码发送适配器正在接入中。")
+
+
+@app.post("/api/v1/auth/login", tags=["auth"])
+def verify_auth_challenge(request: VerificationLoginRequest) -> dict:
+    """Verify a code after the delivery adapter and durable challenge store are enabled."""
+    if not request.code.isdigit():
+        raise HTTPException(status_code=422, detail="验证码只能包含数字。")
+    raise HTTPException(status_code=501, detail="账号登录服务尚未启用，请使用已配置的登录方式。")
+
+
+@app.get("/api/v1/admin/users", response_model=AdminUsersResponse, tags=["admin"])
+def admin_users() -> AdminUsersResponse:
+    """Preview the management contract; production data comes from PostgreSQL identity tables."""
+    return AdminUsersResponse(
+        mode="preview-only",
+        users=[{
+            "id": "dev-user",
+            "display_name": "开发联调用户",
+            "status": "active",
+            "providers": ["development"],
+            "role": "platform_admin",
+            "tenant_scope": "联调租户",
+            "last_login_at": None,
+        }],
+        total=1,
+    )
+
+
 @app.get("/api/v1/auth/policy", tags=["auth"])
 def auth_policy() -> dict:
     """Expose the versioned permission boundary used by the upcoming identity service UI."""
@@ -186,14 +269,17 @@ def auth_policy() -> dict:
 def launch_gate() -> LaunchGateReport:
     environment = os.getenv("BANBOOS2_ENV", "development")
     configured_auth = bool(configured_token() and len(configured_token() or "") >= 32)
+    identity_configured = all(os.getenv(name) for name in IDENTITY_PROVIDER_ENV.values())
     configured_db = os.getenv("BANBOOS2_DATABASE_URL", "").startswith("postgresql")
     configured_redis = bool(os.getenv("BANBOOS2_REDIS_URL"))
     template = os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")
     template_ok = bool(template and Path(template).expanduser().is_file())
     control = os.getenv("BANBOOS2_CONTROL_MODE", "disabled")
     checks = [
-        LaunchGateCheck(name="api_auth", status="pass" if configured_auth or environment != "production" else "fail",
-                        detail="生产 token 已配置" if configured_auth else "开发环境允许未配置 token" if environment != "production" else "生产必须配置至少 32 位 token"),
+        LaunchGateCheck(name="identity_service", status="pass" if identity_configured or environment != "production" else "fail",
+                        detail="手机号、邮箱、微信身份服务已配置" if identity_configured else "开发环境允许身份服务待接入" if environment != "production" else "生产必须配置手机号、邮箱和微信身份服务"),
+        LaunchGateCheck(name="api_auth", status="warn" if configured_auth else "pass",
+                        detail="API token 仅作为联调 fallback，不作为正式用户登录"),
         LaunchGateCheck(name="postgres", status="pass" if configured_db or environment != "production" else "fail",
                         detail="PostgreSQL URL 已配置" if configured_db else "开发环境可使用本地运行时" if environment != "production" else "生产必须配置 PostgreSQL"),
         LaunchGateCheck(name="redis", status="pass" if configured_redis or environment != "production" else "fail",

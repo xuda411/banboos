@@ -6,7 +6,7 @@
 
 ```powershell
 Copy-Item .env.example .env
-# 编辑 .env，替换数据库密码、API token 和 CORS 域名
+# 编辑 .env，替换数据库、身份服务和 CORS 域名配置
 docker compose -f deploy/docker-compose.prod.yml up -d postgres redis
 docker compose -f deploy/docker-compose.prod.yml run --rm api alembic upgrade head
 docker compose -f deploy/docker-compose.prod.yml up -d api worker
@@ -32,7 +32,7 @@ Set-Location E:\Banboos2.0
 
 - `GET /health` 返回 `status=ok`。
 - `GET /readyz` 返回 `status=ready`，Redis 检查为 `ok`。
-- 生产环境 `BANBOOS2_API_TOKEN` 至少 32 位；未携带 token 的 API 请求返回 401。
+- 生产环境必须配置手机号、邮箱和微信身份服务；API token 仅保留为联调 fallback，不作为正式用户登录。
 - `BANBOOS2_CORS_ORIGINS` 只填写实际 Web 域名，不使用 `*`。
 - 数据库迁移完成后再启动 Worker；先用 `noop` 和 `price-summary` 做灰度任务。
 - 备份 PostgreSQL 和 Redis 持久卷，并记录当前 Git 提交与 Alembic revision。

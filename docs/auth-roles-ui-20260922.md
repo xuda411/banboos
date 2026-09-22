@@ -2,12 +2,15 @@
 
 ## 本轮交付
 
-Banboos 2.0 Web 端已具备上线前的身份界面骨架：顶部会话状态、访问令牌登录弹窗、退出会话、权限策略选择和角色权限矩阵。当前实现服务于预发布联调，不把共享 API token 当作正式用户身份。
+Banboos 2.0 Web 端已具备上线前的身份界面骨架：顶部会话状态、手机号 / 邮箱 / 微信登录入口、开发令牌 fallback、退出会话、权限策略选择和角色权限矩阵。当前实现服务于预发布联调，不把共享 API token 当作正式用户身份。
 
 ## API 契约
 
 - `GET /api/v1/auth/session`：返回会话模式、当前用户占位信息、租户范围和控制模式。
 - `GET /api/v1/auth/policy`：返回策略版本、角色、权限目录、生产控制默认值和写入模式。
+- `GET /api/v1/auth/methods`：返回手机号、邮箱、微信服务状态和开发令牌 fallback 状态。
+- `POST /api/v1/auth/challenges`、`POST /api/v1/auth/login`：验证码登录契约；供应商未配置时明确返回待配置状态。
+- `GET /api/v1/admin/users`：用户管理预览契约，正式环境由 PostgreSQL 身份表提供分页数据。
 - API token 通过 `Authorization: Bearer <token>` 发送；启用生产 token 后，未认证的 `/api/` 请求返回 401。
 - Excel 导出请求复用同一会话令牌，登录后不需要额外复制 token。
 
@@ -28,4 +31,3 @@ Banboos 2.0 Web 端已具备上线前的身份界面骨架：顶部会话状态�
 2. 接入 OIDC / OAuth2 或企业统一身份服务，API 只接受短期 access token 和可撤销 refresh token。
 3. 所有登录、退出、权限变更、导入、导出、调度建议和控制操作写入审计日志，并关联 `request_id`、`tenant_id`、`user_id` 和 `run_id`。
 4. 在预发布环境完成越权、过期 token、跨租户访问、导出鉴权和刷新页面恢复会话测试后，才能移除策略预览标记。
-

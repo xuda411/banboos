@@ -14,6 +14,9 @@ let portfolioCandidateSource = new Map();
 let importPreviewId = null;
 let authToken = null;
 let authPolicy = null;
+let authProvider = "phone";
+let authMethods = null;
+let authChallengeId = null;
 try { authToken = sessionStorage.getItem("banboosAuthToken") || null; } catch { /* Storage can be disabled. */ }
 
 function authHeaders() { return authToken ? { Authorization: `Bearer ${authToken}` } : {}; }
@@ -23,7 +26,31 @@ function setAuthToken(value) {
 }
 function showAuthDialog(message = "请输入访问令牌后继续。") {
   const dialog = $("authDialog"); if (!dialog) return;
-  dialog.hidden = false; $("authMessage").textContent = message; $("authToken").focus();
+  dialog.hidden = false; $("authMessage").textContent = message; $("authIdentifier")?.focus();
+}
+const authProviderMeta = {
+  phone: { label: "手机号", inputType: "tel", autocomplete: "tel", inputmode: "tel", placeholder: "请输入手机号" },
+  email: { label: "邮箱", inputType: "email", autocomplete: "email", inputmode: "email", placeholder: "请输入邮箱地址" },
+  wechat: { label: "微信账号", inputType: "text", autocomplete: "off", inputmode: "text", placeholder: "微信授权后自动识别" },
+};
+function renderAuthProvider(provider) {
+  authProvider = provider;
+  const meta = authProviderMeta[provider] || authProviderMeta.phone;
+  const input = $("authIdentifier"); input.type = meta.inputType; input.autocomplete = meta.autocomplete; input.inputMode = meta.inputmode; input.placeholder = meta.placeholder;
+  $("authIdentifierLabel").textContent = meta.label;
+  $("authCode").value = ""; authChallengeId = null;
+  $("authCode").closest("label").parentElement.hidden = provider === "wechat";
+  $("authAccountSubmit").querySelector("span").textContent = provider === "wechat" ? "微信授权登录" : "验证码登录";
+  document.querySelectorAll("[data-auth-provider]").forEach((item) => { const active = item.dataset.authProvider === provider; item.classList.toggle("active", active); item.setAttribute("aria-selected", String(active)); });
+  const descriptor = authMethods?.providers?.find((item) => item.key === provider);
+  const status = $("authProviderStatus");
+  if (!descriptor) { status.textContent = "正在读取登录服务状态…"; status.className = "auth-provider-status"; return; }
+  status.textContent = descriptor.status === "ready" ? `${descriptor.label}验证码服务已连接` : `${descriptor.label}登录${descriptor.hint}`;
+  status.className = `auth-provider-status ${descriptor.status === "ready" ? "is-ready" : "is-pending"}`;
+}
+async function loadAuthMethods() {
+  try { authMethods = await get("/api/v1/auth/methods"); renderAuthProvider(authProvider); }
+  catch (error) { $("authProviderStatus").textContent = `登录方式读取失败：${error.message}`; $("authProviderStatus").className = "auth-provider-status is-error"; }
 }
 function renderAuthSession(session) {
   const user = session?.user || {}; const tenant = session?.tenant || {};
@@ -76,7 +103,7 @@ function displaySource(value) {
 }
 
 const runKindLabels = { financial: "财务测算", sensitivity: "敏感性分析", "price-analysis": "节点电价分析", "strict-dispatch": "约束回放", "lp-analysis": "LP 分析", "portfolio-optimization": "组合优化", "investment-scenario": "投资情景", weather: "气象专题" };
-const gateCheckLabels = { api_auth: "接口认证", postgres: "数据库", redis: "任务队列", financial_template: "财务模板", production_control: "生产控制", tenant_isolation: "租户隔离" };
+const gateCheckLabels = { identity_service: "账号身份服务", api_auth: "接口认证 fallback", postgres: "数据库", redis: "任务队列", financial_template: "财务模板", production_control: "生产控制", tenant_isolation: "租户隔离" };
 const readyCheckLabels = { api: "接口服务", redis: "任务队列", auth: "身份认证" };
 function runKindLabel(value) { return runKindLabels[value] || value || "—"; }
 const runStatusLabels = { queued: "排队中", running: "执行中", succeeded: "已完成", failed: "失败", cancelled: "已取消" };
@@ -1188,6 +1215,30 @@ if ($("financialParameterGroup")) {
   $("financialParameterGroup").addEventListener("change", syncFinancialParameterGroup);
   syncFinancialParameterGroup();
 }
+document.querySelectorAll("[data-auth-provider]").forEach((item) => item.addEventListener("click", () => renderAuthProvider(item.dataset.authProvider)));
+$("authSendCode").addEventListener("click", async () => {
+  const identifier = $("authIdentifier").value.trim();
+  if (!identifier) { $("authMessage").textContent = `请输入${authProviderMeta[authProvider].label}。`; $("authIdentifier").focus(); return; }
+  const button = $("authSendCode"); button.disabled = true; button.setAttribute("aria-busy", "true"); $("authMessage").textContent = "正在申请验证码…";
+  try {
+    const result = await post("/api/v1/auth/challenges", { provider: authProvider, identifier, purpose: "login" });
+    authChallengeId = result.challenge_id; $("authMessage").textContent = `${result.message} 有效期 ${Math.round(result.expires_in_seconds / 60)} 分钟。`;
+  } catch (error) { $("authMessage").textContent = error.message || "验证码服务暂不可用。"; }
+  button.disabled = false; button.removeAttribute("aria-busy");
+});
+$("authAccountForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (authProvider === "wechat") { $("authMessage").textContent = "微信授权服务尚未配置，请联系管理员。"; return; }
+  if (!authChallengeId) { $("authMessage").textContent = "请先获取验证码。"; return; }
+  const button = $("authAccountSubmit"); button.disabled = true; button.setAttribute("aria-busy", "true");
+  try {
+    const result = await post("/api/v1/auth/login", { challenge_id: authChallengeId, code: $("authCode").value.trim() });
+    if (result.access_token) { setAuthToken(result.access_token); await loadAuthSession(); $("authDialog").hidden = true; }
+  } catch (error) { $("authMessage").textContent = error.message || "验证码登录暂不可用。"; }
+  button.disabled = false; button.removeAttribute("aria-busy");
+});
+renderAuthProvider(authProvider);
+loadAuthMethods();
 $("authOpenButton").addEventListener("click", () => showAuthDialog());
 $("authCloseButton").addEventListener("click", () => { $("authDialog").hidden = true; });
 $("authForm").addEventListener("submit", async (event) => {

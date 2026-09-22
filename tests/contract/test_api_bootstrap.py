@@ -22,6 +22,10 @@ def test_api_bootstrap_contract():
     assert any(route.path == "/api/v1/system/launch-gate" for route in app.routes)
     assert any(route.path == "/api/v1/auth/session" for route in app.routes)
     assert any(route.path == "/api/v1/auth/policy" for route in app.routes)
+    assert any(route.path == "/api/v1/auth/methods" for route in app.routes)
+    assert any(route.path == "/api/v1/auth/challenges" for route in app.routes)
+    assert any(route.path == "/api/v1/auth/login" for route in app.routes)
+    assert any(route.path == "/api/v1/admin/users" for route in app.routes)
     assert any(route.path == "/api/v1/portfolio/candidates/{snapshot_id}/optimize" for route in app.routes)
 
 
@@ -49,6 +53,26 @@ def test_readiness_and_optional_api_token(monkeypatch):
     monkeypatch.delenv("BANBOOS2_API_TOKEN")
     monkeypatch.setenv("BANBOOS2_ENV", "production")
     assert client.get("/readyz").status_code == 503
+
+
+def test_identity_methods_and_provider_gate():
+    from fastapi.testclient import TestClient
+
+    from apps.api import main
+
+    client = TestClient(main.app)
+    response = client.get("/api/v1/auth/methods")
+    assert response.status_code == 200
+    assert response.json()["default_provider"] == "phone"
+    assert {item["key"] for item in response.json()["providers"]} == {"phone", "email", "wechat"}
+    response = client.post("/api/v1/auth/challenges", json={
+        "provider": "phone", "identifier": "13800138000", "purpose": "login",
+    })
+    assert response.status_code == 503
+    assert "尚未配置" in response.json()["detail"]
+    response = client.get("/api/v1/admin/users")
+    assert response.status_code == 200
+    assert response.json()["mode"] == "preview-only"
 
 
 def test_readonly_demo_endpoints():
