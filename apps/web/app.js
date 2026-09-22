@@ -54,7 +54,7 @@ function setStatus(text, kind = "muted") {
 
 function activateView(viewId) {
   document.querySelectorAll(".view").forEach((view) => { view.hidden = view.id !== viewId; });
-  document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === viewId));
+  document.querySelectorAll(".nav-item").forEach((item) => { const active = item.dataset.view === viewId; item.classList.toggle("active", active); item.toggleAttribute("aria-current", active); if (active) item.setAttribute("aria-current", "page"); });
 }
 
 function renderStationList(items) {
