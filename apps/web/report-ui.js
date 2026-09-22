@@ -3,6 +3,7 @@ window.ReportUI = (() => {
   const states = new Map();
   const busy = new WeakSet();
   const $ = (id) => document.getElementById(id);
+  function authHeaders() { const token = window.BanboosAuth?.token?.(); return token ? { Authorization: `Bearer ${token}` } : {}; }
   const configs = {
     curve: { view: "curveView", controls: ["curveNode", "curveMarket", "curveStart", "curveEnd", "curveLimit", "curveAggregateDuration"], buttons: ["exportCurves", "exportCurveAggregate", "exportCurveAggregateXlsx", "exportCurvePng", "exportCurveXlsx"] },
     weather: { view: "weatherView", controls: ["weatherNode", "weatherType", "weatherStart", "weatherEnd", "weatherGranularity"], buttons: ["exportWeatherPng", "exportWeatherXlsx"] },
@@ -56,7 +57,7 @@ window.ReportUI = (() => {
     button.setAttribute("aria-busy", "true");
     button.disabled = true; notice(key, "正在生成 Excel…");
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { headers: authHeaders() });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         throw new Error(typeof body.detail === "string" ? body.detail : `导出请求失败（HTTP ${response.status}）`);

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Banboos 2.0 · 能源运营中心</title>
-    <link rel="stylesheet" href="./styles.css?v=ui-pass7-20260922" />
+    <link rel="stylesheet" href="./styles.css?v=ui-access-20260922" />
   </head>
   <body>
     <header class="topbar">
@@ -20,7 +20,16 @@
         <button class="nav-item" data-view="systemView" aria-controls="systemView">系统管理</button>
       </nav>
       <span id="apiState" class="status status-muted" role="status" aria-live="polite">正在连接 API…</span>
+      <div class="auth-toolbar"><span id="authSessionState" class="status status-muted" role="status" aria-live="polite">联调会话</span><button id="authOpenButton" class="secondary" type="button">登录</button></div>
     </header>
+    <div id="authDialog" class="auth-overlay" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle" hidden>
+      <section class="auth-card">
+        <div class="section-heading"><div><p class="eyebrow">访问控制</p><h2 id="authDialogTitle">建立安全会话</h2></div><button id="authCloseButton" class="secondary" type="button">关闭</button></div>
+        <p class="auth-intro">生产环境使用平台签发的访问令牌；令牌只保存在当前浏览器会话，不写入项目文件。</p>
+        <form id="authForm" class="auth-form"><label>访问令牌<input id="authToken" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴预发布或生产令牌" required /></label><button id="authSubmitButton" class="primary" type="submit">建立会话</button></form>
+        <p id="authMessage" class="task-progress" role="status" aria-live="polite">开发环境可直接使用联调会话。</p>
+      </section>
+    </div>
     <main class="page">
       <section id="overviewView" class="view">
         <section class="overview-hero">
@@ -110,11 +119,12 @@
         <section class="metrics system-metrics"><article class="metric card"><span>API 健康</span><strong id="systemHealth">—</strong><small id="systemHealthDetail">等待检查</small></article><article class="metric card"><span>就绪状态</span><strong id="systemReady">—</strong><small id="systemReadyDetail">等待检查</small></article><article class="metric card"><span>数据模式</span><strong id="systemMode">—</strong><small>真实库只读 / 演示</small></article><article class="metric card"><span>生产控制</span><strong>关闭</strong><small>安全联调默认关闭</small></article></section>
         <section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">运维检查</p><h2>服务状态</h2></div><button id="refreshSystem" class="primary">刷新状态</button></div><div class="system-checks-frame"><pre id="systemChecks">点击刷新状态查看就绪检查结果</pre></div></section>
         <section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">上线门禁</p><h2>发布前检查</h2></div><button id="refreshLaunchGate" class="primary" type="button">刷新门禁</button></div><p id="launchGateState" class="task-progress">点击刷新查看认证、数据库、队列、模板和生产控制门禁。</p><div id="launchGateChecks" class="portfolio-table-wrap launch-gate-table"></div></section>
+        <section class="card system-actions access-control-card"><div class="section-heading"><div><p class="eyebrow">身份与权限</p><h2>用户权限管理</h2></div><span id="authPolicyState" class="status status-muted" role="status" aria-live="polite">策略预览</span></div><div class="auth-session-summary"><div><span>当前会话</span><strong id="currentAuthUser">开发联调用户</strong><small id="currentAuthScope">联调租户 · 权限策略加载中</small></div><button id="authSignOutButton" class="secondary" type="button">退出登录</button></div><div class="permission-toolbar"><label>查看角色<select id="permissionRole" aria-label="查看角色"></select></label><output id="permissionRoleSummary" class="group-summary" aria-live="polite">加载权限策略…</output></div><div id="permissionMatrix" class="permission-matrix"><p class="empty-state">正在读取权限策略。</p></div><p class="curve-hint">当前版本先提供角色边界与会话预览；用户、租户和角色的持久化授权将在 PostgreSQL 身份服务接入后启用，生产控制默认关闭。</p></section>
         <section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">1.6.6 只读管理</p><h2>导入与基础资料</h2></div><div class="legacy-tools"><select id="legacyTableKind" aria-label="管理表类型"><option value="import-logs">导入日志</option><option value="field-mappings">字段映射</option><option value="breakpoints">断点任务</option><option value="geo-mappings">节点地理映射</option><option value="province-investment">省级投资预设</option><option value="access-log">访问日志</option></select><button id="refreshLegacy" class="primary">刷新只读数据</button></div></div><p id="legacyState" class="task-progress">未加载。当前仅允许读取隔离副本，不提供旧库写入。</p><div class="portfolio-table-wrap"><table><thead><tr id="legacyHead"></tr></thead><tbody id="legacyBody"><tr><td>点击刷新只读数据</td></tr></tbody></table></div></section>
         <section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">隔离数据导入</p><h2>预览与校验</h2></div><div class="legacy-tools"><input id="importSourceName" placeholder="来源文件名" value="manual-preview.json" /><select id="importMarket"><option>实时</option><option>日前</option></select><button id="importPreviewButton" class="primary" type="button">预览导入</button><button id="importCommitButton" class="secondary" type="button" disabled>确认记录</button></div></div><p id="importState" class="task-progress">仅校验并记录隔离预览，不写入 1.6.6 数据库；每行需包含 node_id、run_date 和 96 点 prices 数组。</p><textarea id="importRows" rows="4" placeholder="[{&quot;node_id&quot;:786,&quot;run_date&quot;:&quot;2026-01-01&quot;,&quot;prices&quot;:[1,2,3]}]"></textarea></section><section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">审计查询</p><h2>最近任务</h2></div><span id="systemRunsState" class="status status-muted" role="status" aria-live="polite">未加载</span></div><div class="audit-filters"><label>任务类型<select id="systemRunKind"><option value="">全部</option><option>financial</option><option>sensitivity</option><option>price-analysis</option><option>strict-dispatch</option><option>lp-analysis</option><option>portfolio-optimization</option></select></label><label>状态<select id="systemRunStatus"><option value="">全部</option><option>succeeded</option><option>failed</option><option>running</option><option>queued</option></select></label></div><div class="portfolio-table-wrap system-runs-table"><table><thead><tr><th>任务类型</th><th>状态</th><th>进度</th><th>创建时间</th><th>错误码</th></tr></thead><tbody id="systemRunsBody"><tr><td colspan="5">点击刷新状态加载</td></tr></tbody></table></div></section>
       </section>
     </main>
-    <script src="./report-ui.js?v=alignment-20260921" defer></script>
-    <script src="./app.js?v=ui-interaction-20260922" defer></script>
+    <script src="./report-ui.js?v=auth-session-20260922" defer></script>
+    <script src="./app.js?v=ui-auth-roles-20260922" defer></script>
   </body>
 </html>

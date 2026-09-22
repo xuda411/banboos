@@ -20,6 +20,8 @@ def test_api_bootstrap_contract():
     assert any(route.path == "/api/v1/price/aggregates/export" for route in app.routes)
     assert any(route.path == "/api/v1/portfolio/candidates/export" for route in app.routes)
     assert any(route.path == "/api/v1/system/launch-gate" for route in app.routes)
+    assert any(route.path == "/api/v1/auth/session" for route in app.routes)
+    assert any(route.path == "/api/v1/auth/policy" for route in app.routes)
     assert any(route.path == "/api/v1/portfolio/candidates/{snapshot_id}/optimize" for route in app.routes)
 
 
@@ -38,6 +40,11 @@ def test_readiness_and_optional_api_token(monkeypatch):
     assert client.get("/api/v1/meta").status_code == 401
     response = client.get("/api/v1/meta", headers={"X-API-Key": "t" * 32})
     assert response.status_code == 200
+    response = client.get("/api/v1/auth/session", headers={"Authorization": f"Bearer {'t' * 32}"})
+    assert response.status_code == 200
+    assert response.json()["mode"] == "token"
+    assert response.json()["user"]["role"] == "platform_admin"
+    assert client.get("/api/v1/auth/policy", headers={"X-API-Key": "t" * 32}).json()["write_mode"] == "preview-only"
 
     monkeypatch.delenv("BANBOOS2_API_TOKEN")
     monkeypatch.setenv("BANBOOS2_ENV", "production")

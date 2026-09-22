@@ -12,6 +12,56 @@ let financialRunId = null;
 let portfolioCandidateSnapshotId = null;
 let portfolioCandidateSource = new Map();
 let importPreviewId = null;
+let authToken = null;
+let authPolicy = null;
+try { authToken = sessionStorage.getItem("banboosAuthToken") || null; } catch { /* Storage can be disabled. */ }
+
+function authHeaders() { return authToken ? { Authorization: `Bearer ${authToken}` } : {}; }
+function setAuthToken(value) {
+  authToken = value?.trim() || null;
+  try { if (authToken) sessionStorage.setItem("banboosAuthToken", authToken); else sessionStorage.removeItem("banboosAuthToken"); } catch { /* Storage can be disabled. */ }
+}
+function showAuthDialog(message = "请输入访问令牌后继续。") {
+  const dialog = $("authDialog"); if (!dialog) return;
+  dialog.hidden = false; $("authMessage").textContent = message; $("authToken").focus();
+}
+function renderAuthSession(session) {
+  const user = session?.user || {}; const tenant = session?.tenant || {};
+  $("authSessionState").textContent = session?.mode === "token" ? user.name || "已登录" : "开发联调用户";
+  $("authSessionState").className = "status status-ok";
+  $("authOpenButton").textContent = session?.mode === "token" ? "账户" : "登录";
+  $("currentAuthUser").textContent = user.name || "开发联调用户";
+  $("currentAuthScope").textContent = `${tenant.name || "联调租户"} · ${session?.mode === "token" ? "令牌会话" : "开发默认会话"}`;
+  $("authMessage").textContent = session?.mode === "token" ? "访问令牌已验证，本次会话仅保存在当前浏览器。" : "开发环境未启用强制令牌，可直接使用联调会话。";
+}
+function renderPermissionMatrix(roleKey) {
+  const role = authPolicy?.roles?.find((item) => item.key === roleKey) || authPolicy?.roles?.[0];
+  if (!role) return;
+  $("permissionRole").value = role.key;
+  $("permissionRoleSummary").textContent = `${role.label} · ${role.scope} · ${role.permissions.length}/${authPolicy.permissions.length} 项权限`;
+  const allowed = new Set(role.permissions); const matrix = $("permissionMatrix"); matrix.replaceChildren();
+  authPolicy.permissions.forEach((permission) => {
+    const item = document.createElement("article"); item.className = `permission-item ${allowed.has(permission.key) ? "is-allowed" : "is-blocked"}`;
+    const mark = document.createElement("span"); mark.className = "permission-mark"; mark.textContent = allowed.has(permission.key) ? "已授权" : "未授权";
+    const title = document.createElement("strong"); title.textContent = permission.label;
+    const detail = document.createElement("small"); detail.textContent = permission.group;
+    item.append(mark, title, detail); matrix.append(item);
+  });
+}
+async function loadAuthPolicy() {
+  try {
+    authPolicy = await get("/api/v1/auth/policy");
+    const selector = $("permissionRole"); selector.replaceChildren(...authPolicy.roles.map((role) => { const option = document.createElement("option"); option.value = role.key; option.textContent = role.label; return option; }));
+    selector.onchange = () => renderPermissionMatrix(selector.value);
+    renderPermissionMatrix(authPolicy.roles[0]?.key);
+    $("authPolicyState").textContent = `策略 v${authPolicy.version}`; $("authPolicyState").className = "status status-ok";
+  } catch (error) { $("authPolicyState").textContent = "策略不可用"; $("authPolicyState").className = "status status-error"; $("permissionMatrix").innerHTML = `<p class="empty-state">权限策略加载失败：${error.message}</p>`; }
+}
+async function loadAuthSession() {
+  try { const session = await get("/api/v1/auth/session"); renderAuthSession(session); await loadAuthPolicy(); return session; }
+  catch (error) { if (error.status === 401) setAuthToken(null); $("authSessionState").textContent = "未登录"; $("authSessionState").className = "status status-error"; $("currentAuthUser").textContent = "未建立会话"; $("currentAuthScope").textContent = "请登录后查看租户和权限范围"; if (error.status !== 401) $("authMessage").textContent = `会话读取失败：${error.message}`; return null; }
+}
+window.BanboosAuth = { token: () => authToken, open: () => showAuthDialog(), clear: () => setAuthToken(null) };
 
 function displaySource(value) {
   if (!value) return "未标注来源";
@@ -35,18 +85,18 @@ function runStatusClass(status) { return status === "succeeded" ? "status-ok" : 
 async function get(path, params = {}) {
   const url = new URL(apiBase + path);
   Object.entries(params).filter(([, value]) => value !== "" && value != null).forEach(([key, value]) => url.searchParams.set(key, value));
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: authHeaders() });
   const body = await response.json();
-  if (!response.ok) throw new Error(body.detail || `API ${response.status}`);
+  if (!response.ok) { const error = new Error(body.detail || `API ${response.status}`); error.status = response.status; if (response.status === 401) showAuthDialog("会话已失效，请重新输入访问令牌。"); throw error; }
   return body;
 }
 
 async function post(path, body) {
   const response = await fetch(apiBase + path, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify(body),
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.detail || `API ${response.status}`);
+  if (!response.ok) { const error = new Error(result.detail || `API ${response.status}`); error.status = response.status; if (response.status === 401) showAuthDialog("会话已失效，请重新输入访问令牌。"); throw error; }
   return result;
 }
 
@@ -1127,6 +1177,18 @@ if ($("financialParameterGroup")) {
   $("financialParameterGroup").addEventListener("change", syncFinancialParameterGroup);
   syncFinancialParameterGroup();
 }
+$("authOpenButton").addEventListener("click", () => showAuthDialog());
+$("authCloseButton").addEventListener("click", () => { $("authDialog").hidden = true; });
+$("authForm").addEventListener("submit", async (event) => {
+  event.preventDefault(); const button = $("authSubmitButton"); const token = $("authToken").value.trim();
+  if (!token) { $("authMessage").textContent = "请输入访问令牌。"; return; }
+  button.disabled = true; button.setAttribute("aria-busy", "true"); $("authMessage").textContent = "正在验证访问令牌…"; setAuthToken(token);
+  const session = await loadAuthSession();
+  if (session) { $("authDialog").hidden = true; $("authToken").value = ""; refreshSystem(); loadNodes().then(refresh).catch((error) => { $("notice").textContent = `无法读取数据：${error.message}`; }); }
+  else $("authMessage").textContent = "令牌无效或已过期，请重新输入。";
+  button.disabled = false; button.removeAttribute("aria-busy");
+});
+$("authSignOutButton").addEventListener("click", () => { setAuthToken(null); $("authOpenButton").textContent = "登录"; $("authSessionState").textContent = "未登录"; $("authSessionState").className = "status status-error"; $("currentAuthUser").textContent = "未建立会话"; $("currentAuthScope").textContent = "请登录后查看租户和权限范围"; showAuthDialog("已退出当前会话。请输入访问令牌后继续。"); });
 ["powerMw", "capacityMwh", "annualRevenue"].forEach((id) => $(id).addEventListener("input", () => {
   if (financialSourceRunId) $("taskMessage").textContent = "已修改规模或收入，当前使用手动财务假设；可重新从节点分析带入。";
   financialSourceRunId = null;
@@ -1140,5 +1202,7 @@ $("downloadTemplateReport").addEventListener("click", (event) => {
 });
 ReportUI.init();
 activateView("overviewView");
-refreshSystem();
-loadNodes().then(refresh).catch((error) => { $("notice").textContent = `无法连接 API：${error.message}`; setStatus("API 未连接", "error"); });
+loadAuthSession().finally(() => {
+  refreshSystem();
+  loadNodes().then(refresh).catch((error) => { $("notice").textContent = `无法连接 API：${error.message}`; setStatus("API 未连接", "error"); });
+});

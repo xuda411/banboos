@@ -85,6 +85,24 @@ run_registry = RunRegistry(RedisTaskQueue(redis_url) if redis_url else local_run
 edge_spool = TelemetrySpool(os.getenv("BANBOOS2_EDGE_SPOOL", "var/edge/telemetry.sqlite"))
 import_service = ImportService()
 
+AUTH_PERMISSION_CATALOG = [
+    {"key": "read", "label": "查看数据", "group": "数据访问"},
+    {"key": "maintain_data", "label": "维护数据质量", "group": "数据治理"},
+    {"key": "analyze", "label": "运行分析任务", "group": "分析与测算"},
+    {"key": "export", "label": "导出报表", "group": "分析与测算"},
+    {"key": "dispatch_recommend", "label": "生成调度建议", "group": "调度"},
+    {"key": "command_approve", "label": "审批控制指令", "group": "控制"},
+    {"key": "command_execute", "label": "执行控制指令", "group": "控制"},
+    {"key": "manage_users", "label": "管理用户与角色", "group": "平台管理"},
+    {"key": "manage_system", "label": "管理系统配置", "group": "平台管理"},
+]
+AUTH_ROLE_CATALOG = [
+    {"key": "platform_admin", "label": "平台管理员", "scope": "租户级", "permissions": [item["key"] for item in AUTH_PERMISSION_CATALOG if item["key"] not in {"command_execute"}]},
+    {"key": "operations_analyst", "label": "运营分析员", "scope": "项目 / 电站", "permissions": ["read", "maintain_data", "analyze", "export", "dispatch_recommend"]},
+    {"key": "finance_analyst", "label": "财务分析员", "scope": "项目级", "permissions": ["read", "analyze", "export"]},
+    {"key": "auditor", "label": "审计只读", "scope": "授权范围", "permissions": ["read", "export"]},
+]
+
 allowed_origins = [item.strip() for item in os.getenv(
     "BANBOOS2_CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173"
 ).split(",") if item.strip()]
@@ -141,6 +159,27 @@ def meta() -> dict[str, str]:
     return {"product": "Banboos", "platform": "server-web-operations", "api_version": "v1",
             "data_mode": readonly_service.data_mode,
             "financial_template_available": str(template_available)}
+
+
+@app.get("/api/v1/auth/session", tags=["auth"])
+def auth_session() -> dict:
+    """Return the current interim token session; identity storage comes in the user service milestone."""
+    configured = bool(configured_token())
+    return {
+        "authenticated": True,
+        "mode": "token" if configured else "development-open",
+        "user": {"id": "token-owner" if configured else "dev-user", "name": "预发布访问用户" if configured else "开发联调用户", "role": "platform_admin"},
+        "tenant": {"id": "staging-tenant", "name": "联调租户"},
+        "control_mode": os.getenv("BANBOOS2_CONTROL_MODE", "disabled"),
+        "identity_source": "api-token" if configured else "development-default",
+    }
+
+
+@app.get("/api/v1/auth/policy", tags=["auth"])
+def auth_policy() -> dict:
+    """Expose the versioned permission boundary used by the upcoming identity service UI."""
+    return {"version": "2026-09-22", "roles": AUTH_ROLE_CATALOG, "permissions": AUTH_PERMISSION_CATALOG,
+            "control_default": "disabled", "write_mode": "preview-only"}
 
 
 @app.get("/api/v1/system/launch-gate", response_model=LaunchGateReport, tags=["system"])
