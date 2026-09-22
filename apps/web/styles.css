@@ -103,6 +103,7 @@ label small { color: #176b50; font-size: 11px; }
 select, input, button { min-height: 38px; border: 1px solid #c6d2cb; border-radius: 7px; background: #fff; color: #243a30; padding: 0 10px; font: inherit; }
 button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid rgba(23,107,80,.28); outline-offset: 2px; }
 .curve-card canvas:focus-visible, .weather-chart-card canvas:focus-visible { outline: 3px solid rgba(23,107,80,.35); outline-offset: 4px; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
 button[aria-busy="true"] { cursor: progress; }
 input::placeholder, textarea::placeholder { color: #60736a; opacity: 1; }
 ::selection { color: #fff; background: #176b50; }

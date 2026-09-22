@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Banboos 2.0 · 能源运营中心</title>
-    <link rel="stylesheet" href="./styles.css?v=ui-pass4-20260922" />
+    <link rel="stylesheet" href="./styles.css?v=ui-pass5-20260922" />
   </head>
   <body>
     <header class="topbar">
@@ -42,7 +42,7 @@
           <article class="dashboard-card station-card"><div class="card-heading"><div><span class="eyebrow">站点监视</span><h2>节点状态</h2></div><span class="live-dot">数据只读</span></div><div id="stationList" class="station-list"><div class="empty-state">正在读取节点…</div></div></article>
           <article class="dashboard-card pulse-card"><div class="card-heading"><div><span class="eyebrow">系统状态</span><h2>运行脉搏</h2></div><span class="status status-ok">正常</span></div><div class="pulse-chart"><div class="pulse-line"></div><div class="pulse-line second"></div></div><div class="pulse-legend"><span><i class="legend-green"></i>API 服务</span><strong>在线</strong><span><i class="legend-gold"></i>生产控制</span><strong class="muted-text">关闭</strong></div><p class="card-note">边缘数据、任务队列和报表出口均保留追溯链路。</p></article>
         </section>
-        <section class="quick-actions"><button data-view="analysisView"><b>01</b><span>节点与电价分析</span><small>选择节点，查看真实数据边界</small></button><button data-view="taskView"><b>02</b><span>提交财务测算</span><small>异步执行并下载结构化报表</small></button><button data-view="analysisView"><b>03</b><span>质量与气象</span><small>检查完整率和天气观测</small></button></section>
+        <section class="quick-actions"><button data-view="analysisView"><b>01</b><span>节点与电价分析</span><small>选择节点，查看真实数据边界</small></button><button data-view="taskView"><b>02</b><span>提交财务测算</span><small>异步执行并下载结构化报表</small></button><button data-view="weatherView"><b>03</b><span>质量与气象</span><small>检查完整率和天气观测</small></button></section>
         <section class="card operations-report-card"><div class="section-heading"><div><p class="eyebrow">运营日报 / 月报</p><h2>站点层级汇总</h2></div><div class="legacy-tools"><select id="operationsReportMarket"><option>实时</option><option>日前</option></select><input id="operationsReportStart" type="date" value="2026-01-01" /><input id="operationsReportEnd" type="date" value="2026-01-31" /><button id="loadOperationsReport" class="primary" type="button">加载报告</button><button id="exportOperationsReport" class="secondary" type="button" disabled>导出 Excel</button></div></div><p id="operationsReportState" class="task-progress" role="status" aria-live="polite">按省份和月份汇总有效日、数据点和均价差。</p><div class="portfolio-table-wrap operations-report-table"><table><thead><tr><th>省份</th><th>节点数</th><th>有效节点</th><th>有效日</th><th>数据点</th></tr></thead><tbody id="operationsReportBody"><tr><td colspan="5">点击加载报告</td></tr></tbody></table></div></section>
       </section>
 
