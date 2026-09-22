@@ -56,6 +56,20 @@ def test_readiness_and_optional_api_token(monkeypatch):
     assert client.get("/readyz").status_code == 503
 
 
+def test_production_identity_mode_never_falls_back_to_open_api(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from apps.api import main
+
+    monkeypatch.setenv("BANBOOS2_ENV", "production")
+    monkeypatch.setenv("BANBOOS2_AUTH_MODE", "identity")
+    client = TestClient(main.app)
+
+    assert client.get("/api/v1/nodes").status_code == 503
+    assert client.get("/api/v1/auth/session").status_code == 503
+    assert client.get("/api/v1/auth/methods").status_code == 200
+
+
 def test_identity_methods_and_provider_gate():
     from fastapi.testclient import TestClient
 

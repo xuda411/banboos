@@ -15,7 +15,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from apps.api.security import configured_token, is_production, token_matches
+from apps.api.security import (
+    auth_mode,
+    configured_token,
+    is_production,
+    token_fallback_enabled,
+    token_matches,
+)
 from apps.edge.gateway import TelemetrySpool
 from packages.application.deployment_preflight import evaluate_preflight
 from packages.application.financial_export import export_financial_xlsx
@@ -138,7 +144,24 @@ async def request_guard(request, call_next):
     request_id = request.headers.get("X-Request-ID") or str(uuid4())
     protected = request.url.path.startswith("/api/")
     candidate = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-    if protected and configured_token() and not token_matches(candidate or request.headers.get("X-API-Key")):
+    identity_routes = {
+        "/api/v1/auth/methods",
+        "/api/v1/auth/challenges",
+        "/api/v1/auth/login",
+        "/api/v1/auth/session",
+        "/api/v1/system/preflight",
+        "/api/v1/system/launch-gate",
+    }
+    if protected and is_production() and auth_mode() in {"identity", "oidc", "oauth2"} \
+            and request.url.path not in identity_routes:
+        response = JSONResponse(
+            {"detail": {"code": "IDENTITY_AUTH_NOT_READY", "message": "正式身份服务尚未完成接入"}},
+            status_code=503,
+        )
+        response.headers["X-Request-ID"] = request_id
+        return response
+    if protected and token_fallback_enabled() and configured_token() \
+            and not token_matches(candidate or request.headers.get("X-API-Key")):
         response = JSONResponse({"detail": "authentication required"}, status_code=401)
         response.headers["X-Request-ID"] = request_id
         return response
@@ -160,8 +183,11 @@ def health() -> HealthResponse:
 @app.get("/readyz", tags=["system"])
 def ready() -> dict:
     checks = {"api": "ok", "redis": "not-configured", "auth": "ok"}
-    if is_production() and (not configured_token() or len(configured_token() or "") < 32):
-        checks["auth"] = "production token must be at least 32 characters"
+    if is_production():
+        if auth_mode() in {"identity", "oidc", "oauth2"}:
+            checks["auth"] = "identity service adapter pending"
+        elif not configured_token() or len(configured_token() or "") < 32:
+            checks["auth"] = "production token must be at least 32 characters"
     if redis_url:
         try:
             redis.Redis.from_url(redis_url, decode_responses=True).ping()
@@ -185,6 +211,8 @@ def meta() -> dict[str, str]:
 @app.get("/api/v1/auth/session", tags=["auth"])
 def auth_session() -> dict:
     """Return the current interim token session; identity storage comes in the user service milestone."""
+    if is_production() and auth_mode() in {"identity", "oidc", "oauth2"}:
+        raise HTTPException(status_code=503, detail="正式身份服务尚未完成接入")
     configured = bool(configured_token())
     return {
         "authenticated": True,
