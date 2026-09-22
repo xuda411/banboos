@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from apps.api.security import configured_token, is_production, token_matches
 from apps.edge.gateway import TelemetrySpool
+from packages.application.deployment_preflight import evaluate_preflight
 from packages.application.financial_export import export_financial_xlsx
 from packages.application.financial_template_xlsm import (
     export_financial_xlsm,
@@ -268,33 +269,20 @@ def auth_policy() -> dict:
 
 @app.get("/api/v1/system/launch-gate", response_model=LaunchGateReport, tags=["system"])
 def launch_gate() -> LaunchGateReport:
-    environment = os.getenv("BANBOOS2_ENV", "development")
-    configured_auth = bool(configured_token() and len(configured_token() or "") >= 32)
-    identity_configured = all(os.getenv(name) for name in IDENTITY_PROVIDER_ENV.values())
-    configured_db = os.getenv("BANBOOS2_DATABASE_URL", "").startswith("postgresql")
-    configured_redis = bool(os.getenv("BANBOOS2_REDIS_URL"))
-    template = financial_template_path()
-    template_ok = template is not None
-    control = os.getenv("BANBOOS2_CONTROL_MODE", "disabled")
-    checks = [
-        LaunchGateCheck(name="identity_service", status="pass" if identity_configured or environment != "production" else "fail",
-                        detail="手机号、邮箱、微信身份服务已配置" if identity_configured else "开发环境允许身份服务待接入" if environment != "production" else "生产必须配置手机号、邮箱和微信身份服务"),
-        LaunchGateCheck(name="api_auth", status="warn" if configured_auth else "pass",
-                        detail="API token 仅作为联调 fallback，不作为正式用户登录"),
-        LaunchGateCheck(name="postgres", status="pass" if configured_db or environment != "production" else "fail",
-                        detail="PostgreSQL URL 已配置" if configured_db else "开发环境可使用本地运行时" if environment != "production" else "生产必须配置 PostgreSQL"),
-        LaunchGateCheck(name="redis", status="pass" if configured_redis or environment != "production" else "fail",
-                        detail="Redis URL 已配置" if configured_redis else "开发环境可使用本地队列" if environment != "production" else "生产必须配置 Redis"),
-        LaunchGateCheck(name="financial_template", status="pass" if template_ok else "warn",
-                        detail="1.6.6 模板可用" if template_ok else "未配置模板，不能导出原版 XLSM"),
-        LaunchGateCheck(name="production_control", status="pass" if control == "disabled" else "fail",
-                        detail="生产控制保持关闭" if control == "disabled" else "生产控制开关必须保持 disabled"),
-        LaunchGateCheck(name="tenant_isolation", status="warn",
-                        detail="租户权限模型已建表，正式租户鉴权仍需预发布验收"),
-    ]
-    blocked = any(item.status == "fail" for item in checks)
-    return LaunchGateReport(status="blocked" if blocked else "staging-ready", environment=environment,
-                            control_mode=control, checks=checks)
+    report = evaluate_preflight()
+    checks = [LaunchGateCheck(**item) for item in report["checks"]]
+    return LaunchGateReport(
+        status=str(report["status"]),
+        environment=str(report["environment"]),
+        control_mode=os.getenv("BANBOOS2_CONTROL_MODE", "disabled"),
+        checks=checks,
+    )
+
+
+@app.get("/api/v1/system/preflight", tags=["system"])
+def system_preflight() -> dict[str, object]:
+    """Return the full deployment preflight, including non-blocking warnings."""
+    return evaluate_preflight()
 
 
 @app.get("/api/v1/nodes", tags=["readonly"])

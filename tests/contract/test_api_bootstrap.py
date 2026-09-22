@@ -20,6 +20,7 @@ def test_api_bootstrap_contract():
     assert any(route.path == "/api/v1/price/aggregates/export" for route in app.routes)
     assert any(route.path == "/api/v1/portfolio/candidates/export" for route in app.routes)
     assert any(route.path == "/api/v1/system/launch-gate" for route in app.routes)
+    assert any(route.path == "/api/v1/system/preflight" for route in app.routes)
     assert any(route.path == "/api/v1/auth/session" for route in app.routes)
     assert any(route.path == "/api/v1/auth/policy" for route in app.routes)
     assert any(route.path == "/api/v1/auth/methods" for route in app.routes)

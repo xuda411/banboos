@@ -7,6 +7,7 @@
 ```powershell
 Copy-Item .env.example .env
 # 编辑 .env，替换数据库、身份服务和 CORS 域名配置
+& .venv\Scripts\python.exe scripts\preflight_production.py --strict
 docker compose -f deploy/docker-compose.prod.yml up -d postgres redis
 docker compose -f deploy/docker-compose.prod.yml run --rm api alembic upgrade head
 docker compose -f deploy/docker-compose.prod.yml up -d api worker
@@ -38,5 +39,7 @@ Set-Location E:\Banboos2.0
 - 备份 PostgreSQL 和 Redis 持久卷，并记录当前 Git 提交与 Alembic revision。
 - 真实电站继续保持只读；调度建议、测试执行、生产执行必须另行通过验证门槛。
 - 使用 `GET /api/v1/system/launch-gate` 保存发布门禁快照；出现 `blocked` 或租户隔离 `warn` 时不得开放生产控制。
+- 部署前必须执行 `scripts/preflight_production.py --strict`；该命令会拒绝 API token fallback、未启用严格租户隔离、缺少身份服务、数据库、Redis、CORS 或财务模板的配置。
+- Web 管理页对应的 `GET /api/v1/system/preflight` 返回完整检查项，可用于发布流水线留存门禁快照。
 
 生产编排文件为 [docker-compose.prod.yml](../deploy/docker-compose.prod.yml)，配置模板为 [.env.example](../.env.example)。
