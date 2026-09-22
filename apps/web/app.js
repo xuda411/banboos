@@ -28,6 +28,9 @@ function displaySource(value) {
 const runKindLabels = { financial: "财务测算", sensitivity: "敏感性分析", "price-analysis": "节点电价分析", "strict-dispatch": "约束回放", "lp-analysis": "LP 分析", "portfolio-optimization": "组合优化", "investment-scenario": "投资情景", weather: "气象专题" };
 const gateCheckLabels = { api_auth: "接口认证", postgres: "数据库", redis: "任务队列", financial_template: "财务模板", production_control: "生产控制", tenant_isolation: "租户隔离" };
 function runKindLabel(value) { return runKindLabels[value] || value || "—"; }
+const runStatusLabels = { queued: "排队中", running: "执行中", succeeded: "已完成", failed: "失败", cancelled: "已取消" };
+function runStatusLabel(status, progress) { return `${runStatusLabels[status] || status || "处理中"} ${progress ?? 0}%`; }
+function runStatusClass(status) { return status === "succeeded" ? "status-ok" : ["failed", "cancelled"].includes(status) ? "status-error" : "status-muted"; }
 
 async function get(path, params = {}) {
   const url = new URL(apiBase + path);
@@ -152,7 +155,7 @@ async function generatePortfolioCandidates() {
   if (!Number.isFinite(power) || !Number.isFinite(capacity) || capacity / power < 0.25 || capacity / power > 24) {
     message.textContent = "候选项目规模无效：容量/功率时长须在 0.25 至 24 小时之间。"; return;
   }
-  button.disabled = true; message.textContent = "正在读取真实节点并生成候选项目…";
+  button.disabled = true; button.setAttribute("aria-busy", "true"); message.textContent = "正在读取真实节点并生成候选项目…";
   const query = { market: $("portfolioMarket").value, start_date: $("portfolioStart").value,
     end_date: $("portfolioEnd").value, power_mw: power, capacity_mwh: capacity, round_trip_efficiency: 0.92 };
   const ticket = ReportUI.begin("portfolioCandidates", query, "原始候选快照");
@@ -176,13 +179,13 @@ async function generatePortfolioCandidates() {
     ReportUI.invalidate("portfolioCandidates", `候选生成失败：${error.message}`);
     message.textContent = `候选生成失败：${error.message}`;
   }
-  finally { button.disabled = false; }
+  finally { button.disabled = false; button.removeAttribute("aria-busy"); }
 }
 
 async function optimizePortfolioSnapshot() {
   if (!portfolioCandidateSnapshotId) return;
   const message = $("portfolioOptMessage"); const button = $("optimizePortfolioSnapshot");
-  button.disabled = true; message.textContent = "正在按原始候选快照提交组合优化…";
+  button.disabled = true; button.setAttribute("aria-busy", "true"); message.textContent = "正在按原始候选快照提交组合优化…";
   const parameters = { objective: $("portfolioObjective").value,
     budget_limit_wan: $("portfolioBudget").value === "" ? null : Number($("portfolioBudget").value),
     revenue_target_wan: $("portfolioRevenueTarget").disabled ? null : Number($("portfolioRevenueTarget").value),
@@ -192,7 +195,7 @@ async function optimizePortfolioSnapshot() {
     portfolioRunId = run.run_id; $("resumePortfolio").hidden = false;
     await pollPortfolio();
   } catch (error) { message.textContent = "快照优化失败：" + error.message; }
-  finally { button.disabled = false; }
+  finally { button.disabled = false; button.removeAttribute("aria-busy"); }
 }
 
 function exportPortfolioCandidates() {
@@ -234,7 +237,9 @@ function renderPortfolioResult(result) {
 async function pollPortfolio() {
   for (let i = 0; i < 90; i += 1) {
     const status = await get(`/api/v1/runs/${portfolioRunId}`);
-    $("portfolioOptMessage").textContent = `${status.message || "计算中"} · ${status.progress}% · 任务 ${portfolioRunId}`;
+    $("portfolioOptState").textContent = runStatusLabels[status.status] || "处理中";
+    $("portfolioOptState").className = "status " + runStatusClass(status.status);
+    $("portfolioOptMessage").textContent = `${runStatusLabel(status.status, status.progress)} · ${status.message || "正在计算"} · 任务 ${portfolioRunId}`;
     if (status.status === "succeeded") { renderPortfolioResult(status.result); return; }
     if (["failed", "cancelled"].includes(status.status)) throw new Error(status.message);
     await new Promise((resolve) => setTimeout(resolve, 700));
@@ -263,7 +268,7 @@ async function submitPortfolio(event) {
   if (changed && portfolioCandidateSnapshotId) {
     $("portfolioOptMessage").textContent = `已基于快照 ${portfolioCandidateSnapshotId.slice(0, 12)}…提交；其中 ${changed} 个节点候选包含手工调整。`;
   }
-  $("portfolioFields").disabled = true; $("resumePortfolio").disabled = true;
+  $("portfolioFields").disabled = true; $("resumePortfolio").disabled = true; $("submitPortfolio").disabled = true; $("submitPortfolio").setAttribute("aria-busy", "true");
   $("portfolioOptState").textContent = "计算中";
   try {
     const run = await post("/api/v1/runs", { kind: "portfolio-optimization", parameters });
@@ -274,7 +279,7 @@ async function submitPortfolio(event) {
   } catch (error) {
     $("portfolioOptState").textContent = "请检查任务"; $("portfolioOptState").className = "status status-error";
     $("portfolioOptMessage").textContent = error.message;
-  } finally { $("portfolioFields").disabled = false; $("resumePortfolio").disabled = false; }
+  } finally { $("portfolioFields").disabled = false; $("resumePortfolio").disabled = false; $("submitPortfolio").disabled = false; $("submitPortfolio").removeAttribute("aria-busy"); }
 }
 
 async function resumePortfolio() {
@@ -313,7 +318,7 @@ async function refreshSystem() {
   const health = $("systemHealth"); const ready = $("systemReady"); const checks = $("systemChecks");
   try { const [healthBody, meta] = await Promise.all([get("/health"), get("/api/v1/meta")]); financialTemplateAvailable = meta.financial_template_available === "True"; health.textContent = healthBody.status === "ok" ? "正常" : (healthBody.status || "异常"); health.className = healthBody.status === "ok" ? "value-ok" : "value-error"; $("systemHealthDetail").textContent = `版本 ${healthBody.version || "—"}`; $("systemMode").textContent = meta.data_mode === "staging-readonly" ? "隔离只读" : (meta.data_mode || "—"); } catch (error) { financialTemplateAvailable = false; health.textContent = "异常"; health.className = "value-error"; $("systemHealthDetail").textContent = error.message; $("systemMode").textContent = "不可用"; }
   try { const body = await get("/readyz"); const isReady = body.status === "ready"; ready.textContent = isReady ? "已就绪" : (body.status || "未就绪"); ready.className = isReady ? "value-ok" : "value-error"; $("systemReadyDetail").textContent = isReady ? "所有依赖已就绪" : "存在待处理依赖"; checks.textContent = JSON.stringify(body.checks || {}, null, 2); } catch (error) { ready.textContent = "未就绪"; ready.className = "value-error"; $("systemReadyDetail").textContent = error.message; checks.textContent = error.message; }
-  try { const runs = await get("/api/v1/runs", { kind: $("systemRunKind").value, status: $("systemRunStatus").value, limit: 50 }); const body = $("systemRunsBody"); body.replaceChildren(); runs.forEach((run) => { const tr = document.createElement("tr"); const values = [runKindLabel(run.kind), run.status, `${run.progress}%`, run.created_at ? new Date(run.created_at).toLocaleString("zh-CN") : "—", run.error_code || "—"]; values.forEach((value, index) => { const td = document.createElement("td"); if (index === 1) { const badge = document.createElement("span"); badge.className = `status ${run.status === "succeeded" ? "status-ok" : run.status === "failed" ? "status-error" : "status-muted"}`; badge.textContent = run.status === "succeeded" ? "已完成" : run.status === "failed" ? "失败" : run.status === "running" ? "运行中" : "排队中"; td.appendChild(badge); } else { td.textContent = value; } tr.appendChild(td); }); body.appendChild(tr); }); $("systemRunsState").textContent = `${runs.length} 条记录`; $("systemRunsState").className = `status ${runs.length ? "status-ok" : "status-muted"}`; } catch (error) { $("systemRunsState").textContent = "加载失败"; $("systemRunsState").className = "status status-error"; }
+  try { const runs = await get("/api/v1/runs", { kind: $("systemRunKind").value, status: $("systemRunStatus").value, limit: 50 }); const body = $("systemRunsBody"); body.replaceChildren(); runs.forEach((run) => { const tr = document.createElement("tr"); const values = [runKindLabel(run.kind), run.status, `${run.progress}%`, run.created_at ? new Date(run.created_at).toLocaleString("zh-CN") : "—", run.error_code || "—"]; values.forEach((value, index) => { const td = document.createElement("td"); if (index === 1) { const badge = document.createElement("span"); badge.className = `status ${runStatusClass(run.status)}`; badge.textContent = runStatusLabels[run.status] || "处理中"; td.appendChild(badge); } else { td.textContent = value; } tr.appendChild(td); }); body.appendChild(tr); }); $("systemRunsState").textContent = `${runs.length} 条记录`; $("systemRunsState").className = `status ${runs.length ? "status-ok" : "status-muted"}`; } catch (error) { $("systemRunsState").textContent = "加载失败"; $("systemRunsState").className = "status status-error"; }
 }
 
 async function syncCurveDateRange() {
@@ -605,7 +610,7 @@ async function submitAnalysis() {
   const duration = capacity / power;
   if (!nodeId) { resultBox.hidden = false; state.textContent = "请选择节点"; state.className = "status status-error"; return; }
   if (!Number.isFinite(duration) || duration < 0.25 || duration > 24) { resultBox.hidden = false; state.textContent = "参数无效"; state.className = "status status-error"; $("analysisMessage").textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
-  resultBox.hidden = false; $("analysisMonthly").hidden = true; state.textContent = "提交中"; state.className = "status status-muted"; $("analysisMessage").textContent = "正在读取完整历史日并计算价差…"; $("analysisAnnual").textContent = "—"; $("analysisDays").textContent = "—"; analysisSourceRunId = null; analysisScenarioRunId = null; analysisAnnualRevenueYuan = null; $("submitAnalysis").disabled = true;
+  resultBox.hidden = false; $("analysisMonthly").hidden = true; state.textContent = "提交中"; state.className = "status status-muted"; $("analysisMessage").textContent = "正在读取完整历史日并计算价差…"; $("analysisAnnual").textContent = "—"; $("analysisDays").textContent = "—"; analysisSourceRunId = null; analysisScenarioRunId = null; analysisAnnualRevenueYuan = null; $("submitAnalysis").disabled = true; $("submitAnalysis").setAttribute("aria-busy", "true");
   try {
     const run = await post("/api/v1/runs", { kind: "price-analysis", parameters: { node_id: Number(nodeId), market: $("market").value, start_date: $("startDate").value, end_date: $("endDate").value, power_mw: power, capacity_mwh: capacity, round_trip_efficiency: Number($("analysisEta").value) / 100 } });
     const finished = await pollAnalysis(run.run_id); const data = finished.result || {};
@@ -617,7 +622,7 @@ async function submitAnalysis() {
     renderAnalysisMonthly(data.monthly);
     ReportUI.run("analysisView", run.run_id, "月度价差", apiBase);
     $("useAnalysisForFinance").disabled = false;
-  } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; $("analysisMessage").textContent = error.message; } finally { $("submitAnalysis").disabled = false; }
+  } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; $("analysisMessage").textContent = error.message; } finally { $("submitAnalysis").disabled = false; $("submitAnalysis").removeAttribute("aria-busy"); }
 }
 
 async function createInvestmentScenario() {
@@ -634,7 +639,7 @@ async function createInvestmentScenario() {
     state.textContent = "情景参数无效：请检查系数、循环次数、利用率和保持率。";
     return;
   }
-  const button = $("createInvestmentScenario"); button.disabled = true; state.textContent = "情景生成中…";
+  const button = $("createInvestmentScenario"); button.disabled = true; button.setAttribute("aria-busy", "true"); state.textContent = "情景生成中…";
   try {
     const run = await post("/api/v1/runs", { kind: "investment-scenario", parameters: {
       source_run_id: analysisSourceRunId, scenario_name: scenarioName,
@@ -646,11 +651,12 @@ async function createInvestmentScenario() {
     state.textContent = `已生成：${data.scenario_name || scenarioName} · 年收入 ${(analysisAnnualRevenueYuan / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元 · ${run.run_id}`;
     $("useAnalysisForFinance").disabled = false;
   } catch (error) { analysisScenarioRunId = null; state.textContent = `生成失败：${error.message}`; }
-  finally { button.disabled = false; }
+  finally { button.disabled = false; button.removeAttribute("aria-busy"); }
 }
 
 async function pollAnalysis(runId) {
-  for (let attempt = 0; attempt < 300; attempt += 1) { const run = await get(`/api/v1/runs/${runId}`); if (run.status === "succeeded") return run; if (["failed", "cancelled"].includes(run.status)) throw new Error(`${run.message || "价差分析未完成"}${run.error_code ? `（${run.error_code}）` : ""}`); await new Promise((resolve) => setTimeout(resolve, 1000)); }
+  const state = $("analysisState");
+  for (let attempt = 0; attempt < 300; attempt += 1) { const run = await get(`/api/v1/runs/${runId}`); if (state) { state.textContent = runStatusLabel(run.status, run.progress); state.className = "status " + runStatusClass(run.status); } if (run.status === "succeeded") return run; if (["failed", "cancelled"].includes(run.status)) throw new Error(`${run.message || "价差分析未完成"}${run.error_code ? `（${run.error_code}）` : ""}`); await new Promise((resolve) => setTimeout(resolve, 1000)); }
   throw new Error("价差分析轮询超时，请稍后按 run_id 查询");
 }
 
@@ -680,20 +686,20 @@ function invalidateAnalysisSelection() {
 
 async function submitDispatch() {
   ReportUI.clearRun("dispatchView");
-  const nodeId = $("dispatchNode").value; const state = $("dispatchState"); const message = $("dispatchMessage");
+  const nodeId = $("dispatchNode").value; const state = $("dispatchState"); const message = $("dispatchMessage"); const submitButton = $("submitDispatch");
   if (!nodeId) { message.textContent = "请选择节点"; return; }
   const power = Number($("dispatchPower").value); const capacity = Number($("dispatchCapacity").value);
   if (!Number.isFinite(power) || !Number.isFinite(capacity) || power <= 0 || capacity <= 0 || capacity / power < 0.25 || capacity / power > 24) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
-  state.textContent = "提交中"; state.className = "status status-muted"; $("dispatchResult").hidden = true; lpReconcileRunId = null; $("lpReconcileButton").hidden = true; $("lpReconcileState").hidden = true;
+  state.textContent = "提交中"; state.className = "status status-muted"; submitButton.disabled = true; submitButton.setAttribute("aria-busy", "true"); $("dispatchResult").hidden = true; lpReconcileRunId = null; $("lpReconcileButton").hidden = true; $("lpReconcileState").hidden = true;
   const parameters = { node_id: Number(nodeId), market: $("dispatchMarket").value, start_date: $("dispatchStart").value, end_date: $("dispatchEnd").value, power_mw: power, capacity_mwh: capacity, eta_charge: Number($("dispatchEta").value) / 100, eta_discharge: Number($("dispatchEta").value) / 100, max_daily_cycles: Number($("dispatchCycles").value), hurdle_yuan_per_mwh: Number($("dispatchHurdle").value) };
   const kind = $("dispatchMode").value || "strict-dispatch";
   if (kind === "lp-analysis") Object.assign(parameters, { include_comparison: true, include_sensitivity: false });
-  try { const run = await post("/api/v1/runs", { kind, parameters }); lpReconcileRunId = kind === "lp-analysis" ? run.run_id : null; $("dispatchRunId").textContent = run.run_id; const finished = await pollDispatch(run.run_id); renderDispatchResult(finished.result); ReportUI.run("dispatchView", run.run_id, kind === "lp-analysis" ? "LP详细回放" : "逐日调度", apiBase); } catch (error) { state.textContent = "回放失败"; state.className = "status status-error"; message.textContent = error.message; }
+  try { const run = await post("/api/v1/runs", { kind, parameters }); lpReconcileRunId = kind === "lp-analysis" ? run.run_id : null; $("dispatchRunId").textContent = run.run_id; const finished = await pollDispatch(run.run_id); renderDispatchResult(finished.result); ReportUI.run("dispatchView", run.run_id, kind === "lp-analysis" ? "LP详细回放" : "逐日调度", apiBase); } catch (error) { state.textContent = "回放失败"; state.className = "status status-error"; message.textContent = error.message; } finally { submitButton.disabled = false; submitButton.removeAttribute("aria-busy"); }
 }
 
 async function pollDispatch(runId) {
   const state = $("dispatchState"); const message = $("dispatchMessage");
-  for (let attempt = 0; attempt < 300; attempt += 1) { const run = await get(`/api/v1/runs/${runId}`); state.textContent = `${run.status} ${run.progress}%`; state.className = run.status === "succeeded" ? "status status-ok" : "status status-muted"; message.textContent = run.message || "任务执行中"; if (run.status === "succeeded") return run; if (["failed", "cancelled"].includes(run.status)) throw new Error(`${run.message || "任务未完成"}${run.error_code ? `（${run.error_code}）` : ""}`); await new Promise((resolve) => setTimeout(resolve, 1000)); }
+  for (let attempt = 0; attempt < 300; attempt += 1) { const run = await get(`/api/v1/runs/${runId}`); state.textContent = runStatusLabel(run.status, run.progress); state.className = "status " + runStatusClass(run.status); message.textContent = run.message || "任务执行中"; if (run.status === "succeeded") return run; if (["failed", "cancelled"].includes(run.status)) throw new Error(`${run.message || "任务未完成"}${run.error_code ? `（${run.error_code}）` : ""}`); await new Promise((resolve) => setTimeout(resolve, 1000)); }
   throw new Error("回放轮询超时，请稍后按 run_id 查询");
 }
 
@@ -791,6 +797,7 @@ async function refresh() {
 async function submitFinancial() {
   const state = $("taskState");
   const message = $("taskMessage");
+  const submitButton = $("submitFinancial");
   const download = $("downloadReport");
   const templateDownload = $("downloadTemplateReport");
   $("financeResult").hidden = true;
@@ -808,6 +815,8 @@ async function submitFinancial() {
   }
   state.textContent = "提交中";
   state.className = "status status-muted";
+  submitButton.disabled = true;
+  submitButton.setAttribute("aria-busy", "true");
   try {
     const parameters = collectFinancialParameters();
     const run = await post("/api/v1/runs", { kind: "financial", parameters });
@@ -819,6 +828,9 @@ async function submitFinancial() {
     state.textContent = "提交失败";
     state.className = "status status-error";
     message.textContent = error.message;
+  } finally {
+    submitButton.disabled = false;
+    submitButton.removeAttribute("aria-busy");
   }
 }
 
@@ -939,15 +951,16 @@ async function submitSensitivity() {
   if (!Number.isFinite(down) || !Number.isFinite(up) || !Number.isFinite(step) || down >= up || step <= 0 || Math.ceil((up - down) / step) + 1 > 9) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "请检查上下限和步长，情景点数须为 3 至 9 个"; return; }
   const changeRates = []; for (let value = down; value <= up + 1e-9; value += step) changeRates.push(Number(value.toFixed(6)));
   if (changeRates.length < 3) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "至少需要 3 个情景点"; return; }
-  state.textContent = "提交中"; state.className = "status status-muted"; message.textContent = "正在生成敏感性情景…"; resultBox.hidden = true; $("submitSensitivity").disabled = true;
+  state.textContent = "提交中"; state.className = "status status-muted"; message.textContent = "正在生成敏感性情景…"; resultBox.hidden = true; $("submitSensitivity").disabled = true; $("submitSensitivity").setAttribute("aria-busy", "true");
   try {
     const run = await post("/api/v1/runs", { kind: "sensitivity", parameters: { base: collectFinancialParameters(), variable: $("sensitivityVariable").value, change_rates: changeRates } });
     $("sensitivityRunId").textContent = run.run_id; const finished = await pollSensitivity(run.run_id); renderSensitivityResult(finished.result); ReportUI.run("taskView", run.run_id, "敏感性分析", apiBase); state.textContent = "计算完成"; state.className = "status status-ok"; message.textContent = "情景结果已绑定当前财务参数。";
-  } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; message.textContent = error.message; } finally { $("submitSensitivity").disabled = false; }
+  } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; message.textContent = error.message; } finally { $("submitSensitivity").disabled = false; $("submitSensitivity").removeAttribute("aria-busy"); }
 }
 
 async function pollSensitivity(runId) {
-  for (let attempt = 0; attempt < 300; attempt += 1) { const run = await get(`/api/v1/runs/${runId}`); if (run.status === "succeeded") return run; if (["failed", "cancelled"].includes(run.status)) throw new Error(`${run.message || "敏感性分析未完成"}${run.error_code ? `（${run.error_code}）` : ""}`); await new Promise((resolve) => setTimeout(resolve, 1000)); }
+  const state = $("sensitivityState");
+  for (let attempt = 0; attempt < 300; attempt += 1) { const run = await get(`/api/v1/runs/${runId}`); if (state) { state.textContent = runStatusLabel(run.status, run.progress); state.className = "status " + runStatusClass(run.status); } if (run.status === "succeeded") return run; if (["failed", "cancelled"].includes(run.status)) throw new Error(`${run.message || "敏感性分析未完成"}${run.error_code ? `（${run.error_code}）` : ""}`); await new Promise((resolve) => setTimeout(resolve, 1000)); }
   throw new Error("敏感性分析轮询超时，请稍后按 run_id 查询");
 }
 
@@ -1017,8 +1030,8 @@ async function pollRun(runId) {
   const download = $("downloadReport");
   for (let attempt = 0; attempt < 300; attempt += 1) {
     const run = await get(`/api/v1/runs/${runId}`);
-    state.textContent = `${run.status} ${run.progress}%`;
-    state.className = run.status === "succeeded" ? "status status-ok" : "status status-muted";
+    state.textContent = runStatusLabel(run.status, run.progress);
+    state.className = "status " + runStatusClass(run.status);
     message.textContent = run.message || "任务执行中";
     if (run.status === "succeeded") {
       download.href = `${apiBase}/api/v1/runs/${runId}/export`;
