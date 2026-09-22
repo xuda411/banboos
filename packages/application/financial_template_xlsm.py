@@ -20,6 +20,15 @@ from packages.application.financial_xlsm_review import write_native_review
 from packages.contracts.financial import FinancialTaskParameters
 
 
+def financial_template_path(configured: str | Path | None = None) -> Path | None:
+    """Resolve the configured 1.6.6 template, including the bundled local copy."""
+    value = configured or os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")
+    candidate = Path(value).expanduser() if value else (
+        Path(__file__).resolve().parents[2] / "var" / "templates" / "独立储能项目经济性测算工具.xlsm"
+    )
+    return candidate.resolve() if candidate.is_file() and candidate.suffix.lower() == ".xlsm" else None
+
+
 def validated_template_parameters(result: dict) -> dict:
     """Do not silently fill incomplete historical task snapshots with defaults."""
     inputs = result.get("input_parameters") or {}
@@ -149,14 +158,12 @@ def export_financial_xlsm(
     template: str | Path | None = None,
 ) -> Path:
     """Create a macro-enabled workbook from a read-only template copy."""
-    configured = template or os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")
-    if not configured:
-        raise ValueError("未配置财务 XLSM 模板")
-    source = Path(configured).expanduser().resolve()
-    if not source.exists():
-        raise FileNotFoundError(f"财务 XLSM 模板不存在: {source}")
-    if source.suffix.lower() != ".xlsm":
-        raise ValueError("财务模板必须是 .xlsm 文件")
+    source = financial_template_path(template)
+    if source is None:
+        configured = template or os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")
+        if configured:
+            raise FileNotFoundError(f"财务 XLSM 模板不存在或格式错误: {Path(configured).expanduser()}")
+        raise ValueError("未配置财务 XLSM 模板，且项目 var/templates 下没有默认模板")
 
     target = Path(destination).expanduser().resolve()
     if target == source or (target.exists() and target.samefile(source)):

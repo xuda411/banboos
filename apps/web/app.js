@@ -1,4 +1,5 @@
-const apiBase = window.BANBOOS_API_BASE || "http://127.0.0.1:8000";
+const apiPort = new URLSearchParams(window.location.search).get("apiPort");
+const apiBase = window.BANBOOS_API_BASE || (apiPort ? `${window.location.protocol}//${window.location.hostname}:${apiPort}` : "http://127.0.0.1:8000");
 const $ = (id) => document.getElementById(id);
 let analysisSourceRunId = null;
 let analysisScenarioRunId = null;

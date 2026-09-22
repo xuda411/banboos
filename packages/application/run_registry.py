@@ -7,8 +7,9 @@ backed by Redis/Celery without changing the HTTP shape.
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from itertools import batched
 from threading import Lock
 from typing import Protocol
@@ -138,6 +139,7 @@ class RunRegistry:
 
     def status_counts(self) -> dict[str, int]:
         with self._lock:
+            self._reconcile_stale_locked()
             counts = dict.fromkeys(("queued", "running", "succeeded", "failed", "cancelled"), 0)
             counts.update(self._store.status_counts())
             return counts
@@ -147,7 +149,42 @@ class RunRegistry:
         if limit < 1:
             raise ValueError("limit must be positive")
         with self._lock:
+            self._reconcile_stale_locked()
             return self._store.list(kind, status, limit)
+
+    def reconcile_stale(self, max_age_seconds: int | None = None) -> int:
+        """Mark queue items abandoned by a stopped worker as failed.
+
+        A stale item remains in the durable queue, but ``claim_next`` will skip
+        it after its state changes. This prevents old queued rows from being
+        presented as live work after a service restart.
+        """
+        with self._lock:
+            return self._reconcile_stale_locked(max_age_seconds)
+
+    def _reconcile_stale_locked(self, max_age_seconds: int | None = None) -> int:
+        configured = max_age_seconds
+        if configured is None:
+            try:
+                configured = int(os.getenv("BANBOOS2_STALE_RUN_SECONDS", "1800"))
+            except ValueError:
+                configured = 1800
+        threshold = datetime.now(UTC) - timedelta(seconds=max(60, configured))
+        changed = 0
+        for item in self._store.list(limit=500):
+            created = item.created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=UTC)
+            if item.status not in {"queued", "running"} or created >= threshold:
+                continue
+            updated = item.model_copy(update={
+                "status": "failed", "progress": 100,
+                "message": "任务超过接管时限，已标记为失效，请重新提交",
+                "error_code": "STALE_RUN", "completed_at": datetime.now(UTC),
+            })
+            self._store.save(updated)
+            changed += 1
+        return changed
 
     def claim_next(self, timeout: int = 1) -> RunStatus | None:
         task = self._queue.claim(timeout)

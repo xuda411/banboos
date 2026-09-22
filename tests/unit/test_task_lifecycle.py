@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from apps.worker.main import run_once
 from packages.application.run_registry import RunRegistry
 
@@ -30,3 +32,18 @@ def test_worker_restart_requeues_running_task():
     assert registry.get(item.run_id).status == "queued"
     assert run_once(registry)
     assert registry.get(item.run_id).status == "succeeded"
+
+
+def test_stale_queue_item_is_marked_failed_before_audit_listing():
+    registry = RunRegistry()
+    item = registry.submit("noop")
+    stale = registry.get(item.run_id).model_copy(
+        update={"created_at": datetime.now(UTC) - timedelta(hours=2)}
+    )
+    registry._store.save(stale)
+
+    rows = registry.list(limit=10)
+
+    assert rows[0].status == "failed"
+    assert rows[0].error_code == "STALE_RUN"
+    assert registry.status_counts()["queued"] == 0

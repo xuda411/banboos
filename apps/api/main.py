@@ -18,7 +18,10 @@ from pydantic import BaseModel
 from apps.api.security import configured_token, is_production, token_matches
 from apps.edge.gateway import TelemetrySpool
 from packages.application.financial_export import export_financial_xlsx
-from packages.application.financial_template_xlsm import export_financial_xlsm
+from packages.application.financial_template_xlsm import (
+    export_financial_xlsm,
+    financial_template_path,
+)
 from packages.application.financial_xlsm_review import review_native_cached_values
 from packages.application.import_service import ImportService
 from packages.application.operations_service import OperationsService, OperationsUnavailable
@@ -172,9 +175,7 @@ def ready() -> dict:
 
 @app.get("/api/v1/meta", tags=["system"])
 def meta() -> dict[str, str]:
-    template = os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")
-    template_available = bool(template and Path(template).expanduser().is_file()
-                              and Path(template).suffix.lower() == ".xlsm")
+    template_available = financial_template_path() is not None
     return {"product": "Banboos", "platform": "server-web-operations", "api_version": "v1",
             "data_mode": readonly_service.data_mode,
             "financial_template_available": str(template_available)}
@@ -272,8 +273,8 @@ def launch_gate() -> LaunchGateReport:
     identity_configured = all(os.getenv(name) for name in IDENTITY_PROVIDER_ENV.values())
     configured_db = os.getenv("BANBOOS2_DATABASE_URL", "").startswith("postgresql")
     configured_redis = bool(os.getenv("BANBOOS2_REDIS_URL"))
-    template = os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")
-    template_ok = bool(template and Path(template).expanduser().is_file())
+    template = financial_template_path()
+    template_ok = template is not None
     control = os.getenv("BANBOOS2_CONTROL_MODE", "disabled")
     checks = [
         LaunchGateCheck(name="identity_service", status="pass" if identity_configured or environment != "production" else "fail",
@@ -684,9 +685,9 @@ def reconcile_financial_template_run(run_id: str):
         raise HTTPException(status_code=400, detail="only financial runs support template reconciliation")
     if item.status != "succeeded" or not item.result:
         raise HTTPException(status_code=409, detail="run has not succeeded")
-    template = os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")
-    if not template:
-        raise HTTPException(status_code=503, detail="未配置 BANBOOS2_FINANCIAL_TEMPLATE")
+    template = financial_template_path()
+    if template is None:
+        raise HTTPException(status_code=503, detail="未找到 1.6.6 财务 XLSM 模板，请配置 BANBOOS2_FINANCIAL_TEMPLATE")
     export_root = Path(os.getenv("BANBOOS2_EXPORT_DIR", "var/exports"))
     export_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="template-audit-", dir=export_root) as workdir:
@@ -724,11 +725,11 @@ def export_run(run_id: str, output_format: str = Query(default="xlsx", alias="fo
     if item.kind != "financial":
         return xlsx_response(export_task_xlsx(item), f"{item.kind}-{run_id}.xlsx")
     if normalized_format == "xlsm":
-        template = os.getenv("BANBOOS2_FINANCIAL_TEMPLATE")
-        if not template:
+        template = financial_template_path()
+        if template is None:
             raise HTTPException(
                 status_code=503,
-                detail="未配置 BANBOOS2_FINANCIAL_TEMPLATE，暂不能导出原版 XLSM 模板",
+                detail="未找到 1.6.6 财务 XLSM 模板，暂不能导出原版 XLSM 模板",
             )
         destination = Path(os.getenv("BANBOOS2_EXPORT_DIR", "var/exports")) / f"financial-{run_id}.xlsm"
         try:
