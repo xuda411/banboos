@@ -818,13 +818,16 @@ async function loadOperationsReport() {
   try {
     const report = await get("/api/v1/operations/report", query);
     if (!ReportUI.current("operationsReport", ticket)) return;
+    if (!report.provinces.length) {
+      body.innerHTML = '<tr><td colspan="5" class="empty-table-cell">当前条件没有可汇总的有效节点或日期</td></tr>';
+    }
     report.provinces.forEach((item) => {
       const row = document.createElement("tr");
       [item.province, item.node_count, item.valid_nodes, item.valid_days, item.data_points.toLocaleString()].forEach((value) => {
         const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell);
       }); body.appendChild(row);
     });
-    state.textContent = `${report.market} · ${report.start_date} 至 ${report.end_date} · ${report.valid_nodes}/${report.node_count} 个节点有效 · ${report.total_valid_days} 个有效日 · 来源 ${report.source_mode}`;
+    state.textContent = `${report.market} · ${report.start_date} 至 ${report.end_date} · ${report.valid_nodes}/${report.node_count} 个节点有效 · ${report.total_valid_days} 个有效日 · 来源 ${displaySource(report.source_mode)}`;
     state.className = "task-progress status-ok";
     ReportUI.complete("operationsReport", ticket, report.node_count, report.source_mode);
   } catch (error) {

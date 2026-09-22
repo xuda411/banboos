@@ -89,6 +89,8 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; }
 .system-runs-table td:last-child { color: #a43c32; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
 .audit-filters { display: flex; gap: 10px; margin-bottom: 10px; padding: 9px 10px; background: #f7faf8; border: 1px solid #e5ece8; border-radius: 8px; }
 .audit-filters label { display: grid; gap: 5px; color: #52635d; font-size: 12px; }
+.operations-report-table { min-height: 112px; }
+.operations-report-table .empty-table-cell { padding: 30px 12px; color: #60736a; text-align: center; }
 .value-ok { color: #176b50; }
 .value-error { color: #b54a3a; }
 .curve-layout { display: grid; grid-template-columns: 1fr 230px; gap: 16px; margin-top: 16px; }.curve-card { padding: 20px; min-height: 450px; }.curve-card h2, .curve-days h2 { margin: 0; font-size: 20px; }.curve-plot { position: relative; margin-top: 18px; }.curve-card canvas { display: block; width: 100%; height: 340px; }.curve-hover { position: absolute; z-index: 2; max-width: 250px; padding: 9px 11px; border: 1px solid #176b50; border-radius: 7px; background: #fff; color: #1d3b30; box-shadow: 0 5px 16px rgba(36, 58, 48, .14); font-size: 12px; line-height: 1.55; pointer-events: none; white-space: nowrap; }.curve-hint { margin-top: 8px; color: #53665d; font-size: 12px; }.curve-days { padding: 20px; }.curve-day-list { display: grid; gap: 6px; margin-top: 14px; max-height: 380px; overflow: auto; }.curve-day { padding: 9px 10px; border: 1px solid #dfe5e2; border-radius: 7px; background: #f8fbf9; color: #52635d; font-size: 12px; cursor: pointer; }.curve-day.active, .curve-day:hover { border-color: #176b50; color: #176b50; background: #eaf4ee; }
