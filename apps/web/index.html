@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Banboos 2.0 · 能源运营中心</title>
-    <link rel="stylesheet" href="./styles.css?v=ui-tooltip-20260922" />
+    <link rel="stylesheet" href="./styles.css?v=ui-login-20260922" />
   </head>
   <body>
     <header class="topbar">
@@ -24,10 +24,20 @@
     </header>
     <div id="authDialog" class="auth-overlay" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle" hidden>
       <section class="auth-card">
-        <div class="section-heading"><div><p class="eyebrow">访问控制</p><h2 id="authDialogTitle">建立安全会话</h2></div><button id="authCloseButton" class="secondary" type="button">关闭</button></div>
-        <p class="auth-intro">生产环境使用平台签发的访问令牌；令牌只保存在当前浏览器会话，不写入项目文件。</p>
-        <form id="authForm" class="auth-form"><label>访问令牌<input id="authToken" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴预发布或生产令牌" required /></label><button id="authSubmitButton" class="primary" type="submit">建立会话</button></form>
-        <p id="authMessage" class="task-progress" role="status" aria-live="polite">开发环境可直接使用联调会话。</p>
+        <div class="auth-brand-panel">
+          <div class="auth-brand-lockup"><span class="auth-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span><strong>Banboos <em>2.0</em></strong><small>能源运营中心</small></span></div>
+          <div class="auth-energy-visual" aria-hidden="true"><span class="energy-orbit orbit-one"></span><span class="energy-orbit orbit-two"></span><span class="energy-node node-one"></span><span class="energy-node node-two"></span><span class="energy-node node-three"></span><span class="energy-path"></span></div>
+          <div class="auth-brand-copy"><p class="auth-kicker">ENERGY OPERATIONS</p><h2>让每一次调度<br />都有数据依据</h2><p>节点、电价、气象与财务测算，在同一个可追溯工作台内协同。</p></div>
+          <ul class="auth-capabilities"><li><span>01</span><b>节点与电价</b><small>真实数据边界</small></li><li><span>02</span><b>气象与功率</b><small>模型估算可追溯</small></li><li><span>03</span><b>财务测算</b><small>模板口径一致</small></li></ul>
+          <div class="auth-environment"><i></i><span>STAGING · 只读联调环境</span></div>
+        </div>
+        <div class="auth-form-panel">
+          <div class="auth-panel-head"><div><span class="auth-step">01 / 会话接入</span><h2 id="authDialogTitle">建立安全会话</h2></div><button id="authCloseButton" class="auth-close" type="button" aria-label="关闭登录窗口">关闭</button></div>
+          <p class="auth-intro">使用平台签发的访问令牌进入工作台。令牌仅保存在当前浏览器会话，不写入项目文件。</p>
+          <form id="authForm" class="auth-form"><label><span>访问令牌</span><input id="authToken" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴预发布或生产令牌" required /></label><div class="auth-field-note"><span class="auth-key-dot"></span><span>连接将按当前租户和角色范围授权</span></div><button id="authSubmitButton" class="primary auth-submit" type="submit"><span>建立会话</span><b aria-hidden="true">↗</b></button></form>
+          <p id="authMessage" class="task-progress" role="status" aria-live="polite">开发环境可直接使用联调会话。</p>
+          <div class="auth-form-footer"><span>Banboos Energy Platform</span><span>安全访问 · 可追溯</span></div>
+        </div>
       </section>
     </div>
     <main class="page">
