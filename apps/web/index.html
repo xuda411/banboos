@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Banboos 2.0 · 能源运营中心</title>
-    <link rel="stylesheet" href="./styles.css?v=ui-access-20260922" />
+    <link rel="stylesheet" href="./styles.css?v=ui-service-state-20260922" />
   </head>
   <body>
     <header class="topbar">
@@ -117,7 +117,7 @@
       <section id="systemView" class="view" hidden>
         <section class="hero"><div><p class="eyebrow">服务与数据治理</p><h1>系统管理</h1><p>集中查看服务就绪状态、数据来源和生产控制开关。</p></div><div class="hero-badge">只读监控</div></section>
         <section class="metrics system-metrics"><article class="metric card"><span>API 健康</span><strong id="systemHealth">—</strong><small id="systemHealthDetail">等待检查</small></article><article class="metric card"><span>就绪状态</span><strong id="systemReady">—</strong><small id="systemReadyDetail">等待检查</small></article><article class="metric card"><span>数据模式</span><strong id="systemMode">—</strong><small>真实库只读 / 演示</small></article><article class="metric card"><span>生产控制</span><strong>关闭</strong><small>安全联调默认关闭</small></article></section>
-        <section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">运维检查</p><h2>服务状态</h2></div><button id="refreshSystem" class="primary">刷新状态</button></div><div class="system-checks-frame"><pre id="systemChecks">点击刷新状态查看就绪检查结果</pre></div></section>
+        <section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">运维检查</p><h2>服务状态</h2></div><button id="refreshSystem" class="primary">刷新状态</button></div><div class="system-checks-frame"><div id="systemChecks" class="system-check-list" role="status" aria-live="polite">点击刷新状态查看就绪检查结果</div></div></section>
         <section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">上线门禁</p><h2>发布前检查</h2></div><button id="refreshLaunchGate" class="primary" type="button">刷新门禁</button></div><p id="launchGateState" class="task-progress">点击刷新查看认证、数据库、队列、模板和生产控制门禁。</p><div id="launchGateChecks" class="portfolio-table-wrap launch-gate-table"></div></section>
         <section class="card system-actions access-control-card"><div class="section-heading"><div><p class="eyebrow">身份与权限</p><h2>用户权限管理</h2></div><span id="authPolicyState" class="status status-muted" role="status" aria-live="polite">策略预览</span></div><div class="auth-session-summary"><div><span>当前会话</span><strong id="currentAuthUser">开发联调用户</strong><small id="currentAuthScope">联调租户 · 权限策略加载中</small></div><button id="authSignOutButton" class="secondary" type="button">退出登录</button></div><div class="permission-toolbar"><label>查看角色<select id="permissionRole" aria-label="查看角色"></select></label><output id="permissionRoleSummary" class="group-summary" aria-live="polite">加载权限策略…</output></div><div id="permissionMatrix" class="permission-matrix"><p class="empty-state">正在读取权限策略。</p></div><p class="curve-hint">当前版本先提供角色边界与会话预览；用户、租户和角色的持久化授权将在 PostgreSQL 身份服务接入后启用，生产控制默认关闭。</p></section>
         <section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">1.6.6 只读管理</p><h2>导入与基础资料</h2></div><div class="legacy-tools"><select id="legacyTableKind" aria-label="管理表类型"><option value="import-logs">导入日志</option><option value="field-mappings">字段映射</option><option value="breakpoints">断点任务</option><option value="geo-mappings">节点地理映射</option><option value="province-investment">省级投资预设</option><option value="access-log">访问日志</option></select><button id="refreshLegacy" class="primary">刷新只读数据</button></div></div><p id="legacyState" class="task-progress">未加载。当前仅允许读取隔离副本，不提供旧库写入。</p><div class="portfolio-table-wrap"><table><thead><tr id="legacyHead"></tr></thead><tbody id="legacyBody"><tr><td>点击刷新只读数据</td></tr></tbody></table></div></section>
@@ -125,6 +125,6 @@
       </section>
     </main>
     <script src="./report-ui.js?v=auth-session-20260922" defer></script>
-    <script src="./app.js?v=ui-auth-roles-20260922" defer></script>
+    <script src="./app.js?v=ui-service-state-20260922" defer></script>
   </body>
 </html>

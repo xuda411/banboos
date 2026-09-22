@@ -77,10 +77,21 @@ function displaySource(value) {
 
 const runKindLabels = { financial: "财务测算", sensitivity: "敏感性分析", "price-analysis": "节点电价分析", "strict-dispatch": "约束回放", "lp-analysis": "LP 分析", "portfolio-optimization": "组合优化", "investment-scenario": "投资情景", weather: "气象专题" };
 const gateCheckLabels = { api_auth: "接口认证", postgres: "数据库", redis: "任务队列", financial_template: "财务模板", production_control: "生产控制", tenant_isolation: "租户隔离" };
+const readyCheckLabels = { api: "接口服务", redis: "任务队列", auth: "身份认证" };
 function runKindLabel(value) { return runKindLabels[value] || value || "—"; }
 const runStatusLabels = { queued: "排队中", running: "执行中", succeeded: "已完成", failed: "失败", cancelled: "已取消" };
 function runStatusLabel(status, progress) { return `${runStatusLabels[status] || status || "处理中"} ${progress ?? 0}%`; }
 function runStatusClass(status) { return status === "succeeded" ? "status-ok" : ["failed", "cancelled"].includes(status) ? "status-error" : "status-muted"; }
+function readyCheckText(value) { return { ok: "正常", "not-configured": "未配置（本地开发模式）", unavailable: "不可用", "not-ready": "未就绪" }[value] || value || "未知"; }
+function renderReadyChecks(checks) {
+  const target = $("systemChecks"); target.replaceChildren();
+  Object.entries(checks || {}).forEach(([key, value]) => {
+    const row = document.createElement("div"); row.className = "system-check-row";
+    const label = document.createElement("strong"); label.textContent = readyCheckLabels[key] || key;
+    const status = document.createElement("small"); status.textContent = readyCheckText(value); status.className = value === "ok" || value === "not-configured" ? "value-ok" : "value-error";
+    row.append(label, status); target.append(row);
+  });
+}
 
 async function get(path, params = {}) {
   const url = new URL(apiBase + path);
@@ -367,7 +378,7 @@ async function refreshLegacyManagement() {
 async function refreshSystem() {
   const health = $("systemHealth"); const ready = $("systemReady"); const checks = $("systemChecks");
   try { const [healthBody, meta] = await Promise.all([get("/health"), get("/api/v1/meta")]); financialTemplateAvailable = meta.financial_template_available === "True"; health.textContent = healthBody.status === "ok" ? "正常" : (healthBody.status || "异常"); health.className = healthBody.status === "ok" ? "value-ok" : "value-error"; $("systemHealthDetail").textContent = `版本 ${healthBody.version || "—"}`; $("systemMode").textContent = meta.data_mode === "staging-readonly" ? "隔离只读" : (meta.data_mode || "—"); } catch (error) { financialTemplateAvailable = false; health.textContent = "异常"; health.className = "value-error"; $("systemHealthDetail").textContent = error.message; $("systemMode").textContent = "不可用"; }
-  try { const body = await get("/readyz"); const isReady = body.status === "ready"; ready.textContent = isReady ? "已就绪" : (body.status || "未就绪"); ready.className = isReady ? "value-ok" : "value-error"; $("systemReadyDetail").textContent = isReady ? "所有依赖已就绪" : "存在待处理依赖"; checks.textContent = JSON.stringify(body.checks || {}, null, 2); } catch (error) { ready.textContent = "未就绪"; ready.className = "value-error"; $("systemReadyDetail").textContent = error.message; checks.textContent = error.message; }
+  try { const body = await get("/readyz"); const isReady = body.status === "ready"; ready.textContent = isReady ? "已就绪" : (body.status || "未就绪"); ready.className = isReady ? "value-ok" : "value-error"; $("systemReadyDetail").textContent = isReady ? "所有依赖已就绪" : "存在待处理依赖"; renderReadyChecks(body.checks); } catch (error) { ready.textContent = "未就绪"; ready.className = "value-error"; $("systemReadyDetail").textContent = error.message; checks.textContent = `检查失败：${error.message}`; }
   try { const runs = await get("/api/v1/runs", { kind: $("systemRunKind").value, status: $("systemRunStatus").value, limit: 50 }); const body = $("systemRunsBody"); body.replaceChildren(); runs.forEach((run) => { const tr = document.createElement("tr"); const values = [runKindLabel(run.kind), run.status, `${run.progress}%`, run.created_at ? new Date(run.created_at).toLocaleString("zh-CN") : "—", run.error_code || "—"]; values.forEach((value, index) => { const td = document.createElement("td"); if (index === 1) { const badge = document.createElement("span"); badge.className = `status ${runStatusClass(run.status)}`; badge.textContent = runStatusLabels[run.status] || "处理中"; td.appendChild(badge); } else { td.textContent = value; } tr.appendChild(td); }); body.appendChild(tr); }); $("systemRunsState").textContent = `${runs.length} 条记录`; $("systemRunsState").className = `status ${runs.length ? "status-ok" : "status-muted"}`; } catch (error) { $("systemRunsState").textContent = "加载失败"; $("systemRunsState").className = "status status-error"; }
 }
 

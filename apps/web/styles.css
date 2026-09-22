@@ -80,6 +80,9 @@ h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); letter-spacing: -0.03em; }
 .system-metrics { margin-top: 16px; }
 .system-actions { margin-top: 14px; }
 .system-actions pre { margin: 0; padding: 11px 14px; background: #f3f7f5; border-radius: 8px; color: #52635d; overflow: auto; max-height: 150px; font-size: 12px; line-height: 1.55; }
+.system-check-list { display: grid; gap: 8px; padding: 12px 14px; background: #f3f7f5; border-radius: 8px; color: #52635d; font-size: 12px; }
+.system-check-row { display: grid; grid-template-columns: minmax(120px, .35fr) minmax(0, 1fr); gap: 12px; align-items: center; padding-bottom: 7px; border-bottom: 1px solid #e1e8e4; }
+.system-check-row:last-child { padding-bottom: 0; border-bottom: 0; }.system-check-row strong { color: #243a30; font-weight: 700; }.system-check-row small { color: #52635d; font-size: 12px; }
 .system-checks-frame { display: grid; grid-template-columns: minmax(0, 1fr); }
 .launch-gate-table table, .system-runs-table table { font-size: 12px; }
 .launch-gate-table th, .launch-gate-table td, .system-runs-table th, .system-runs-table td { padding: 8px 10px; }
