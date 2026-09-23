@@ -714,11 +714,11 @@ async function submitAnalysis() {
     const finished = await pollAnalysis(run.run_id); const data = finished.result || {};
     analysisSourceRunId = run.run_id; analysisAnnualRevenueYuan = Number(data.annualized_revenue_yuan); analysisScale = { power: data.power_mw, capacity: data.capacity_mwh };
     state.textContent = "计算完成"; state.className = "status status-ok";
-    $("analysisMessage").textContent = `连续低/高均价 ${Number(data.charge_price_yuan_per_mwh).toFixed(2)} / ${Number(data.discharge_price_yuan_per_mwh).toFixed(2)} 元/MWh；均价差 ${Number(data.spread_yuan_per_mwh).toFixed(2)}`;
+    $("analysisMessage").textContent = `${Number(data.duration_hours).toFixed(2)}h项目窗口：连续低/高均价 ${Number(data.charge_price_yuan_per_mwh).toFixed(2)} / ${Number(data.discharge_price_yuan_per_mwh).toFixed(2)} 元/MWh；均价差 ${Number(data.spread_yuan_per_mwh).toFixed(2)}（同时计算2h/4h滑动窗口）`;
     $("analysisAnnual").textContent = `${(analysisAnnualRevenueYuan / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元/年（估算）`;
     $("analysisDays").textContent = `${data.baseline_policy === "latest_complete_year" ? "最近完整年度" : "不足完整年度，全部有效日"}：${data.start_date} 至 ${data.end_date}，${data.valid_days} 天；快照 ${data.snapshot_id.slice(0, 12)}`;
-    renderAnalysisMonthly(data.monthly);
-    ReportUI.run("analysisView", run.run_id, "月度价差", apiBase);
+    renderAnalysisMonthly(data);
+    ReportUI.run("analysisView", run.run_id, "节点分析", apiBase);
     $("useAnalysisForFinance").disabled = false;
   } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; $("analysisMessage").textContent = error.message; } finally { $("submitAnalysis").disabled = false; $("submitAnalysis").removeAttribute("aria-busy"); }
 }
@@ -758,12 +758,26 @@ async function pollAnalysis(runId) {
   throw new Error("价差分析轮询超时，请稍后按 run_id 查询");
 }
 
-function renderAnalysisMonthly(rows) {
+function renderAnalysisMonthly(data) {
   const section = $("analysisMonthly"); const body = $("analysisMonthlyBody"); body.replaceChildren();
-  if (!rows?.length) { section.hidden = true; return; }
-  rows.forEach((row) => {
+  const selectedRows = data?.monthly || [];
+  const baselines = new Map((data?.window_baselines || []).map((item) => [Number(item.duration_hours), item]));
+  const twoHourRows = baselines.get(2)?.monthly || [];
+  const fourHourRows = baselines.get(4)?.monthly || [];
+  if (!selectedRows.length && !twoHourRows.length && !fourHourRows.length) { section.hidden = true; return; }
+  const byMonth = new Map();
+  [...twoHourRows, ...fourHourRows, ...selectedRows].forEach((row) => {
+    const item = byMonth.get(row.month) || { month: row.month };
+    if (twoHourRows.includes(row)) item.two = row;
+    if (fourHourRows.includes(row)) item.four = row;
+    if (selectedRows.includes(row)) item.selected = row;
+    byMonth.set(row.month, item);
+  });
+  [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month)).forEach((item) => {
     const tr = document.createElement("tr");
-    [row.month, row.valid_days, Number(row.charge_price_yuan_per_mwh).toFixed(2), Number(row.discharge_price_yuan_per_mwh).toFixed(2), Number(row.spread_yuan_per_mwh).toFixed(2)].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; tr.appendChild(cell); });
+    const value = (row, field) => row ? Number(row[field]).toFixed(2) : "—";
+    const days = item.selected?.valid_days || item.two?.valid_days || item.four?.valid_days || "—";
+    [item.month, days, value(item.two, "charge_price_yuan_per_mwh"), value(item.two, "discharge_price_yuan_per_mwh"), value(item.two, "spread_yuan_per_mwh"), value(item.four, "charge_price_yuan_per_mwh"), value(item.four, "discharge_price_yuan_per_mwh"), value(item.four, "spread_yuan_per_mwh"), value(item.selected, "spread_yuan_per_mwh")].forEach((cellValue) => { const cell = document.createElement("td"); cell.textContent = cellValue; tr.appendChild(cell); });
     body.appendChild(tr);
   });
   section.hidden = false;

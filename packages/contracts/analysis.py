@@ -16,6 +16,25 @@ class PriceBaselineMonth(BaseModel):
     spread_yuan_per_mwh: float
 
 
+class PriceWindowBaseline(BaseModel):
+    """A traceable continuous-window baseline for one storage duration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    duration_hours: float = Field(gt=0)
+    start_date: date
+    end_date: date
+    valid_days: int = Field(ge=0)
+    available_days: int = Field(ge=0)
+    excluded_records: int = Field(ge=0)
+    multiple_source_days: int = Field(ge=0)
+    baseline_policy: str
+    charge_price_yuan_per_mwh: float
+    discharge_price_yuan_per_mwh: float
+    spread_yuan_per_mwh: float
+    monthly: list[PriceBaselineMonth] = Field(default_factory=list)
+
+
 class PriceAnalysisResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -39,4 +58,5 @@ class PriceAnalysisResult(BaseModel):
     baseline_policy: str
     snapshot_id: str
     monthly: list[PriceBaselineMonth] = Field(default_factory=list)
+    window_baselines: list[PriceWindowBaseline] = Field(default_factory=list)
     method: str = "annual_valid_day_window_mean_v1"

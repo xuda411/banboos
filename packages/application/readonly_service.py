@@ -5,7 +5,7 @@ import os
 from datetime import UTC, date, datetime, timedelta
 from math import cos, isfinite, pi, sin
 
-from packages.contracts.analysis import PriceAnalysisResult
+from packages.contracts.analysis import PriceAnalysisResult, PriceBaselineMonth, PriceWindowBaseline
 from packages.contracts.operations_report import (
     OperationsReport,
     OperationsReportPeriod,
@@ -359,6 +359,25 @@ class ReadonlyService:
             curves = []
             source_mode = "demo"
         baseline = annual_window_average(curves, slots)
+        # 1.6.6 节点分析同时展示 2h/8 点与 4h/16 点连续滑动均价差。
+        # 项目功率/容量仍决定财务联动采用哪一组；两组结果共享同一批有效日。
+        window_baselines = []
+        for window_duration in sorted({2.0, 4.0, float(duration)}):
+            window = baseline if abs(window_duration - duration) <= 1e-9 else annual_window_average(
+                curves, round(window_duration * 4)
+            )
+            window_baselines.append(PriceWindowBaseline(
+                duration_hours=window_duration,
+                start_date=window["start_date"], end_date=window["end_date"],
+                valid_days=window["valid_days"], available_days=window["available_days"],
+                excluded_records=window["excluded_records"],
+                multiple_source_days=window["multiple_source_days"],
+                baseline_policy=window["baseline_policy"],
+                charge_price_yuan_per_mwh=window["charge_price_yuan_per_mwh"],
+                discharge_price_yuan_per_mwh=window["discharge_price_yuan_per_mwh"],
+                spread_yuan_per_mwh=window["spread_yuan_per_mwh"],
+                monthly=[PriceBaselineMonth.model_validate(row) for row in window["monthly"]],
+            ))
         # One equivalent daily cycle is an explicit investment assumption, not dispatch revenue.
         average = max(0.0, baseline["discharge_price_yuan_per_mwh"] * round_trip_efficiency
                       - baseline["charge_price_yuan_per_mwh"]) * capacity_mwh
@@ -376,6 +395,7 @@ class ReadonlyService:
             power_mw=power_mw, capacity_mwh=capacity_mwh, duration_hours=duration,
             average_daily_revenue_yuan=average, snapshot_id=snapshot_id,
             annualized_revenue_yuan=average * 365, source_mode=source_mode,
+            window_baselines=window_baselines,
         )
 
     def dispatch_curves(self, node_id: int, market: str, start_date: date,

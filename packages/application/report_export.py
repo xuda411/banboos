@@ -118,9 +118,50 @@ def export_task_xlsx(run):
               [[check["name"], check["status"], check["actual"], check["expected"], check["delta"], check["tolerance"]]
                for check in audit["checks"]])
     elif run.kind == "price-analysis":
-        keys = ["month", "valid_days", "charge_price_yuan_per_mwh", "discharge_price_yuan_per_mwh", "spread_yuan_per_mwh"]
-        table(workbook, "月度价差", ["月份", "有效日", "低价均价（元/MWh）", "高价均价（元/MWh）", "价差（元/MWh）"],
-              [[month.get(key) for key in keys] for month in data["monthly"]], {2: "0"})
+        baselines = data.get("window_baselines") or [{
+            "duration_hours": data.get("duration_hours"),
+            "start_date": data.get("start_date"), "end_date": data.get("end_date"),
+            "valid_days": data.get("valid_days"), "available_days": data.get("available_days"),
+            "excluded_records": data.get("excluded_records"),
+            "multiple_source_days": data.get("multiple_source_days"),
+            "baseline_policy": data.get("baseline_policy"),
+            "charge_price_yuan_per_mwh": data.get("charge_price_yuan_per_mwh"),
+            "discharge_price_yuan_per_mwh": data.get("discharge_price_yuan_per_mwh"),
+            "spread_yuan_per_mwh": data.get("spread_yuan_per_mwh"),
+            "monthly": data.get("monthly", []),
+        }]
+        by_duration = {round(float(item.get("duration_hours")), 4): item for item in baselines
+                       if item.get("duration_hours") is not None}
+        months = sorted({row.get("month") for item in baselines for row in item.get("monthly", []) if row.get("month")})
+        rows = []
+        for month in months:
+            values = [month]
+            for duration in (2.0, 4.0):
+                row = next((candidate for candidate in by_duration.get(duration, {}).get("monthly", [])
+                            if candidate.get("month") == month), {})
+                values.extend([row.get("valid_days"), row.get("charge_price_yuan_per_mwh"),
+                               row.get("discharge_price_yuan_per_mwh"), row.get("spread_yuan_per_mwh")])
+            selected = next((candidate for candidate in data.get("monthly", []) if candidate.get("month") == month), {})
+            values.append(selected.get("spread_yuan_per_mwh"))
+            rows.append(values)
+        table(workbook, "月度价差",
+              ["月份", "2h有效日", "2h低价均价（元/MWh）", "2h高价均价（元/MWh）", "2h价差（元/MWh）",
+               "4h有效日", "4h低价均价（元/MWh）", "4h高价均价（元/MWh）", "4h价差（元/MWh）",
+               "项目时长价差（元/MWh）"], rows,
+              {2: "0", 3: "#,##0.00", 4: "#,##0.00", 5: "#,##0.00", 6: "0", 7: "#,##0.00",
+               8: "#,##0.00", 9: "#,##0.00", 10: "#,##0.00"})
+        table(workbook, "年度基准",
+              ["储能时长（小时）", "基准策略", "开始日期", "结束日期", "有效日", "可用日",
+               "低价窗口均价（元/MWh）", "高价窗口均价（元/MWh）", "价差（元/MWh）", "重复来源日", "排除记录"],
+              [[item.get("duration_hours"), item.get("baseline_policy"), item.get("start_date"), item.get("end_date"),
+                item.get("valid_days"), item.get("available_days"), item.get("charge_price_yuan_per_mwh"),
+                item.get("discharge_price_yuan_per_mwh"), item.get("spread_yuan_per_mwh"),
+                item.get("multiple_source_days"), item.get("excluded_records")] for item in baselines],
+              {1: "0.00", 5: "0", 6: "0", 7: "#,##0.00", 8: "#,##0.00", 9: "#,##0.00", 10: "0", 11: "0"})
+        table(workbook, "滑动窗口口径", ["系统时长", "连续点数", "计算规则"], [
+            ["2 小时", 8, "每条完整96点曲线遍历连续8点，取最低/最高窗口算术均价，价差按有效日等权平均"],
+            ["4 小时", 16, "每条完整96点曲线遍历连续16点，取最低/最高窗口算术均价，价差按有效日等权平均"],
+        ], {1: "0"})
     elif run.kind == "investment-scenario":
         keys = ["scenario_name", "source_run_id", "source_snapshot_id", "node_id", "market",
                 "start_date", "end_date", "power_mw", "capacity_mwh", "duration_hours",

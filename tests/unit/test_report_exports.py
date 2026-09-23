@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from io import BytesIO
 
 from openpyxl import load_workbook
@@ -6,6 +7,7 @@ from packages.application.report_export import (
     export_operations_report_xlsx,
     export_portfolio_candidates_xlsx,
     export_price_aggregate_xlsx,
+    export_task_xlsx,
 )
 from packages.contracts.operations_report import (
     OperationsReport,
@@ -39,6 +41,47 @@ def test_price_aggregate_export_keeps_period_and_coverage_audit():
     assert workbook["覆盖审计"]["B5"].value == "2026-01-04"
     assert any(row[0].value == "导出格式版本" and row[1].value == "banboos-export-2026-09-21"
                for row in workbook["导出说明"].iter_rows(min_row=5))
+
+
+def test_price_analysis_export_contains_2h_4h_window_sheets():
+    from packages.contracts.readonly import RunStatus
+
+    result = RunStatus(
+        run_id="a" * 36, kind="price-analysis", status="succeeded", progress=100,
+        parameters={"power_mw": 100, "capacity_mwh": 200},
+        result={
+            "node_id": 7, "market": "实时", "duration_hours": 2,
+            "valid_days": 2, "available_days": 2, "excluded_records": 0,
+            "multiple_source_days": 0, "baseline_policy": "all_valid_days",
+            "start_date": "2026-01-01", "end_date": "2026-01-02",
+            "charge_price_yuan_per_mwh": 100, "discharge_price_yuan_per_mwh": 500,
+            "spread_yuan_per_mwh": 400, "snapshot_id": "b" * 64,
+            "monthly": [{"month": "2026-01", "valid_days": 2,
+                         "charge_price_yuan_per_mwh": 100,
+                         "discharge_price_yuan_per_mwh": 500,
+                         "spread_yuan_per_mwh": 400}],
+            "window_baselines": [
+                {"duration_hours": 2, "start_date": "2026-01-01", "end_date": "2026-01-02",
+                 "valid_days": 2, "available_days": 2, "excluded_records": 0,
+                 "multiple_source_days": 0, "baseline_policy": "all_valid_days",
+                 "charge_price_yuan_per_mwh": 100, "discharge_price_yuan_per_mwh": 500,
+                 "spread_yuan_per_mwh": 400, "monthly": [{"month": "2026-01", "valid_days": 2,
+                 "charge_price_yuan_per_mwh": 100, "discharge_price_yuan_per_mwh": 500,
+                 "spread_yuan_per_mwh": 400}]},
+                {"duration_hours": 4, "start_date": "2026-01-01", "end_date": "2026-01-02",
+                 "valid_days": 2, "available_days": 2, "excluded_records": 0,
+                 "multiple_source_days": 0, "baseline_policy": "all_valid_days",
+                 "charge_price_yuan_per_mwh": 80, "discharge_price_yuan_per_mwh": 450,
+                 "spread_yuan_per_mwh": 370, "monthly": [{"month": "2026-01", "valid_days": 2,
+                 "charge_price_yuan_per_mwh": 80, "discharge_price_yuan_per_mwh": 450,
+                 "spread_yuan_per_mwh": 370}]},
+            ],
+        }, created_at=datetime.now(UTC), completed_at=datetime.now(UTC),
+    )
+    workbook = _sheets(export_task_xlsx(result))
+    assert workbook.sheetnames == ["导出说明", "任务参数", "结果摘要", "月度价差", "年度基准", "滑动窗口口径"]
+    assert workbook["月度价差"]["E5"].value == 400
+    assert workbook["月度价差"]["I5"].value == 370
 
 
 def test_operations_export_has_province_and_monthly_views():

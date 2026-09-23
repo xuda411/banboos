@@ -34,6 +34,8 @@ def test_price_analysis_worker_uses_power_capacity_ratio(tmp_path, monkeypatch):
     assert result.result["annualized_revenue_yuan"] > 0
     assert result.result["method"] == "annual_valid_day_window_mean_v1"
     assert len(result.result["snapshot_id"]) == 64
+    assert {item["duration_hours"] for item in result.result["window_baselines"]} == {2.0, 4.0}
+    assert result.result["window_baselines"][0]["monthly"]
 
 
 def test_price_analysis_without_valid_days_fails_instead_of_publishing_zero():
