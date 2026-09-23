@@ -19,6 +19,8 @@ node_modules/
 *.egg-info/
 var/
 outputs/
+.codex-finalizer/
+deliverables/
 coverage.xml
 .coverage
 *.local.*
