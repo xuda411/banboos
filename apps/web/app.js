@@ -842,6 +842,30 @@ function setSignal(id, value, fallback = "") {
   if (fallback) $(id).nextElementSibling.textContent = fallback;
 }
 
+async function refreshEmsPulse() {
+  const status = $("pulseEmsStatus");
+  if (!status) return;
+  const stationId = $("node")?.value || "demo-station";
+  try {
+    const dashboard = await get("/api/v1/ems/dashboard", { station_id: stationId });
+    const feedback = dashboard.latest_feedback;
+    if (!feedback) {
+      status.textContent = "EMS 回传：暂无数据，等待电站接入。演示曲线仅用于展示，不参与测算或电站控制。";
+      return;
+    }
+    const power = Number(feedback.actual_power_mw);
+    const soc = Number(feedback.soc_pct);
+    const deviation = dashboard.power_deviation_mw == null ? null : Number(dashboard.power_deviation_mw);
+    const state = dashboard.feedback_status === "current" ? "正常" : dashboard.feedback_status === "delayed" ? "延迟" : "待确认";
+    const powerText = Number.isFinite(power) ? `${power.toFixed(1)} MW` : "—";
+    const socText = Number.isFinite(soc) ? `${soc.toFixed(1)}%` : "—";
+    const deviationText = Number.isFinite(deviation) ? ` · 计划偏差 ${deviation >= 0 ? "+" : ""}${deviation.toFixed(1)} MW` : "";
+    status.textContent = `EMS 回传：${state} · 实际功率 ${powerText} · SOC ${socText}${deviationText}`;
+  } catch {
+    status.textContent = "EMS 回传：接口待接入，当前显示独立储能模拟曲线。";
+  }
+}
+
 async function refreshOperationsSummary() {
   try {
     const summary = await get("/api/v1/operations/summary");
@@ -849,6 +873,7 @@ async function refreshOperationsSummary() {
     setSignal("overviewQueued", queued, `共 ${summary.task_counts.total} 个任务`);
     setSignal("overviewPendingTelemetry", summary.telemetry.pending_points, `共 ${summary.telemetry.total_points} 个数据点`);
     setSignal("overviewUnackAlerts", summary.alerts.unacknowledged, `共 ${summary.alerts.total} 条告警`);
+    await refreshEmsPulse();
   } catch (error) {
     setSignal("overviewQueued", null, "运营摘要暂不可用");
     setSignal("overviewPendingTelemetry", null, "运营摘要暂不可用");

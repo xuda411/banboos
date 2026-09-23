@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Banboos 2.0 · 能源运营中心</title>
-    <link rel="stylesheet" href="./styles.css?v=pulse-20260923" />
-    <link rel="stylesheet" href="./pulse-demo.css?v=20260923" />
+    <link rel="stylesheet" href="./styles.css?v=pulse-storage-20260923" />
+    <link rel="stylesheet" href="./pulse-demo.css?v=pulse-storage-20260923" />
   </head>
   <body>
     <header class="topbar">
@@ -66,13 +66,13 @@
           <article class="dashboard-card station-card"><div class="card-heading"><div><span class="eyebrow">站点监视</span><h2>节点状态</h2></div><span class="live-dot">数据只读</span></div><div id="stationList" class="station-list"><div class="empty-state">正在读取节点…</div></div></article>
           <article class="dashboard-card pulse-card" aria-labelledby="pulseTitle">
             <div class="card-heading"><h2 id="pulseTitle">运行脉搏</h2><span class="pulse-demo-badge">模拟展示 · 非实测</span></div>
-            <p class="pulse-description">光储电站 · 典型日 <span>光伏 120 MW / 储能 100 MW · 200 MWh</span></p>
-            <div class="pulse-series-legend" aria-label="曲线图例"><span class="solar">光伏出力</span><span class="storage">储能功率</span><span class="soc">SOC · 右轴</span></div>
+            <p class="pulse-description">独立储能电站 · EMS 典型日 <span>功率 100 MW / 容量 200 MWh · 数据待 EMS 接入</span></p>
+            <div class="pulse-series-legend" aria-label="曲线图例"><span class="target">EMS 计划功率</span><span class="storage">PCS 实际功率</span><span class="soc">SOC · 右轴</span></div>
             <div id="pulsePlot" class="pulse-plot"></div>
             <div id="pulseReadout" class="pulse-readout" aria-label="选定时点数值"></div>
             <label class="pulse-time-control" for="pulseTime"><span>查看时点</span><input id="pulseTime" type="range" min="0" max="96" value="52" step="1" aria-label="模拟运行时间，每步15分钟" /><span>15 分钟 / 点</span></label>
             <div class="pulse-system-status"><span><i></i>API 服务 <b>在线</b></span><span><i></i>生产控制 <b class="muted-text">关闭</b></span></div>
-            <p class="card-note pulse-note">储能正值为放电，负值为充电。演示数据仅用于曲线展示，不参与测算或电站控制。</p>
+            <p id="pulseEmsStatus" class="card-note pulse-note">EMS 回传：等待电站接入。演示数据仅用于曲线展示，不参与测算或电站控制。</p>
             <noscript>请启用 JavaScript 以查看模拟典型日曲线。</noscript>
           </article>
         </section>
@@ -149,8 +149,8 @@
         <section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">隔离数据导入</p><h2>预览与校验</h2></div><div class="legacy-tools"><input id="importSourceName" placeholder="来源文件名" value="manual-preview.json" /><select id="importMarket"><option>实时</option><option>日前</option></select><button id="importPreviewButton" class="primary" type="button">预览导入</button><button id="importCommitButton" class="secondary" type="button" disabled>确认记录</button></div></div><p id="importState" class="task-progress">仅校验并记录隔离预览，不写入 1.6.6 数据库；每行需包含 node_id、run_date 和 96 点 prices 数组。</p><textarea id="importRows" rows="4" placeholder="[{&quot;node_id&quot;:786,&quot;run_date&quot;:&quot;2026-01-01&quot;,&quot;prices&quot;:[1,2,3]}]"></textarea></section><section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">审计查询</p><h2>最近任务</h2></div><span id="systemRunsState" class="status status-muted" role="status" aria-live="polite">未加载</span></div><div class="audit-filters"><label>任务类型<select id="systemRunKind"><option value="">全部</option><option>financial</option><option>sensitivity</option><option>price-analysis</option><option>strict-dispatch</option><option>lp-analysis</option><option>portfolio-optimization</option></select></label><label>状态<select id="systemRunStatus"><option value="">全部</option><option>succeeded</option><option>failed</option><option>running</option><option>queued</option></select></label></div><div class="portfolio-table-wrap system-runs-table"><table><thead><tr><th>任务类型</th><th>状态</th><th>进度</th><th>创建时间</th><th>错误码</th></tr></thead><tbody id="systemRunsBody"><tr><td colspan="5">点击刷新状态加载</td></tr></tbody></table></div></section>
       </section>
     </main>
-    <script src="./pulse-demo.js?v=20260923" defer></script>
+    <script src="./pulse-demo.js?v=pulse-storage-20260923" defer></script>
     <script src="./report-ui.js?v=auth-session-20260922" defer></script>
-    <script src="./app.js?v=service-fixture-port-20260922" defer></script>
+    <script src="./app.js?v=ems-pulse-20260923" defer></script>
   </body>
 </html>

@@ -6,7 +6,7 @@ import tempfile
 from datetime import UTC, date, datetime
 from hashlib import sha256
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import redis
 from fastapi import Body, FastAPI, Header, HTTPException, Query, Response
@@ -24,6 +24,7 @@ from apps.api.security import (
 )
 from apps.edge.gateway import TelemetrySpool
 from packages.application.deployment_preflight import evaluate_preflight
+from packages.application.ems_service import EMSPlanNotFound, EMSPlanStateError, EMSService
 from packages.application.financial_export import export_financial_xlsx
 from packages.application.financial_template_xlsm import (
     export_financial_xlsm,
@@ -46,6 +47,13 @@ from packages.application.run_registry import RedisStateStore, RunRegistry
 from packages.application.sqlite_runtime import SQLiteRuntime, runtime_path
 from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
+from packages.contracts.ems import (
+    EMSDashboard,
+    EMSDecisionPlan,
+    EMSDecisionPlanCreate,
+    EMSFeedback,
+    EMSFeedbackRequest,
+)
 from packages.contracts.financial import FinancialTaskParameters
 from packages.contracts.financial_reconciliation import FinancialReconciliationResult
 from packages.contracts.identity import (
@@ -101,6 +109,7 @@ local_runtime = SQLiteRuntime(runtime_path()) if not redis_url else None
 run_registry = RunRegistry(RedisTaskQueue(redis_url) if redis_url else local_runtime,
                            RedisStateStore(redis_url) if redis_url else local_runtime)
 edge_spool = TelemetrySpool(os.getenv("BANBOOS2_EDGE_SPOOL", "var/edge/telemetry.sqlite"))
+ems_service = EMSService()
 import_service = ImportService()
 
 AUTH_PERMISSION_CATALOG = [
@@ -598,6 +607,52 @@ def recent_telemetry(station_id: str | None = Query(default=None, max_length=120
 def edge_heartbeat(gateway_id: str = APIPath(..., min_length=1, max_length=120),
                    connected: bool = True) -> dict:
     return edge_spool.heartbeat(gateway_id, connected)
+
+
+@app.post("/api/v1/ems/decision-plans", response_model=EMSDecisionPlan, status_code=201, tags=["ems"])
+def create_ems_decision_plan(request: EMSDecisionPlanCreate) -> EMSDecisionPlan:
+    try:
+        return ems_service.create_plan(request)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/api/v1/ems/decision-plans/{plan_id}", response_model=EMSDecisionPlan, tags=["ems"])
+def get_ems_decision_plan(plan_id: UUID = APIPath(...)) -> EMSDecisionPlan:
+    try:
+        return ems_service.get_plan(plan_id)
+    except EMSPlanNotFound as error:
+        raise HTTPException(status_code=404, detail="EMS 决策计划不存在") from error
+
+
+@app.post("/api/v1/ems/decision-plans/{plan_id}/approve", response_model=EMSDecisionPlan, tags=["ems"])
+def approve_ems_decision_plan(plan_id: UUID = APIPath(...)) -> EMSDecisionPlan:
+    try:
+        return ems_service.approve_plan(plan_id)
+    except EMSPlanNotFound as error:
+        raise HTTPException(status_code=404, detail="EMS 决策计划不存在") from error
+    except EMSPlanStateError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/api/v1/ems/decision-plans/{plan_id}/dispatch", response_model=EMSDecisionPlan, tags=["ems"])
+def dispatch_ems_decision_plan(plan_id: UUID = APIPath(...)) -> EMSDecisionPlan:
+    try:
+        return ems_service.dispatch_plan(plan_id)
+    except EMSPlanNotFound as error:
+        raise HTTPException(status_code=404, detail="EMS 决策计划不存在") from error
+    except EMSPlanStateError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/api/v1/ems/feedback", response_model=EMSFeedback, tags=["ems"])
+def ingest_ems_feedback(request: EMSFeedbackRequest) -> EMSFeedback:
+    return ems_service.ingest_feedback(request)
+
+
+@app.get("/api/v1/ems/dashboard", response_model=EMSDashboard, tags=["ems"])
+def ems_dashboard(station_id: str = Query(..., min_length=1, max_length=120)) -> EMSDashboard:
+    return ems_service.dashboard(station_id)
 
 
 @app.post("/api/v1/runs", response_model=RunStatus, status_code=202, tags=["runs"])
