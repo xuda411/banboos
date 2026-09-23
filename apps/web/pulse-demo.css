@@ -1,0 +1,32 @@
+.pulse-card { min-width: 0; }
+.pulse-demo-badge { color: #78561c; background: #faf3e4; padding: 5px 9px; border-radius: 6px; font-size: 12px; white-space: nowrap; }
+.pulse-description { color: #53665d; font-size: 13px; line-height: 1.7; margin: 12px 0; }
+.pulse-description span { display: block; font-size: 12px; }
+.pulse-series-legend { display: flex; flex-wrap: wrap; gap: 10px 20px; font-size: 12px; color: #3d5449; }
+.pulse-series-legend span::before { content: ""; display: inline-block; width: 18px; vertical-align: middle; margin-right: 6px; border-top: 2px solid #a7731a; }
+.pulse-series-legend .storage::before { border-color: #176b50; }
+.pulse-series-legend .soc::before { border-color: #526f99; border-top-style: dashed; }
+.pulse-plot { margin-top: 18px; width: 100%; }
+.pulse-plot svg { display: block; width: 100%; overflow: visible; }
+.pulse-plot text { fill: #53665d; font-size: 11px; font-family: inherit; font-variant-numeric: tabular-nums; }
+.pulse-plot polyline { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.pulse-gridline { stroke: #e2eae5; stroke-dasharray: 3 5; }
+.pulse-zero { stroke: #a8bbb0; }
+.pulse-solar { stroke: #a7731a; }
+.pulse-storage { stroke: #176b50; }
+.pulse-soc { stroke: #526f99; stroke-dasharray: 5 4; }
+.pulse-cursor { stroke: #71877a; stroke-width: 1; stroke-dasharray: 3 3; }
+.pulse-plot circle { stroke: white; stroke-width: 2; }
+.pulse-dot-solar { fill: #a7731a; }.pulse-dot-power { fill: #176b50; }.pulse-dot-soc { fill: #526f99; }
+.pulse-readout { display: grid; grid-template-columns: repeat(4, auto); gap: 8px; padding: 12px 0; border-top: 1px solid #e2eae5; color: #53665d; font-size: 12px; font-variant-numeric: tabular-nums; }
+.pulse-readout b { color: #243a30; font-weight: 600; }
+.pulse-time-control { display: flex; align-items: center; gap: 12px; color: #53665d; font-size: 12px; }
+.pulse-time-control span { white-space: nowrap; }
+.pulse-time-control input { flex: 1; width: 0; min-width: 0; height: 28px; padding: 0; accent-color: #176b50; cursor: pointer; }
+.pulse-time-control input:focus-visible { outline: 2px solid #176b50; outline-offset: 3px; }
+.pulse-system-status { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2eae5; color: #53665d; font-size: 11px; }
+.pulse-system-status i { display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: #47aa71; }
+.pulse-system-status span:last-child i { background: #c89b42; }.pulse-system-status b { color: #176b50; font-weight: 600; }.pulse-system-status .muted-text { color: #765918 !important; }
+.pulse-note { margin: 10px 0 0; }
+@media (max-width: 1100px) { .pulse-readout { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .pulse-card { padding: 16px; }.pulse-card h2 { font-size: 20px; }.pulse-demo-badge { font-size: 11px; }.pulse-time-control { gap: 8px; }.pulse-plot { margin-top: 14px; } }

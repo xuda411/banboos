@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Banboos 2.0 · 能源运营中心</title>
-    <link rel="stylesheet" href="./styles.css?v=ui-ink-bamboo-20260922" />
+    <link rel="stylesheet" href="./styles.css?v=pulse-20260923" />
+    <link rel="stylesheet" href="./pulse-demo.css?v=20260923" />
   </head>
   <body>
     <header class="topbar">
@@ -63,7 +64,17 @@
         </section>
         <section class="overview-grid">
           <article class="dashboard-card station-card"><div class="card-heading"><div><span class="eyebrow">站点监视</span><h2>节点状态</h2></div><span class="live-dot">数据只读</span></div><div id="stationList" class="station-list"><div class="empty-state">正在读取节点…</div></div></article>
-          <article class="dashboard-card pulse-card"><div class="card-heading"><div><span class="eyebrow">系统状态</span><h2>运行脉搏</h2></div><span class="status status-ok">正常</span></div><div class="pulse-chart"><div class="pulse-line"></div><div class="pulse-line second"></div></div><div class="pulse-legend"><span><i class="legend-green"></i>API 服务</span><strong>在线</strong><span><i class="legend-gold"></i>生产控制</span><strong class="muted-text">关闭</strong></div><p class="card-note">边缘数据、任务队列和报表出口均保留追溯链路。</p></article>
+          <article class="dashboard-card pulse-card" aria-labelledby="pulseTitle">
+            <div class="card-heading"><h2 id="pulseTitle">运行脉搏</h2><span class="pulse-demo-badge">模拟展示 · 非实测</span></div>
+            <p class="pulse-description">光储电站 · 典型日 <span>光伏 120 MW / 储能 100 MW · 200 MWh</span></p>
+            <div class="pulse-series-legend" aria-label="曲线图例"><span class="solar">光伏出力</span><span class="storage">储能功率</span><span class="soc">SOC · 右轴</span></div>
+            <div id="pulsePlot" class="pulse-plot"></div>
+            <div id="pulseReadout" class="pulse-readout" aria-label="选定时点数值"></div>
+            <label class="pulse-time-control" for="pulseTime"><span>查看时点</span><input id="pulseTime" type="range" min="0" max="96" value="52" step="1" aria-label="模拟运行时间，每步15分钟" /><span>15 分钟 / 点</span></label>
+            <div class="pulse-system-status"><span><i></i>API 服务 <b>在线</b></span><span><i></i>生产控制 <b class="muted-text">关闭</b></span></div>
+            <p class="card-note pulse-note">储能正值为放电，负值为充电。演示数据仅用于曲线展示，不参与测算或电站控制。</p>
+            <noscript>请启用 JavaScript 以查看模拟典型日曲线。</noscript>
+          </article>
         </section>
         <section class="quick-actions"><button data-view="analysisView"><b>01</b><span>节点与电价分析</span><small>选择节点，查看真实数据边界</small></button><button data-view="taskView"><b>02</b><span>提交财务测算</span><small>异步执行并下载结构化报表</small></button><button data-view="weatherView"><b>03</b><span>质量与气象</span><small>检查完整率和天气观测</small></button></section>
         <section class="card operations-report-card"><div class="section-heading"><div><p class="eyebrow">运营日报 / 月报</p><h2>站点层级汇总</h2></div><div class="legacy-tools"><select id="operationsReportMarket"><option>实时</option><option>日前</option></select><input id="operationsReportStart" type="date" value="2026-01-01" /><input id="operationsReportEnd" type="date" value="2026-01-31" /><button id="loadOperationsReport" class="primary" type="button">加载报告</button><button id="exportOperationsReport" class="secondary" type="button" disabled>导出 Excel</button></div></div><p id="operationsReportState" class="task-progress" role="status" aria-live="polite">选择市场与日期范围后加载，按省份汇总有效日和数据点。</p><div class="portfolio-table-wrap operations-report-table"><table><thead><tr><th>省份</th><th>节点数</th><th>有效节点</th><th>有效日</th><th>数据点</th></tr></thead><tbody id="operationsReportBody"><tr><td colspan="5">选择条件后点击“加载报告”</td></tr></tbody></table></div></section>
@@ -138,6 +149,7 @@
         <section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">隔离数据导入</p><h2>预览与校验</h2></div><div class="legacy-tools"><input id="importSourceName" placeholder="来源文件名" value="manual-preview.json" /><select id="importMarket"><option>实时</option><option>日前</option></select><button id="importPreviewButton" class="primary" type="button">预览导入</button><button id="importCommitButton" class="secondary" type="button" disabled>确认记录</button></div></div><p id="importState" class="task-progress">仅校验并记录隔离预览，不写入 1.6.6 数据库；每行需包含 node_id、run_date 和 96 点 prices 数组。</p><textarea id="importRows" rows="4" placeholder="[{&quot;node_id&quot;:786,&quot;run_date&quot;:&quot;2026-01-01&quot;,&quot;prices&quot;:[1,2,3]}]"></textarea></section><section class="card system-actions"><div class="section-heading"><div><p class="eyebrow">审计查询</p><h2>最近任务</h2></div><span id="systemRunsState" class="status status-muted" role="status" aria-live="polite">未加载</span></div><div class="audit-filters"><label>任务类型<select id="systemRunKind"><option value="">全部</option><option>financial</option><option>sensitivity</option><option>price-analysis</option><option>strict-dispatch</option><option>lp-analysis</option><option>portfolio-optimization</option></select></label><label>状态<select id="systemRunStatus"><option value="">全部</option><option>succeeded</option><option>failed</option><option>running</option><option>queued</option></select></label></div><div class="portfolio-table-wrap system-runs-table"><table><thead><tr><th>任务类型</th><th>状态</th><th>进度</th><th>创建时间</th><th>错误码</th></tr></thead><tbody id="systemRunsBody"><tr><td colspan="5">点击刷新状态加载</td></tr></tbody></table></div></section>
       </section>
     </main>
+    <script src="./pulse-demo.js?v=20260923" defer></script>
     <script src="./report-ui.js?v=auth-session-20260922" defer></script>
     <script src="./app.js?v=service-fixture-port-20260922" defer></script>
   </body>
