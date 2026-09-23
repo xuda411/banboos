@@ -11,6 +11,7 @@ from openpyxl.utils import get_column_letter
 
 from packages.application.financial_export import GREEN, LIGHT_GREEN, _fit_columns, _header, _title
 from packages.domain.lp_reconciliation import reconcile_lp
+from packages.infrastructure.dispatch_snapshots import DispatchSnapshots
 
 SUPPORTED_TASKS = {"financial", "price-analysis", "investment-scenario", "strict-dispatch", "lp-analysis", "sensitivity", "portfolio-optimization"}
 
@@ -162,6 +163,28 @@ def export_task_xlsx(run):
             ["2 小时", 8, "每条完整96点曲线遍历连续8点，取最低/最高窗口算术均价，价差按有效日等权平均"],
             ["4 小时", 16, "每条完整96点曲线遍历连续16点，取最低/最高窗口算术均价，价差按有效日等权平均"],
         ], {1: "0"})
+        try:
+            snapshot = DispatchSnapshots().read(str(data.get("snapshot_id") or ""))
+            curves = snapshot.get("curves", [])
+        except (OSError, ValueError, TypeError):
+            curves = []
+        if curves:
+            detail_rows = []
+            daily_rows = []
+            for curve in curves:
+                prices = curve.get("prices", [])
+                detail_rows.extend([
+                    [curve.get("run_date"), index, f"{(index - 1) // 4:02d}:{(index - 1) % 4 * 15:02d}", value]
+                    for index, value in enumerate(prices, 1)
+                ])
+                finite = [float(value) for value in prices if value is not None]
+                daily_rows.append([curve.get("run_date"), len(prices),
+                                   sum(finite) / len(finite) if finite else None,
+                                   min(finite) if finite else None, max(finite) if finite else None])
+            table(workbook, "电价时段明细", ["交易日期", "序号", "时段终点", "电价（元/MWh）"], detail_rows,
+                  {2: "0", 4: "#,##0.00"})
+            table(workbook, "每日统计", ["日期", "点数", "平均价（元/MWh）", "最低价（元/MWh）", "最高价（元/MWh）"],
+                  daily_rows, {2: "0", 3: "#,##0.00", 4: "#,##0.00", 5: "#,##0.00"})
     elif run.kind == "investment-scenario":
         keys = ["scenario_name", "source_run_id", "source_snapshot_id", "node_id", "market",
                 "start_date", "end_date", "power_mw", "capacity_mwh", "duration_hours",
