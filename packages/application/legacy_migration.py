@@ -88,8 +88,13 @@ def migrate_legacy_snapshot(manifest_path: str | Path, target_path: str | Path,
     forbidden = [source, Path(manifest_path).resolve(), Path(manifest["source_path"]).resolve()]
     if target in forbidden or (target.exists() and any(target.samefile(p) for p in forbidden if p.exists())):
         raise ValueError("迁移目标不能覆盖源库、快照或清单")
-    if not 1 <= max_records <= 500000:
-        raise ValueError("每批上限必须为 1–500000 条")
+    # The normal bounded replay workflow uses 50k–500k rows per batch.  A
+    # verified full-history delivery import may contain several million rows;
+    # allow that explicit one-shot only after the snapshot hash/integrity checks
+    # above have passed.  The upper bound still prevents an accidental unbound
+    # scan of an arbitrary legacy file.
+    if not 1 <= max_records <= 5_000_000:
+        raise ValueError("每批上限必须为 1–5000000 条")
     target.parent.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(target.parent).free < 1024 ** 3:
         raise ValueError("目标盘可用空间不足 1 GiB，停止迁移")
