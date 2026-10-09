@@ -13,7 +13,7 @@
 3. 若状态不是 `WAITING_TRAE` → **拒绝开工**，回复："当前轮到 Codex（状态=XXX），请先在 ChatGPT 中让 Codex 完成动作并 push"
 4. 状态为 `WAITING_TRAE` → 读 `codex-to-trae\T-XXX-directive.md`，严格按指令书执行
 5. 完成后：写 `trae-to-codex\T-XXX-delivery.md` + 更新 STATE 为 `WAITING_REVIEW`
-6. 运行 `.\handoff-sync.ps1 push -Task T-XXX -Role trae` 推送
+6. 按指令白名单逐文件暂存，核对暂存文件后 commit / push。现有 `E:\Banboos2.0\.handoff\scripts\handoff-sync.ps1` 的 push 会执行 `git add -A`，在修正前不得用它代替本轮白名单检查
 7. 回复用户"给 Codex 的转发话术"，不自行宣布 ACCEPT
 
 ## 严格禁令
@@ -27,9 +27,10 @@
 
 ## 评审回流后（pull 到 review/T-XXX-review.md）
 
-- ACCEPT：停止动作，提示用户"请让 Codex 下达下一轮指令书"
+- ACCEPT：先读 `E:\Banboos2.0\.handoff\STATE.md`；若 Codex 已在同一提交下达下一轮且状态为 WAITING_TRAE，直接按下一指令继续。若状态为 WAITING_CODEX 或待办已清零，则等待，不自行起草任务
 - REVISE：只改 FAIL 项，不碰已 PASS 项，交付新版本并 push
 - REJECT / BLOCKED：停止，等用户
+- 同一任务连续两轮 REVISE 后仍不通过：由 Codex 置 BLOCKED，Trae 不自行启动第三轮修改
 
 ## Git 异常处理
 
