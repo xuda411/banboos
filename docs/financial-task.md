@@ -1,6 +1,6 @@
 # 财务测算任务
 
-`financial` Worker 任务使用纯领域现金流模型，不读取 Qt 控件，也不生成 Excel 专属公式。输入金额统一为元，容量为 MWh，投资单价为元/Wh。
+`financial` Worker 任务使用纯领域现金流模型，不读取 Qt 控件，也不生成 Excel 专属公式。输入金额统一为元，容量为 MWh，投资单价为元/Wh。`eol_method=desktop_template` 保持 1.6.6 程序基线；`eol_method=native_xlsm` 用于严格复现原版 XLSM 的折旧、税费、换电池和现金流公式。
 
 任务可以直接传入 `annual_revenue_yuan`，也可以传入 `source_run_id`，由 Worker 读取已成功的 `strict-dispatch` 或 `price-analysis` 结果。后者保证价差分析与财务测算来自同一条可回放任务链路，并校验功率、容量与上游分析规模一致。
 

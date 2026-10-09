@@ -24,6 +24,9 @@ class PriceSummary(BaseModel):
     first_date: date | None = None
     last_date: date | None = None
     sources: list[str] = Field(default_factory=list)
+    data_status: str = "available"
+    conflict_count: int = Field(default=0, ge=0)
+    manual_review_required: bool = False
     source_mode: str = "legacy-readonly"
 
 
@@ -75,6 +78,9 @@ class PriceAggregateResult(BaseModel):
     multiple_source_days: int = Field(ge=0)
     multiple_source_dates: list[date] = Field(default_factory=list)
     missing_dates: list[date] = Field(default_factory=list)
+    data_status: str = "available"
+    conflict_count: int = Field(default=0, ge=0)
+    manual_review_required: bool = False
     first_date: date | None = None
     last_date: date | None = None
     source_mode: str = "legacy-readonly"
@@ -124,6 +130,12 @@ class DataQualitySummary(BaseModel):
     missing_cells: int = Field(ge=0)
     non_finite_cells: int = Field(ge=0)
     coverage_ratio: float = Field(ge=0, le=1)
+    duplicate_records: int = Field(default=0, ge=0)
+    multiple_source_records: int = Field(default=0, ge=0)
+    rejected_records: int = Field(default=0, ge=0)
+    no_canonical_records: int = Field(default=0, ge=0)
+    manual_review_records: int = Field(default=0, ge=0)
+    data_status: str = "available"
     source_mode: str = "legacy-readonly"
 
 

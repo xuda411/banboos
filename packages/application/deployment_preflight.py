@@ -46,6 +46,8 @@ def evaluate_preflight(
     auth_mode = _env(config, "BANBOOS2_AUTH_MODE", "development-open" if not production else "identity").lower()
     tenant_mode = _env(config, "BANBOOS2_TENANT_ENFORCEMENT", "preview")
     control_mode = _env(config, "BANBOOS2_CONTROL_MODE", "disabled").lower()
+    financial_gate = _env(config, "BANBOOS2_FINANCIAL_RELEASE_GATE").upper()
+    identity_hash_secret = _env(config, "BANBOOS2_IDENTITY_HASH_SECRET")
 
     if template_available is None:
         from packages.application.financial_template_xlsm import financial_template_path
@@ -56,6 +58,16 @@ def evaluate_preflight(
     identity_missing = [key for key in identity_keys if not _env(config, key)]
 
     tenant_status = "pass" if tenant_mode.lower() == "strict" else ("fail" if production else "warn")
+    financial_gate_status = (
+        "pass" if financial_gate == "RELEASE_READY"
+        else "fail" if production
+        else "warn"
+    )
+    identity_hash_status = (
+        "pass" if len(identity_hash_secret) >= 32
+        else "fail" if production
+        else "warn"
+    )
     checks = [
         PreflightCheck(
             "environment",
@@ -81,6 +93,12 @@ def evaluate_preflight(
             f"待配置：{', '.join(identity_missing)}",
         ),
         PreflightCheck(
+            "identity_hash_secret",
+            identity_hash_status,
+            "身份标识哈希密钥已配置" if identity_hash_status == "pass" else
+            "生产环境必须配置至少 32 位身份标识哈希密钥",
+        ),
+        PreflightCheck(
             "api_auth",
             "pass" if (not production and auth_mode in {"development-open", "token"}) or
             (production and auth_mode in {"identity", "oidc", "oauth2"}) else "fail",
@@ -98,6 +116,12 @@ def evaluate_preflight(
             "financial_template",
             "pass" if template_available else ("fail" if production else "warn"),
             "1.6.6 财务模板可用" if template_available else "未找到 1.6.6 财务模板",
+        ),
+        PreflightCheck(
+            "financial_release_gate",
+            financial_gate_status,
+            "XLSM 发布门禁已通过" if financial_gate == "RELEASE_READY" else
+            f"XLSM 发布门禁状态：{financial_gate or '未声明'}；生产环境必须为 RELEASE_READY",
         ),
         PreflightCheck(
             "production_control",

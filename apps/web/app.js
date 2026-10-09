@@ -1,4 +1,4 @@
-const apiPort = new URLSearchParams(window.location.search).get("apiPort");
+﻿const apiPort = new URLSearchParams(window.location.search).get("apiPort");
 const apiBase = window.BANBOOS_API_BASE || (apiPort ? `${window.location.protocol}//${window.location.hostname}:${apiPort}` : "http://127.0.0.1:8000");
 const $ = (id) => document.getElementById(id);
 let analysisSourceRunId = null;
@@ -9,6 +9,9 @@ let financialSourceRunId = null;
 let portfolioRunId = null;
 let financialTemplateAvailable = false;
 let lpReconcileRunId = null;
+let dispatchResultData = null;
+let authIdentityRole = "";
+let conflictSession = null;
 let financialRunId = null;
 let portfolioCandidateSnapshotId = null;
 let portfolioCandidateSource = new Map();
@@ -55,8 +58,9 @@ async function loadAuthMethods() {
 }
 function renderAuthSession(session) {
   const user = session?.user || {}; const tenant = session?.tenant || {};
-  $("authSessionState").textContent = session?.mode === "token" ? user.name || "已登录" : "开发联调用户";
-  $("authSessionState").className = "status status-ok";
+  conflictSession = session;
+  authIdentityRole = user.role || "";
+  setStatus("authSessionState", "ok", session?.mode === "token" ? user.name || "已登录" : "开发联调用户");
   $("authOpenButton").textContent = session?.mode === "token" ? "账户" : "登录";
   $("currentAuthUser").textContent = user.name || "开发联调用户";
   $("currentAuthScope").textContent = `${tenant.name || "联调租户"} · ${session?.mode === "token" ? "令牌会话" : "开发默认会话"}`;
@@ -82,12 +86,12 @@ async function loadAuthPolicy() {
     const selector = $("permissionRole"); selector.replaceChildren(...authPolicy.roles.map((role) => { const option = document.createElement("option"); option.value = role.key; option.textContent = role.label; return option; }));
     selector.onchange = () => renderPermissionMatrix(selector.value);
     renderPermissionMatrix(authPolicy.roles[0]?.key);
-    $("authPolicyState").textContent = `策略 v${authPolicy.version}`; $("authPolicyState").className = "status status-ok";
-  } catch (error) { $("authPolicyState").textContent = "策略不可用"; $("authPolicyState").className = "status status-error"; $("permissionMatrix").innerHTML = `<p class="empty-state">权限策略加载失败：${error.message}</p>`; }
+    setStatus("authPolicyState", "ok", `策略 v${authPolicy.version}`);
+  } catch (error) { setStatus("authPolicyState", "error", "策略不可用"); renderEmpty("permissionMatrix", "权限策略加载失败", error.message); }
 }
 async function loadAuthSession() {
   try { const session = await get("/api/v1/auth/session"); renderAuthSession(session); await loadAuthPolicy(); return session; }
-  catch (error) { if (error.status === 401) setAuthToken(null); $("authSessionState").textContent = "未登录"; $("authSessionState").className = "status status-error"; $("currentAuthUser").textContent = "未建立会话"; $("currentAuthScope").textContent = "请登录后查看租户和权限范围"; if (error.status !== 401) $("authMessage").textContent = `会话读取失败：${error.message}`; return null; }
+  catch (error) { if (error.status === 401) setAuthToken(null); setStatus("authSessionState", "error", "未登录"); $("currentAuthUser").textContent = "未建立会话"; $("currentAuthScope").textContent = "请登录后查看租户和权限范围"; if (error.status !== 401) $("authMessage").textContent = `会话读取失败：${error.message}`; return null; }
 }
 window.BanboosAuth = { token: () => authToken, open: () => showAuthDialog(), clear: () => setAuthToken(null) };
 
@@ -104,19 +108,82 @@ function displaySource(value) {
 }
 
 const runKindLabels = { financial: "财务测算", sensitivity: "敏感性分析", "price-analysis": "节点电价分析", "strict-dispatch": "约束回放", "lp-analysis": "LP 分析", "portfolio-optimization": "组合优化", "investment-scenario": "投资情景", weather: "气象专题" };
-const gateCheckLabels = { identity_service: "账号身份服务", api_auth: "接口认证 fallback", postgres: "数据库", redis: "任务队列", financial_template: "财务模板", production_control: "生产控制", tenant_isolation: "租户隔离" };
+const gateCheckLabels = { identity_service: "账号身份服务", identity_hash_secret: "身份标识哈希密钥", api_auth: "接口认证 fallback", postgres: "数据库", redis: "任务队列", financial_template: "财务模板", financial_release_gate: "财务 XLSM 发布门禁", production_control: "生产控制", tenant_isolation: "租户隔离" };
 const readyCheckLabels = { api: "接口服务", redis: "任务队列", auth: "身份认证" };
 function runKindLabel(value) { return runKindLabels[value] || value || "—"; }
 const runStatusLabels = { queued: "排队中", running: "执行中", succeeded: "已完成", failed: "失败", cancelled: "已取消" };
 function runStatusLabel(status, progress) { return `${runStatusLabels[status] || status || "处理中"} ${progress ?? 0}%`; }
 function runStatusClass(status) { return status === "succeeded" ? "status-ok" : ["failed", "cancelled"].includes(status) ? "status-error" : ["queued", "running"].includes(status) ? "status-progress" : "status-muted"; }
-function readyCheckText(value) { return { ok: "正常", "not-configured": "未配置（本地开发模式）", unavailable: "不可用", "not-ready": "未就绪" }[value] || value || "未知"; }
+
+// ── UI 组件快捷封装（基于 BanboosUI 统一组件）──
+// 将 status 元素的内容与样式统一更新，底层复用 StatusBadge 语义
+function setStatus(el, variant, text, opts) {
+  if (typeof el === "string") el = $(el);
+  if (!el) return;
+  opts = opts || {};
+  el.className = `status status-${variant}`;
+  el.textContent = text;
+  if (opts.ariaLive) el.setAttribute("aria-live", opts.ariaLive);
+  if (opts.role) el.setAttribute("role", opts.role);
+  // 进度态启用脉冲
+  if (variant === "progress") el.setAttribute("data-pulse", "true");
+  else el.removeAttribute("data-pulse");
+}
+
+// 将任务进度条状态统一更新
+function setTaskProgress(el, variant, text) {
+  if (typeof el === "string") el = $(el);
+  if (!el) return;
+  el.className = `task-progress status-${variant}`;
+  el.textContent = text;
+}
+
+// 快捷创建空状态元素（底层复用 EmptyState）
+function renderEmpty(target, action, hint) {
+  if (typeof target === "string") target = $(target);
+  if (!target) return;
+  target.replaceChildren(window.BanboosUI.EmptyState(action, hint));
+}
+
+// ── 查询条件 hash 工具 ─────────────────────────────────────────
+// 根据字段数组生成稳定的简单 hash，用于导出按钮条件绑定校验
+function buildQueryHash(fields) {
+  const parts = fields.map((f) => {
+    const el = typeof f === "string" ? $(f) : f;
+    return el ? `${el.id || "field"}=${encodeURIComponent(el.value)}` : "";
+  });
+  let hash = 0;
+  const str = parts.join("&");
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return `q${Math.abs(hash).toString(36)}`;
+}
+
+// 给一组导出按钮绑定当前查询 hash
+function bindExportHash(buttonIds, hash) {
+  buttonIds.forEach((id) => {
+    const btn = $(id);
+    if (btn && btn._banboosBindHash) btn._banboosBindHash(hash);
+    else if (btn) btn.setAttribute("data-query-hash", hash);
+  });
+}
+const readyCheckMeta = {
+  api: { label: "接口服务", ok: "接口可用", "not-configured": "本地模式" },
+  redis: { label: "任务队列", ok: "队列可用", "not-configured": "未启用（本地模式）" },
+  auth: { label: "身份认证", ok: "认证可用", "not-configured": "联调模式" },
+};
+function readyCheckText(key, value) {
+  const meta = readyCheckMeta[key] || {};
+  return meta[value] || { ok: "正常", "not-configured": "未配置（本地模式）", unavailable: "暂不可用", "not-ready": "尚未就绪" }[value] || "状态未知";
+}
 function renderReadyChecks(checks) {
   const target = $("systemChecks"); target.replaceChildren();
   Object.entries(checks || {}).forEach(([key, value]) => {
     const row = document.createElement("div"); row.className = "system-check-row";
-    const label = document.createElement("strong"); label.textContent = readyCheckLabels[key] || key;
-    const status = document.createElement("small"); status.textContent = readyCheckText(value); status.className = value === "ok" ? "value-ok" : value === "not-configured" ? "value-warning" : "value-error";
+    const label = document.createElement("strong"); label.textContent = readyCheckMeta[key]?.label || readyCheckLabels[key] || key;
+    const status = document.createElement("small"); status.textContent = readyCheckText(key, value); status.className = value === "ok" ? "value-ok" : value === "not-configured" ? "value-warning" : "value-error";
     row.append(label, status); target.append(row);
   });
 }
@@ -160,7 +227,7 @@ function activateView(viewId) {
 
 function renderStationList(items) {
   const list = $("stationList");
-  if (!items.length) { list.innerHTML = '<div class="empty-state">当前筛选没有节点</div>'; return; }
+  if (!items.length) { renderEmpty(list, "当前筛选没有节点", "调整筛选条件或检查数据接入"); return; }
   list.replaceChildren(...items.map((item) => {
     const row = document.createElement("div");
     row.className = "station-row";
@@ -205,14 +272,14 @@ async function loadPortfolio() {
     rows.forEach((values) => { const tr = document.createElement("tr"); values.forEach((value) => { const td = document.createElement("td"); td.textContent = value; tr.appendChild(td); }); body.appendChild(tr); });
     const provinceMap = new Map(); rows.forEach((row) => { const key = row[1]; const item = provinceMap.get(key) || { nodes: 0, days: 0, coverage: 0 }; item.nodes += 1; item.days += Number(row[2]) || 0; item.coverage += Number.parseFloat(row[4]) || 0; provinceMap.set(key, item); });
     const provinceBody = $("provinceBody"); provinceBody.replaceChildren(); provinceMap.forEach((item, province) => { const tr = document.createElement("tr"); [province, item.nodes, item.days, `${(item.coverage / item.nodes).toFixed(1)}%`].forEach((value) => { const td = document.createElement("td"); td.textContent = value; tr.appendChild(td); }); provinceBody.appendChild(tr); });
-    state.textContent = `${rows.length} 个节点`; state.className = "status status-ok";
-  } catch (error) { state.textContent = "加载失败"; state.className = "status status-error"; body.innerHTML = `<tr><td colspan="6">${error.message}</td></tr>`; }
+    setStatus(state, "ok", `${rows.length} 个节点`);
+  } catch (error) { setStatus(state, "error", "加载失败"); body.innerHTML = `<tr><td colspan="6">${error.message}</td></tr>`; }
 }
 
 function invalidatePortfolio() {
   ReportUI.clearRun("portfolioOptimizer");
-  $("portfolioOptState").textContent = "待计算";
-  $("portfolioOptState").className = "status status-muted";
+  if ($("portfolioDashboard")) $("portfolioDashboard").hidden = true;
+  setStatus("portfolioOptState", "muted", "待计算");
   $("portfolioOptBody").innerHTML = '<tr><td colspan="4">参数已修改，请重新计算。</td></tr>';
   $("portfolioOptMessage").textContent = "当前为手工情景；修改后的参数尚未计算。";
 }
@@ -255,7 +322,7 @@ async function generatePortfolioCandidates() {
   }
   button.disabled = true; button.setAttribute("aria-busy", "true"); message.textContent = "正在读取真实节点并生成候选项目…";
   const query = { market: $("portfolioMarket").value, start_date: $("portfolioStart").value,
-    end_date: $("portfolioEnd").value, power_mw: power, capacity_mwh: capacity, round_trip_efficiency: 0.92 };
+    end_date: $("portfolioEnd").value, power_mw: power, capacity_mwh: capacity, round_trip_efficiency: 0.92, page_size: 20 };
   const ticket = ReportUI.begin("portfolioCandidates", query, "原始候选快照");
   $("exportPortfolioCandidates").disabled = true;
   $("optimizePortfolioSnapshot").disabled = true;
@@ -264,14 +331,15 @@ async function generatePortfolioCandidates() {
     if (!ReportUI.current("portfolioCandidates", ticket)) return;
     $("portfolioProjectBody").replaceChildren();
     portfolioCandidateSnapshotId = result.snapshot_id === "demo" ? null : result.snapshot_id;
-    portfolioCandidateSource = new Map(result.candidates.map((candidate) => [String(candidate.node_id), structuredClone(candidate)]));
-    result.candidates.forEach(addPortfolioProject);
-    $("exportPortfolioCandidates").disabled = !result.candidates.length;
+    portfolioCandidateSource = new Map();
+    $("exportPortfolioCandidates").disabled = true;
     ReportUI.complete("portfolioCandidates", ticket, portfolioCandidateSnapshotId ? result.candidates.length : 0,
       result.algorithm_version, { snapshot_id: portfolioCandidateSnapshotId });
-    $("optimizePortfolioSnapshot").disabled = !portfolioCandidateSnapshotId || !result.candidates.length;
+    $("optimizePortfolioSnapshot").disabled = true;
     invalidatePortfolio();
-    message.textContent = `已生成 ${result.candidates.length} 个真实节点候选（${result.market}，${result.start_date} 至 ${result.end_date}）；快照 ${result.snapshot_id.slice(0, 12)}…；请确认预算和目标后运行组合优化。`;
+    message.textContent = `已生成 ${result.candidate_count} 个候选。请在候选快照表中跨页勾选最多50个节点，然后提交快照优化或放入编辑表调整。`;
+    if (portfolioCandidateSnapshotId) await PortfolioBrowser.open(portfolioCandidateSnapshotId);
+    await PortfolioBrowser.history();
   } catch (error) {
     if (!ReportUI.current("portfolioCandidates", ticket)) return;
     ReportUI.invalidate("portfolioCandidates", `候选生成失败：${error.message}`);
@@ -281,19 +349,30 @@ async function generatePortfolioCandidates() {
 }
 
 async function optimizePortfolioSnapshot() {
-  if (!portfolioCandidateSnapshotId) return;
+  if (!portfolioCandidateSnapshotId || !PortfolioBrowser.selectedIds().length) return;
   const message = $("portfolioOptMessage"); const button = $("optimizePortfolioSnapshot");
   button.disabled = true; button.setAttribute("aria-busy", "true"); message.textContent = "正在按原始候选快照提交组合优化…";
-  const parameters = { objective: $("portfolioObjective").value,
+  const parameters = { objective: $("portfolioObjective").value, node_ids: PortfolioBrowser.selectedIds(),
     budget_limit_wan: $("portfolioBudget").value === "" ? null : Number($("portfolioBudget").value),
     revenue_target_wan: $("portfolioRevenueTarget").disabled ? null : Number($("portfolioRevenueTarget").value),
     discount_rate: Number($("portfolioRate").value) / 100, operation_years: Number($("portfolioYears").value) };
   try {
     const run = await post("/api/v1/portfolio/candidates/" + portfolioCandidateSnapshotId + "/optimize", parameters);
     portfolioRunId = run.run_id; $("resumePortfolio").hidden = false;
+    try { localStorage.setItem("banboosPortfolioRun", portfolioRunId); } catch { /* Optional recovery. */ }
     await pollPortfolio();
   } catch (error) { message.textContent = "快照优化失败：" + error.message; }
-  finally { button.disabled = false; button.removeAttribute("aria-busy"); }
+  finally { button.disabled = !PortfolioBrowser.selectedIds().length; button.removeAttribute("aria-busy"); }
+}
+
+function importSelectedPortfolioCandidates(items) {
+  $("portfolioProjectBody").replaceChildren();
+  portfolioCandidateSource = new Map(items.map((item) => [String(item.node_id), structuredClone(item)]));
+  items.forEach(addPortfolioProject);
+  $("optimizePortfolioSnapshot").disabled = true;
+  $("exportPortfolioCandidates").disabled = !items.length; if (items.length) { const pHash = buildQueryHash(["portfolioMarket","portfolioStart","portfolioEnd","portfolioPower","portfolioCapacity"]); bindExportHash(["exportPortfolioCandidates","exportPortfolioCandidatesXlsx"], pHash); }
+  invalidatePortfolio();
+  $("portfolioOptMessage").textContent = `已将 ${items.length} 个勾选节点放入编辑表，可继续调整后运行组合优化。`;
 }
 
 function exportPortfolioCandidates() {
@@ -314,6 +393,55 @@ function exportPortfolioCandidates() {
   link.click(); URL.revokeObjectURL(link.href);
 }
 
+async function loadPortfolioDashboard() {
+  const panel = $("portfolioDashboard"); const state = $("portfolioDashboardState");
+  if (!panel || !portfolioRunId) return;
+  panel.hidden = false; state.textContent = "正在整理结果看板…";
+  try {
+    const dashboard = await get(`/api/v1/runs/${portfolioRunId}/portfolio-dashboard`);
+    const money = (value) => Number(value || 0).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+    $("dashboardSelectedCount").textContent = dashboard.metrics.selected_count;
+    $("dashboardInvestment").textContent = money(dashboard.metrics.total_investment_wan);
+    $("dashboardNpv").textContent = money(dashboard.metrics.total_npv_wan);
+    $("dashboardIrr").textContent = dashboard.metrics.portfolio_irr == null ? "—" : `${(dashboard.metrics.portfolio_irr * 100).toFixed(2)}%`;
+    const source = dashboard.candidate_source || {};
+    $("dashboardSnapshot").textContent = `来源快照：${source.snapshot_id ? source.snapshot_id.slice(0, 12) + "…" : "手工情景"}`;
+    $("dashboardCandidateCount").textContent = `候选数：${source.candidate_count ?? "—"}`;
+    $("dashboardAlgorithm").textContent = `算法：${dashboard.algorithm_version || "—"}`;
+    const review = dashboard.review || { status: "draft" };
+    const reviewLabels = { draft: "待提交复核", pending: "待复核", approved: "已批准", rejected: "已退回", archived: "已归档" };
+    const reviewStatus = $("dashboardReviewStatus"); reviewStatus.textContent = reviewLabels[review.status] || review.status; reviewStatus.className = `status status-${review.status === "approved" || review.status === "archived" ? "ok" : review.status === "rejected" ? "error" : "muted"}`;
+    $("portfolioReviewSubmit").hidden = review.status !== "draft" && review.status !== "rejected";
+    $("portfolioReviewApprove").hidden = review.status !== "pending";
+    $("portfolioReviewReject").hidden = review.status !== "pending";
+    $("portfolioReviewArchive").hidden = review.status !== "approved";
+    const body = $("portfolioDashboardBody"); body.replaceChildren();
+    (dashboard.provinces || []).forEach((row) => {
+      const tr = document.createElement("tr");
+      [row.province, row.selected_count, money(row.capacity_mwh), money(row.investment_wan), money(row.annual_revenue_wan)].forEach((value) => { const td = document.createElement("td"); td.textContent = value; tr.append(td); });
+      body.append(tr);
+    });
+    if (!body.children.length) body.innerHTML = '<tr><td colspan="5">没有满足约束的选中项目</td></tr>';
+    state.textContent = `已按省份汇总。${dashboard.cashflow_note || ""}`;
+  } catch (error) { state.textContent = `结果看板暂不可用：${error.message}`; }
+}
+
+async function applyPortfolioReview(action) {
+  if (!portfolioRunId) return;
+  const actor = $("portfolioReviewActor").value.trim();
+  const note = $("portfolioReviewNote").value.trim();
+  if (!actor) { $("portfolioDashboardState").textContent = "请填写审核标识后继续。"; return; }
+  const button = $("portfolioReview" + action[0].toUpperCase() + action.slice(1));
+  if (button) button.disabled = true;
+  try {
+    await post(`/api/v1/runs/${portfolioRunId}/portfolio-review`, { action, actor, note });
+    $("portfolioReviewNote").value = "";
+    await loadPortfolioDashboard();
+    $("portfolioDashboardState").textContent = "审批状态已更新，并保留审计记录。";
+  } catch (error) { $("portfolioDashboardState").textContent = `审批状态更新失败：${error.message}`; }
+  finally { if (button) button.disabled = false; }
+}
+
 function renderPortfolioResult(result) {
   const body = $("portfolioOptBody"); body.replaceChildren();
   result.selected_projects.forEach((project) => {
@@ -330,6 +458,7 @@ function renderPortfolioResult(result) {
   $("portfolioOptState").className = `status status-${result.outcome === "optimal" ? "ok" : "muted"}`;
   $("portfolioOptMessage").textContent = `${result.message} 总投资 ${result.total_investment_wan.toFixed(2)} 万元 · 总 NPV ${result.total_npv_wan.toFixed(2)} 万元 · 组合 IRR ${result.portfolio_irr == null ? "无有效根" : (result.portfolio_irr * 100).toFixed(2) + "%"}。${result.cashflow_note}`;
   ReportUI.run("portfolioOptimizer", portfolioRunId, "组合优化", apiBase);
+  loadPortfolioDashboard();
 }
 
 async function pollPortfolio() {
@@ -375,7 +504,7 @@ async function submitPortfolio(event) {
     $("resumePortfolio").hidden = false;
     await pollPortfolio();
   } catch (error) {
-    $("portfolioOptState").textContent = "请检查任务"; $("portfolioOptState").className = "status status-error";
+    setStatus("portfolioOptState", "error", "请检查任务");
     $("portfolioOptMessage").textContent = error.message;
   } finally { $("portfolioFields").disabled = false; $("resumePortfolio").disabled = false; $("submitPortfolio").disabled = false; $("submitPortfolio").removeAttribute("aria-busy"); }
 }
@@ -416,7 +545,7 @@ async function refreshSystem() {
   const health = $("systemHealth"); const ready = $("systemReady"); const checks = $("systemChecks");
   try { const [healthBody, meta] = await Promise.all([get("/health"), get("/api/v1/meta")]); financialTemplateAvailable = meta.financial_template_available === "True"; health.textContent = healthBody.status === "ok" ? "正常" : (healthBody.status || "异常"); health.className = healthBody.status === "ok" ? "value-ok" : "value-error"; $("systemHealthDetail").textContent = `版本 ${healthBody.version || "—"}`; $("systemMode").textContent = meta.data_mode === "staging-readonly" ? "隔离只读" : (meta.data_mode || "—"); } catch (error) { financialTemplateAvailable = false; health.textContent = "异常"; health.className = "value-error"; $("systemHealthDetail").textContent = error.message; $("systemMode").textContent = "不可用"; }
   try { const body = await get("/readyz"); const isReady = body.status === "ready"; ready.textContent = isReady ? "已就绪" : (body.status || "未就绪"); ready.className = isReady ? "value-ok" : "value-error"; $("systemReadyDetail").textContent = isReady ? "所有依赖已就绪" : "存在待处理依赖"; renderReadyChecks(body.checks); } catch (error) { ready.textContent = "未就绪"; ready.className = "value-error"; $("systemReadyDetail").textContent = error.message; checks.textContent = `检查失败：${error.message}`; }
-  try { const runs = await get("/api/v1/runs", { kind: $("systemRunKind").value, status: $("systemRunStatus").value, limit: 50 }); const body = $("systemRunsBody"); body.replaceChildren(); runs.forEach((run) => { const tr = document.createElement("tr"); const values = [runKindLabel(run.kind), run.status, `${run.progress}%`, run.created_at ? new Date(run.created_at).toLocaleString("zh-CN") : "—", run.error_code || "—"]; values.forEach((value, index) => { const td = document.createElement("td"); if (index === 1) { const badge = document.createElement("span"); badge.className = `status ${runStatusClass(run.status)}`; badge.textContent = runStatusLabels[run.status] || "处理中"; td.appendChild(badge); } else { td.textContent = value; } tr.appendChild(td); }); body.appendChild(tr); }); $("systemRunsState").textContent = `${runs.length} 条记录`; $("systemRunsState").className = `status ${runs.length ? "status-ok" : "status-muted"}`; } catch (error) { $("systemRunsState").textContent = "加载失败"; $("systemRunsState").className = "status status-error"; }
+  try { const runs = await get("/api/v1/runs", { kind: $("systemRunKind").value, status: $("systemRunStatus").value, limit: 50 }); const body = $("systemRunsBody"); body.replaceChildren(); runs.forEach((run) => { const tr = document.createElement("tr"); const values = [runKindLabel(run.kind), run.status, `${run.progress}%`, run.created_at ? new Date(run.created_at).toLocaleString("zh-CN") : "—", run.error_code || "—"]; values.forEach((value, index) => { const td = document.createElement("td"); if (index === 1) { const badge = document.createElement("span"); badge.className = `status ${runStatusClass(run.status)}`; badge.textContent = runStatusLabels[run.status] || "处理中"; td.appendChild(badge); } else { td.textContent = value; } tr.appendChild(td); }); body.appendChild(tr); }); $("systemRunsState").textContent = `${runs.length} 条记录`; $("systemRunsState").className = `status ${runs.length ? "status-ok" : "status-muted"}`; } catch (error) { setStatus("systemRunsState", "error", "加载失败"); }
 }
 
 async function syncCurveDateRange() {
@@ -451,7 +580,7 @@ async function refreshLaunchGate() {
     table.appendChild(body); target.appendChild(table);
     state.textContent = `${report.status === "staging-ready" ? "隔离环境已就绪" : "门禁未通过"} · ${report.environment || "未知环境"} · ${report.control_mode || "未知控制模式"}`;
     state.className = `task-progress ${report.status === "staging-ready" ? "status-ok" : "status-error"}`;
-  } catch (error) { state.textContent = `门禁检查失败：${error.message}`; state.className = "task-progress status-error"; }
+  } catch (error) { setTaskProgress(state, "error", `门禁检查失败：${error.message}`); }
 }
 
 async function previewImport() {
@@ -464,7 +593,7 @@ async function previewImport() {
     importPreviewId = result.preview_id; commit.disabled = result.status !== "ready";
     state.textContent = `${result.status === "ready" ? "预览通过" : "预览拒绝"} · ${result.accepted_count}/${result.row_count} 行有效 · ${result.rejected_count} 个错误 · ${result.preview_id.slice(0, 12)}…${result.errors.length ? ` · ${result.errors[0]}` : ""}`;
     state.className = `task-progress ${result.status === "ready" ? "status-ok" : "status-error"}`;
-  } catch (error) { state.textContent = `预览失败：${error.message}`; state.className = "task-progress status-error"; }
+  } catch (error) { setTaskProgress(state, "error", `预览失败：${error.message}`); }
 }
 
 async function commitImport() {
@@ -472,9 +601,8 @@ async function commitImport() {
   const state = $("importState"); const commit = $("importCommitButton"); commit.disabled = true; state.textContent = "正在写入导入审计记录…";
   try {
     const result = await post("/api/v1/import/commit", { preview_id: importPreviewId, confirm: true });
-    state.textContent = `已记录导入审计 ${result.audit_id} · ${result.accepted_count} 行通过校验；当前仍为隔离只读模式，未写入生产数据库。`;
-    state.className = "task-progress status-ok";
-  } catch (error) { state.textContent = `导入未提交：${error.message}`; state.className = "task-progress status-error"; commit.disabled = false; }
+    setTaskProgress(state, "ok", `已记录导入审计 ${result.audit_id} · ${result.accepted_count} 行通过校验；当前仍为隔离只读模式，未写入生产数据库。`);
+  } catch (error) { setTaskProgress(state, "error", `导入未提交：${error.message}`); commit.disabled = false; }
 }
 
 function curveScale(values) {
@@ -500,15 +628,15 @@ function drawCurves(curves, selectedIndex = 0, pointer = null) {
   if (!values.length) return;
   const scale = curveScale(values); const min = scale.min; const max = scale.max; const span = max - min || 1;
   const pad = { left: 42, right: 14, top: 18, bottom: 30 };
-  context.strokeStyle = "#dfe5e2"; context.lineWidth = 1;
+  context.strokeStyle = window.BanboosChartConfig.grid.color; context.lineWidth = window.BanboosChartConfig.grid.lineWidth;
   for (let tick = min; tick <= max; tick += scale.step) {
     const y = pad.top + (height - pad.top - pad.bottom) * (max - tick) / span;
     context.beginPath(); context.moveTo(pad.left, y); context.lineTo(width - pad.right, y); context.stroke();
-    context.fillStyle = "#5f7068"; context.font = "11px Microsoft YaHei"; context.fillText(tick.toFixed(0), 4, y + 4);
+    context.fillStyle = window.BanboosChartConfig.axes.tickColor; context.font = `11px ${window.BanboosChartConfig.font.family}`; context.fillText(tick.toFixed(0), 4, y + 4);
   }
   curves.forEach((curve, curveIndex) => {
     const selected = curveIndex === selectedIndex;
-    context.strokeStyle = selected ? "#176b50" : "#9fc5b1";
+    context.strokeStyle = selected ? window.BanboosChartConfig.series.bamboo : window.BanboosChartConfig.series.bambooSoft;
     context.lineWidth = selected ? 2.4 : 1.2;
     context.beginPath();
     curve.prices.forEach((value, index) => {
@@ -535,13 +663,13 @@ function drawCurves(curves, selectedIndex = 0, pointer = null) {
     const value = Number(curves[selectedIndex]?.prices[pointer.slot]);
     if (Number.isFinite(value)) {
       const y = pad.top + (height - pad.top - pad.bottom) * (max - value) / span;
-      context.strokeStyle = "rgba(23,107,80,.35)"; context.lineWidth = 1;
+      context.strokeStyle = window.BanboosChartConfig.axes.cursorBamboo; context.lineWidth = 1;
       context.setLineDash([4, 4]); context.beginPath(); context.moveTo(x, pad.top); context.lineTo(x, height - pad.bottom); context.stroke(); context.setLineDash([]);
-      context.fillStyle = "#fff"; context.strokeStyle = "#176b50"; context.lineWidth = 2;
+      context.fillStyle = window.BanboosChartConfig.tooltip.fill; context.strokeStyle = window.BanboosChartConfig.tooltip.stroke; context.lineWidth = window.BanboosChartConfig.tooltip.lineWidth;
       context.beginPath(); context.arc(x, y, 4.5, 0, Math.PI * 2); context.fill(); context.stroke();
     }
   }
-  context.fillStyle = "#5f7068"; context.font = "11px Microsoft YaHei";
+  context.fillStyle = window.BanboosChartConfig.axes.tickColor; context.font = `11px ${window.BanboosChartConfig.font.family}`;
   context.fillText("00:15", pad.left, height - 8); context.fillText("12:00", width / 2 - 18, height - 8); context.fillText("24:00", width - 48, height - 8);
   canvas._curveGeometry = { curves, selectedIndex, width, height, pad, min, max, span };
 }
@@ -639,10 +767,11 @@ function exportCurves() {
 
 async function loadCurves() {
   const nodeId = $("curveNode").value;
-  if (!nodeId) { $("curveState").textContent = "请选择节点"; return; }
+  if (!nodeId) { setStatus("curveState", "muted", "请选择节点"); return; }
   const query = { node_id: nodeId, market: $("curveMarket").value, start_date: $("curveStart").value, end_date: $("curveEnd").value, limit: $("curveLimit").value, duration_hours: $("curveAggregateDuration").value };
   const ticket = ReportUI.begin("curve", query, $("curveNode").selectedOptions[0].textContent);
-  $("curveState").textContent = "正在加载"; $("curveState").className = "status status-progress";
+  setStatus("curveState", "progress", "正在加载");
+  window.BanboosUI.LoadingGuard("curvePlot", "loading", { message: "正在加载电价曲线…" });
   try {
     const [curves, aggregates] = await Promise.all([
       get("/api/v1/price/curves", query),
@@ -652,10 +781,19 @@ async function loadCurves() {
     loadedCurves = curves; loadedAggregates = aggregates; curvePointer = null; $("curveHover").hidden = true; $("exportCurves").disabled = curves.length === 0; $("exportCurveAggregate").disabled = !(aggregates.monthly?.length || aggregates.annual?.length); $("exportCurveAggregateXlsx").disabled = !(aggregates.monthly?.length || aggregates.annual?.length); $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
     const dayList = $("curveDays"); dayList.replaceChildren();
     curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.dataset.index = String(index); day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); curvePointer = null; $("curveHover").hidden = true; drawCurves(curves, index); updateCurveStats(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
-    $("curveEmpty").hidden = curves.length > 0; document.querySelector(".curve-card").classList.toggle("curve-empty", !curves.length); $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; $("curveState").textContent = curves.length ? `${curves.length} 天` : "暂无数据"; $("curveState").className = `status ${curves.length ? "status-ok" : "status-muted"}`;
-    if (!curves.length) dayList.innerHTML = '<div class="empty-state">数据库暂无完整 96 点曲线</div>'; drawCurves(curves); renderCurveAggregates(aggregates);
+    $("curveEmpty").hidden = curves.length > 0; document.querySelector(".curve-card").classList.toggle("curve-empty", !curves.length); $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; setStatus("curveState", curves.length ? "ok" : "muted", curves.length ? `${curves.length} 天` : "暂无数据");
+    if (!curves.length) {
+      renderEmpty(dayList, "数据库暂无完整 96 点曲线", "调整日期范围或更换节点后重试");
+      window.BanboosUI.LoadingGuard("curvePlot", "empty", { emptyAction: "当前范围暂无完整曲线", emptyHint: "调整日期范围或更换节点后重试" });
+    } else {
+      window.BanboosUI.LoadingGuard("curvePlot", "idle");
+      // 绑定导出按钮 hash
+      const hash = buildQueryHash(["curveNode", "curveMarket", "curveStart", "curveEnd", "curveLimit", "curveAggregateDuration"]);
+      bindExportHash(["exportCurves", "exportCurveAggregate", "exportCurveAggregateXlsx", "exportCurvePng", "exportCurveXlsx"], hash);
+    }
+    drawCurves(curves); renderCurveAggregates(aggregates);
     ReportUI.complete("curve", ticket, curves.length, `来源模式：${[...new Set(curves.map(c => c.source_mode))].join("、")} · ${curves[0]?.run_date || ""} 至 ${curves.at(-1)?.run_date || ""} · ${curves.length} 个完整日（上限 ${query.limit} 日） · 选中日按价格渐变，其他日期用于对比`);
-  } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; loadedAggregates = null; $("exportCurves").disabled = true; $("exportCurveAggregate").disabled = true; $("exportCurveAggregateXlsx").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveAggregates").hidden = true; $("curveState").textContent = "加载失败"; $("curveState").className = "status status-error"; $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; }
+  } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; loadedAggregates = null; $("exportCurves").disabled = true; $("exportCurveAggregate").disabled = true; $("exportCurveAggregateXlsx").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveAggregates").hidden = true; setStatus("curveState", "error", "加载失败"); $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; window.BanboosUI.LoadingGuard("curvePlot", "error", { errorMessage: `加载失败：${error.message}` }); }
 }
 
 function drawWeather(series, pointerIndex = null) {
@@ -664,10 +802,10 @@ function drawWeather(series, pointerIndex = null) {
   if (!series.length) return;
   const ghi = series.map((row) => row.ghi_w_m2).filter((value) => value != null); const pv = series.map((row) => row.pv_predict_power_mw).filter((value) => value != null); const wind = series.map((row) => row.wind_speed_m_s).filter((value) => value != null); const maxGhi = Math.max(1, ...ghi); const maxPv = Math.max(1, ...pv); const maxWind = Math.max(1, ...wind); const pad = {left: 46, right: 20, top: 20, bottom: 30}; const x = (index) => pad.left + (width - pad.left - pad.right) * index / Math.max(1, series.length - 1);
   const line = (key, color, max) => { context.strokeStyle = color; context.lineWidth = 2; context.beginPath(); let hasPoint = false; series.forEach((row, index) => { const value = Number(row[key]); if (!Number.isFinite(value)) { hasPoint = false; return; } const y = pad.top + (height - pad.top - pad.bottom) * (1 - value / max); hasPoint ? context.lineTo(x(index), y) : context.moveTo(x(index), y); hasPoint = true; }); context.stroke(); };
-  context.strokeStyle = "#dfe5e2"; context.lineWidth = 1; for (let step = 0; step <= 4; step += 1) { const y = pad.top + (height - pad.top - pad.bottom) * step / 4; context.beginPath(); context.moveTo(pad.left, y); context.lineTo(width - pad.right, y); context.stroke(); }
-  line("ghi_w_m2", "#d9a441", maxGhi); line("pv_predict_power_mw", "#f07832", maxPv); line("wind_speed_m_s", "#3c8b72", maxWind); line("wind_predict_power_mw", "#6d55b5", Math.max(1, ...series.map((row) => row.wind_predict_power_mw || 0)));
-  if (Number.isInteger(pointerIndex) && pointerIndex >= 0 && pointerIndex < series.length) { const px = x(pointerIndex); context.strokeStyle = "rgba(23,107,80,.35)"; context.lineWidth = 1; context.setLineDash([4, 4]); context.beginPath(); context.moveTo(px, pad.top); context.lineTo(px, height - pad.bottom); context.stroke(); context.setLineDash([]); }
-  context.font = "11px Microsoft YaHei"; context.fillStyle = "#d9a441"; context.fillText("辐照度", pad.left, 13); context.fillStyle = "#f07832"; context.fillText("光伏功率（预计）", pad.left + 58, 13); context.fillStyle = "#3c8b72"; context.fillText("风速", pad.left + 168, 13); context.fillStyle = "#6d55b5"; context.fillText("风电功率（预计）", pad.left + 210, 13);
+  context.strokeStyle = window.BanboosChartConfig.grid.color; context.lineWidth = window.BanboosChartConfig.grid.lineWidth; for (let step = 0; step <= 4; step += 1) { const y = pad.top + (height - pad.top - pad.bottom) * step / 4; context.beginPath(); context.moveTo(pad.left, y); context.lineTo(width - pad.right, y); context.stroke(); }
+  line("ghi_w_m2", window.BanboosChartConfig.series.weather.ghi, maxGhi); line("pv_predict_power_mw", window.BanboosChartConfig.series.weather.pv, maxPv); line("wind_speed_m_s", window.BanboosChartConfig.series.weather.wind, maxWind); line("wind_predict_power_mw", window.BanboosChartConfig.series.weather.windPower, Math.max(1, ...series.map((row) => row.wind_predict_power_mw || 0)));
+  if (Number.isInteger(pointerIndex) && pointerIndex >= 0 && pointerIndex < series.length) { const px = x(pointerIndex); context.strokeStyle = window.BanboosChartConfig.axes.cursorBamboo; context.lineWidth = 1; context.setLineDash([4, 4]); context.beginPath(); context.moveTo(px, pad.top); context.lineTo(px, height - pad.bottom); context.stroke(); context.setLineDash([]); }
+  context.font = "11px Microsoft YaHei"; context.fillStyle = window.BanboosChartConfig.series.weather.ghi; context.fillText("辐照度", pad.left, 13); context.fillStyle = window.BanboosChartConfig.series.weather.pv; context.fillText("光伏功率（预计）", pad.left + 58, 13); context.fillStyle = window.BanboosChartConfig.series.weather.wind; context.fillText("风速", pad.left + 168, 13); context.fillStyle = window.BanboosChartConfig.series.weather.windPower; context.fillText("风电功率（预计）", pad.left + 210, 13);
   canvas._weatherGeometry = { series, width, height, pad };
 }
 
@@ -688,14 +826,15 @@ async function loadWeather() {
   if ($("weatherStart").value) query.start_time = $("weatherStart").value;
   if ($("weatherEnd").value) query.end_time = $("weatherEnd").value;
   const ticket = ReportUI.begin("weather", query, $("weatherNode").selectedOptions[0].textContent);
+  window.BanboosUI.LoadingGuard("weatherPlot", "loading", { message: "正在加载气象数据…" });
   try {
     const rawSeries = await get("/api/v1/weather/series", query);
     if (!ReportUI.current("weather", ticket)) return;
     const series = aggregateWeather(rawSeries, $("weatherGranularity").value);
     const mean = (key) => { const values = series.map((row) => row[key]).filter((value) => value != null); return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1) : "—"; };
-    $("weatherObservations").textContent = series.length; $("weatherGhi").textContent = mean("ghi_w_m2"); $("weatherWind").textContent = mean("wind_speed_m_s"); $("weatherTemp").textContent = mean("temp_c"); $("weatherSourceDetail").textContent = series.length ? `${series[0].source || "未标注来源"} · ${series[0].is_power_simulated ? "功率估算" : "功率实测"}` : "当前范围暂无气象观测"; $("weatherChartTitle").textContent = series.length ? `${series[0].data_time.slice(0, 10)} 至 ${series[series.length - 1].data_time.slice(0, 10)}` : "当前范围暂无观测"; $("weatherEmpty").hidden = series.length > 0; document.querySelector(".weather-chart-card").classList.toggle("weather-empty", !series.length); if (!series.length) $("weatherEmpty").textContent = "数据库暂无气象观测"; $("exportWeatherPng").disabled = !series.length; $("exportWeatherXlsx").disabled = !series.length; drawWeather(series);
+    $("weatherObservations").textContent = series.length; $("weatherGhi").textContent = mean("ghi_w_m2"); $("weatherWind").textContent = mean("wind_speed_m_s"); $("weatherTemp").textContent = mean("temp_c"); $("weatherSourceDetail").textContent = series.length ? `${series[0].source || "未标注来源"} · ${series[0].is_power_simulated ? "功率估算" : "功率实测"}` : "当前范围暂无气象观测"; $("weatherChartTitle").textContent = series.length ? `${series[0].data_time.slice(0, 10)} 至 ${series[series.length - 1].data_time.slice(0, 10)}` : "当前范围暂无观测"; $("weatherEmpty").hidden = series.length > 0; document.querySelector(".weather-chart-card").classList.toggle("weather-empty", !series.length); if (!series.length) { $("weatherEmpty").textContent = "数据库暂无气象观测"; window.BanboosUI.LoadingGuard("weatherPlot", "empty", { emptyAction: "暂无气象观测数据", emptyHint: "调整时间范围或更换节点后重试" }); } else { window.BanboosUI.LoadingGuard("weatherPlot", "idle"); const hash = buildQueryHash(["weatherNode", "weatherType", "weatherStart", "weatherEnd", "weatherGranularity"]); bindExportHash(["exportWeatherPng", "exportWeatherXlsx"], hash); } $("exportWeatherPng").disabled = !series.length; $("exportWeatherXlsx").disabled = !series.length; drawWeather(series);
     ReportUI.complete("weather", ticket, series.length, `来源：${[...new Set(rawSeries.map(r => r.source || r.source_mode))].join("、")} · ${rawSeries.length} 条原始观测（上限 744 条） · 图表粒度：${$("weatherGranularity").value} · 各曲线独立缩放，仅用于趋势比较；辐照度 W/m²，风速 m/s，功率 MW（模型预计）`);
-  } catch (error) { if (!ReportUI.current("weather", ticket)) return; ReportUI.invalidate("weather", "加载失败，请重试。"); $("weatherEmpty").hidden = false; $("weatherEmpty").textContent = `读取失败：${error.message}`; }
+  } catch (error) { if (!ReportUI.current("weather", ticket)) return; ReportUI.invalidate("weather", "加载失败，请重试。"); $("weatherEmpty").hidden = false; $("weatherEmpty").textContent = `读取失败：${error.message}`; window.BanboosUI.LoadingGuard("weatherPlot", "error", { errorMessage: `加载失败：${error.message}` }); }
 }
 
 async function submitAnalysis() {
@@ -706,21 +845,21 @@ async function submitAnalysis() {
   if ($("analysisScenarioState")) $("analysisScenarioState").textContent = "情景生成后可带入财务测算，原始节点分析结果保持不变。";
   const power = Number($("analysisPower").value); const capacity = Number($("analysisCapacity").value);
   const duration = capacity / power;
-  if (!nodeId) { resultBox.hidden = false; state.textContent = "请选择节点"; state.className = "status status-error"; return; }
-  if (!Number.isFinite(duration) || duration < 0.25 || duration > 24) { resultBox.hidden = false; state.textContent = "参数无效"; state.className = "status status-error"; $("analysisMessage").textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
-  resultBox.hidden = false; $("analysisMonthly").hidden = true; state.textContent = "正在计算"; state.className = "status status-progress"; $("analysisMessage").textContent = "正在读取完整历史日并计算价差，请稍候…"; $("analysisAnnual").textContent = "—"; $("analysisDays").textContent = "—"; analysisSourceRunId = null; analysisScenarioRunId = null; analysisAnnualRevenueYuan = null; $("submitAnalysis").disabled = true; $("submitAnalysis").setAttribute("aria-busy", "true");
+  if (!nodeId) { resultBox.hidden = false; setStatus(state, "error", "请选择节点"); return; }
+  if (!Number.isFinite(duration) || duration < 0.25 || duration > 24) { resultBox.hidden = false; setStatus(state, "error", "参数无效"); $("analysisMessage").textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
+  resultBox.hidden = false; $("analysisMonthly").hidden = true; setStatus(state, "progress", "正在计算"); $("analysisMessage").textContent = "正在读取完整历史日并计算价差，请稍候…"; window.BanboosUI.LoadingGuard("analysisResult", "loading", { message: "正在执行节点价差分析…" }); $("analysisAnnual").textContent = "—"; $("analysisDays").textContent = "—"; analysisSourceRunId = null; analysisScenarioRunId = null; analysisAnnualRevenueYuan = null; $("submitAnalysis").disabled = true; $("submitAnalysis").setAttribute("aria-busy", "true");
   try {
     const run = await post("/api/v1/runs", { kind: "price-analysis", parameters: { node_id: Number(nodeId), market: $("market").value, start_date: $("startDate").value, end_date: $("endDate").value, power_mw: power, capacity_mwh: capacity, round_trip_efficiency: Number($("analysisEta").value) / 100 } });
     const finished = await pollAnalysis(run.run_id); const data = finished.result || {};
     analysisSourceRunId = run.run_id; analysisAnnualRevenueYuan = Number(data.annualized_revenue_yuan); analysisScale = { power: data.power_mw, capacity: data.capacity_mwh };
-    state.textContent = "计算完成"; state.className = "status status-ok";
+    setStatus(state, "ok", "计算完成"); window.BanboosUI.LoadingGuard("analysisResult", "idle");
     $("analysisMessage").textContent = `${Number(data.duration_hours).toFixed(2)}h项目窗口：连续低/高均价 ${Number(data.charge_price_yuan_per_mwh).toFixed(2)} / ${Number(data.discharge_price_yuan_per_mwh).toFixed(2)} 元/MWh；均价差 ${Number(data.spread_yuan_per_mwh).toFixed(2)}（同时计算2h/4h滑动窗口）`;
     $("analysisAnnual").textContent = `${(analysisAnnualRevenueYuan / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元/年（估算）`;
     $("analysisDays").textContent = `${data.baseline_policy === "latest_complete_year" ? "最近完整年度" : "不足完整年度，全部有效日"}：${data.start_date} 至 ${data.end_date}，${data.valid_days} 天；快照 ${data.snapshot_id.slice(0, 12)}`;
     renderAnalysisMonthly(data);
     ReportUI.run("analysisView", run.run_id, "节点分析", apiBase);
     $("useAnalysisForFinance").disabled = false;
-  } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; $("analysisMessage").textContent = error.message; } finally { $("submitAnalysis").disabled = false; $("submitAnalysis").removeAttribute("aria-busy"); }
+  } catch (error) { setStatus(state, "error", "计算失败"); $("analysisMessage").textContent = error.message; window.BanboosUI.LoadingGuard("analysisResult", "error", { errorMessage: `计算失败：${error.message}` }); } finally { $("submitAnalysis").disabled = false; $("submitAnalysis").removeAttribute("aria-busy"); }
 }
 
 async function createInvestmentScenario() {
@@ -789,7 +928,7 @@ function useAnalysisForFinance() {
   if (Number.isFinite(value)) $("annualRevenue").value = Math.round(value);
   $("powerMw").value = analysisScale.power; $("capacityMwh").value = analysisScale.capacity;
   financialSourceRunId = analysisScenarioRunId || analysisSourceRunId; updateDurationHint();
-  activateView("taskView"); $("taskMessage").textContent = `已带入${analysisScenarioRunId ? "投资情景" : "节点价差结果"}（run_id: ${financialSourceRunId}）`; $("taskState").textContent = "待提交"; $("taskState").className = "status status-muted";
+  activateView("taskView"); $("taskMessage").textContent = `已带入${analysisScenarioRunId ? "投资情景" : "节点价差结果"}（run_id: ${financialSourceRunId}）`; setStatus("taskState", "muted", "待提交");
 }
 
 function invalidateAnalysisSelection() {
@@ -801,12 +940,12 @@ async function submitDispatch() {
   const nodeId = $("dispatchNode").value; const state = $("dispatchState"); const message = $("dispatchMessage"); const submitButton = $("submitDispatch");
   if (!nodeId) { message.textContent = "请选择节点"; return; }
   const power = Number($("dispatchPower").value); const capacity = Number($("dispatchCapacity").value);
-  if (!Number.isFinite(power) || !Number.isFinite(capacity) || power <= 0 || capacity <= 0 || capacity / power < 0.25 || capacity / power > 24) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
-  state.textContent = "正在回放"; state.className = "status status-progress"; submitButton.disabled = true; submitButton.setAttribute("aria-busy", "true"); $("dispatchResult").hidden = true; lpReconcileRunId = null; $("lpReconcileButton").hidden = true; $("lpReconcileState").hidden = true;
+  if (!Number.isFinite(power) || !Number.isFinite(capacity) || power <= 0 || capacity <= 0 || capacity / power < 0.25 || capacity / power > 24) { setStatus(state, "error", "参数无效"); message.textContent = "容量/功率时长须在 0.25 至 24 小时之间"; return; }
+  setStatus(state, "progress", "正在回放"); submitButton.disabled = true; submitButton.setAttribute("aria-busy", "true"); $("dispatchResult").hidden = true; dispatchResultData = null; lpReconcileRunId = null; $("lpReconcileButton").hidden = true; $("lpReconcileState").hidden = true;
   const parameters = { node_id: Number(nodeId), market: $("dispatchMarket").value, start_date: $("dispatchStart").value, end_date: $("dispatchEnd").value, power_mw: power, capacity_mwh: capacity, eta_charge: Number($("dispatchEta").value) / 100, eta_discharge: Number($("dispatchEta").value) / 100, max_daily_cycles: Number($("dispatchCycles").value), hurdle_yuan_per_mwh: Number($("dispatchHurdle").value) };
   const kind = $("dispatchMode").value || "strict-dispatch";
   if (kind === "lp-analysis") Object.assign(parameters, { include_comparison: true, include_sensitivity: false });
-  try { const run = await post("/api/v1/runs", { kind, parameters }); lpReconcileRunId = kind === "lp-analysis" ? run.run_id : null; $("dispatchRunId").textContent = run.run_id; const finished = await pollDispatch(run.run_id); renderDispatchResult(finished.result); ReportUI.run("dispatchView", run.run_id, kind === "lp-analysis" ? "LP详细回放" : "逐日调度", apiBase); } catch (error) { state.textContent = "回放失败"; state.className = "status status-error"; message.textContent = error.message; } finally { submitButton.disabled = false; submitButton.removeAttribute("aria-busy"); }
+  try { const run = await post("/api/v1/runs", { kind, parameters }); lpReconcileRunId = kind === "lp-analysis" ? run.run_id : null; $("dispatchRunId").textContent = run.run_id; const finished = await pollDispatch(run.run_id); renderDispatchResult(finished.result); ReportUI.run("dispatchView", run.run_id, kind === "lp-analysis" ? "LP详细回放" : "逐日调度", apiBase); } catch (error) { setStatus(state, "error", "回放失败"); message.textContent = error.message; } finally { submitButton.disabled = false; submitButton.removeAttribute("aria-busy"); }
 }
 
 async function pollDispatch(runId) {
@@ -816,12 +955,50 @@ async function pollDispatch(runId) {
 }
 
 function renderDispatchResult(result) {
-  if (!result) return; const money = (value) => value == null ? "—" : `${(Number(value) / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元`; $("dispatchValidDays").textContent = result.valid_days ?? "—"; $("dispatchTotalRevenue").textContent = money(result.total_net_revenue_yuan); $("dispatchAnnualRevenue").textContent = money(result.annualized_net_revenue_yuan); $("dispatchSnapshot").textContent = result.snapshot_id ? `${result.snapshot_id.slice(0, 8)}…` : "—";
+  if (!result) return; dispatchResultData = result; const money = (value) => value == null ? "—" : `${(Number(value) / 10000).toLocaleString(undefined, {maximumFractionDigits: 2})} 万元`; $("dispatchValidDays").textContent = result.valid_days ?? "—"; $("dispatchTotalRevenue").textContent = money(result.total_net_revenue_yuan); $("dispatchAnnualRevenue").textContent = money(result.annualized_net_revenue_yuan); $("dispatchSnapshot").textContent = result.snapshot_id ? `${result.snapshot_id.slice(0, 8)}…` : "—";
+  let financeButton = $("useDispatchForFinance"); if (!financeButton) { financeButton = document.createElement("button"); financeButton.id = "useDispatchForFinance"; financeButton.type = "button"; financeButton.className = "secondary"; financeButton.textContent = "带入财务测算"; $("dispatchResult").prepend(financeButton); financeButton.addEventListener("click", useDispatchForFinance); }
   const body = $("dispatchDays"); body.replaceChildren(); (result.days || []).forEach((day) => { const row = document.createElement("tr"); [day.run_date, money(day.net_revenue_yuan), Number(day.charge_energy_mwh).toFixed(1), Number(day.discharge_energy_mwh).toFixed(1), Number(day.cycles).toFixed(2), day.shutdown ? "低于门槛" : "已执行"].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); }); body.appendChild(row); });
-  const detail = $("lpResultDetails"); const months = $("lpMonths"); months.replaceChildren(); if (result.monthly?.length) { result.monthly.forEach((item) => { const row = document.createElement("tr"); [item.month, item.days, Number(item.revenue_total_yuan).toFixed(2), Number(item.revenue_avg_yuan).toFixed(2), Number(item.discharge_energy_total_mwh).toFixed(1), Number(item.cycles_avg).toFixed(3)].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); }); months.appendChild(row); }); detail.hidden = false; } else detail.hidden = true;
+  const detail = $("lpResultDetails"); const months = $("lpMonths"); months.replaceChildren(); const years = $("lpYears"); if (years) years.replaceChildren(); if (result.monthly?.length || result.annual?.length) { (result.monthly || []).forEach((item) => { const row = document.createElement("tr"); [item.month, item.days, Number(item.revenue_total_yuan).toFixed(2), Number(item.revenue_avg_yuan).toFixed(2), Number(item.discharge_energy_total_mwh).toFixed(1), Number(item.cycles_avg).toFixed(3)].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); }); months.appendChild(row); }); (result.annual || []).forEach((item) => { const row = document.createElement("tr"); [item.year, item.days, Number(item.revenue_total_yuan).toFixed(2), Number(item.revenue_avg_daily_yuan).toFixed(2), Number(item.discharge_energy_total_mwh).toFixed(1), Number(item.cycles_avg).toFixed(3)].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell); }); years?.appendChild(row); }); detail.hidden = false; } else detail.hidden = true;
+  const select = $("dispatchDaySelect"); if (select) { select.replaceChildren(...(result.days || []).filter((day) => Array.isArray(day.charge_mw)).map((day) => new Option(`${day.run_date} · 净收益 ${(Number(day.net_revenue_yuan) / 10000).toFixed(2)} 万元`, day.run_date))); select.hidden = !(result.days || []).some((day) => Array.isArray(day.charge_mw)); if (!select.hidden) drawDispatchDay((result.days || []).find((day) => day.run_date === select.value)); }
+  const hasTrajectory = (result.days || []).some((day) => Array.isArray(day.charge_mw) && Array.isArray(day.discharge_mw) && Array.isArray(day.soc)); [$("exportDispatchCsv"), $("exportDispatchPng"), $("exportDispatchXlsx")].forEach((button) => { if (button) button.hidden = !hasTrajectory; });
   $("dispatchResult").hidden = false;
   const reconcileButton = $("lpReconcileButton");
   if (reconcileButton) reconcileButton.hidden = !lpReconcileRunId;
+  financeButton.hidden = !lpReconcileRunId;
+}
+
+function useDispatchForFinance() {
+  if (!lpReconcileRunId || !dispatchResultData) return;
+  financialSourceRunId = lpReconcileRunId;
+  $("powerMw").value = dispatchResultData.power_mw;
+  $("capacityMwh").value = dispatchResultData.capacity_mwh;
+  updateDurationHint();
+  activateView("taskView");
+  $("taskMessage").textContent = `已带入 LP 回放结果（run_id: ${financialSourceRunId}），提交后使用年化净收益作为首年电能量收入。`;
+  setStatus("taskState", "muted", "待提交");
+}
+
+function drawDispatchDay(day) {
+  const canvas = $("dispatchChart"); if (!canvas || !day?.prices_yuan_per_mwh?.length) return;
+  const width = canvas.clientWidth || 900; const height = 360; const ratio = Math.max(2, window.devicePixelRatio || 1); canvas.width = width * ratio; canvas.height = height * ratio;
+  const context = canvas.getContext("2d"); context.setTransform(ratio, 0, 0, ratio, 0, 0); context.clearRect(0, 0, width, height);
+  const prices = day.prices_yuan_per_mwh.map(Number); const charge = (day.charge_mw || []).map(Number); const discharge = (day.discharge_mw || []).map(Number); const soc = (day.soc || []).map(Number); const pad = {left: 52, right: 56, top: 24, bottom: 34}; const plotWidth = width - pad.left - pad.right; const plotHeight = height - pad.top - pad.bottom; const x = (i) => pad.left + plotWidth * i / Math.max(1, prices.length - 1); const finite = (values) => values.filter(Number.isFinite); const minPrice = Math.min(...finite(prices)); const maxPrice = Math.max(...finite(prices)); const priceSpan = Math.max(1, maxPrice - minPrice); const maxPower = Math.max(1, ...finite([...charge, ...discharge])); const yPrice = (v) => pad.top + plotHeight * (1 - (v - minPrice) / priceSpan); const yPower = (v) => pad.top + plotHeight * (1 - v / maxPower); const ySoc = (v) => pad.top + plotHeight * (1 - v);
+  context.font = "11px Microsoft YaHei"; context.fillStyle = window.BanboosChartConfig.axes.tickColorMuted; context.strokeStyle = window.BanboosChartConfig.grid.colorSoft; context.lineWidth = window.BanboosChartConfig.grid.lineWidth; for (let step = 0; step <= 4; step += 1) { const y = pad.top + plotHeight * step / 4; context.beginPath(); context.moveTo(pad.left, y); context.lineTo(width - pad.right, y); context.stroke(); context.fillText((maxPrice - priceSpan * step / 4).toFixed(0), 5, y + 4); context.fillText((1 - step / 4).toFixed(2), width - pad.right + 8, y + 4); }
+  const line = (values, color, mapper, widthValue = 2) => { context.strokeStyle = color; context.lineWidth = widthValue; context.beginPath(); let started = false; values.forEach((value, index) => { if (!Number.isFinite(value)) { started = false; return; } const point = [x(index), mapper(value)]; if (started) context.lineTo(...point); else context.moveTo(...point); started = true; }); context.stroke(); };
+  line(prices, window.BanboosChartConfig.series.spread.price, yPrice, 2); line(charge, window.BanboosChartConfig.series.dispatch.charge, yPower, 1.8); line(discharge.map((value) => -value), window.BanboosChartConfig.series.dispatch.discharge, (value) => yPower(Math.abs(value)), 1.8); line(soc, window.BanboosChartConfig.series.spread.soc, ySoc, 2);
+  context.fillStyle = window.BanboosChartConfig.axes.tickColorMuted; context.fillText("电价（元/MWh）", pad.left, 13); context.fillText("SOC", width - pad.right + 8, 13); context.fillStyle = window.BanboosChartConfig.series.spread.price; context.fillText("节点电价", pad.left + 100, 13); context.fillStyle = window.BanboosChartConfig.series.dispatch.charge; context.fillText("充电功率", pad.left + 170, 13); context.fillStyle = window.BanboosChartConfig.series.dispatch.discharge; context.fillText("放电功率", pad.left + 245, 13); context.fillStyle = window.BanboosChartConfig.series.spread.soc; context.fillText("SOC", pad.left + 320, 13); context.fillStyle = window.BanboosChartConfig.axes.tickColorMuted; for (let hour = 0; hour <= 24; hour += 4) { const index = Math.min(prices.length - 1, hour * 4); context.fillText(`${String(hour).padStart(2, "0")}:00`, x(index) - 14, height - 10); }
+  const hint = $("dispatchCurveHint"); if (hint) hint.textContent = `${day.run_date} · 节点电价、充放电功率和 SOC；净收益 ${(Number(day.net_revenue_yuan) / 10000).toFixed(2)} 万元 · 模型轨迹仅用于历史回放`;
+}
+
+function exportDispatchTrajectoryCsv() {
+  const rows = [["日期", "序号", "时段终点", "电价（元/MWh）", "充电功率（MW）", "放电功率（MW）", "区间末SOC"]];
+  (dispatchResultData?.days || []).forEach((day) => { if (!Array.isArray(day.charge_mw)) return; (day.prices_yuan_per_mwh || []).forEach((price, index) => rows.push([day.run_date, index + 1, `${String(Math.floor(index / 4)).padStart(2, "0")}:${String((index % 4) * 15).padStart(2, "0")}`, price, day.charge_mw[index], day.discharge_mw[index], day.soc[index]])); });
+  const csv = rows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\r\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], {type: "text/csv;charset=utf-8"})); link.download = `lp-trajectory-${Date.now()}.csv`; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 0);
+}
+
+function exportDispatchChartPng() {
+  const source = $("dispatchChart"); if (!source || !dispatchResultData) return;
+  source.toBlob((blob) => { if (!blob) return; const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `lp-dispatch-${$("dispatchDaySelect")?.value || Date.now()}.png`; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 30000); }, "image/png");
 }
 
 async function reconcileLpRun() {
@@ -904,6 +1081,69 @@ async function syncDateRange() {
   if (range.last_date) $("endDate").value = range.last_date;
 }
 
+async function loadConflictQueue(nodeId, market, startDate, endDate) {
+  const state = $("conflictQueueState");
+  const body = $("conflictQueueBody");
+  if (!state || !body) return;
+  try {
+    conflictSession = await get("/api/v1/auth/session");
+    authIdentityRole = conflictSession?.user?.role || "";
+    const rows = await get("/api/v1/quality/conflicts", { node_id: nodeId, market, start_date: startDate, end_date: endDate, limit: 100 });
+    body.replaceChildren();
+    rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      [row.run_date, row.source_row_id, row.conflict_type, row.source_file || "—", row.review_status === "approved" ? "已审核、尚未应用" : row.review_status].forEach((value) => {
+        const td = document.createElement("td"); td.textContent = value; tr.appendChild(td);
+      });
+      const action = document.createElement("td");
+      const evidence = document.createElement("details");
+      const summary = document.createElement("summary"); summary.textContent = "查看证据"; evidence.appendChild(summary);
+      const pre = document.createElement("pre"); pre.className = "conflict-evidence";
+      pre.textContent = `Canonical：${row.canonical_source_row_id ?? "无"}\nSHA-256：${row.payload_sha256}\n选择规则：${row.selection_rule}\n当前状态：${row.processing_state}`;
+      evidence.appendChild(pre); action.appendChild(evidence);
+      const canReview = ["platform_admin", "operations_analyst"].includes(authIdentityRole);
+      const noteLabel = document.createElement("label"); noteLabel.textContent = "决策理由（必填）";
+      const noteInput = document.createElement("input"); noteInput.maxLength = 1000; noteInput.required = true;
+      noteLabel.appendChild(noteInput); if (canReview) action.appendChild(noteLabel);
+      const applyNote = document.createElement("p");
+      applyNote.textContent = "应用状态：" + ({not_requested: "未申请", pending_apply: "待应用记录已生成", stale: "记录已过期，请重新审核"}[row.apply_status] || "未生效") + "；本功能不改写 Canonical。";
+      action.appendChild(applyNote);
+      if (canReview && row.review_status === "pending" && row.conflict_type === "multiple_source") {
+        [["confirm_canonical", "确认 Canonical"], ["reject_candidate", "退回候选"]].forEach(([kind, label]) => {
+          const button = document.createElement("button"); button.className = "secondary"; button.type = "button"; button.textContent = label;
+          button.addEventListener("click", async () => {
+            if (!noteInput.value.trim()) { state.textContent = "请填写决策理由后重试"; noteInput.focus(); return; }
+            button.disabled = true;
+            try {
+              const actor = conflictSession.user.id;
+              await post(`/api/v1/quality/conflicts/${row.source_row_id}/review`, { action: kind, actor, note: noteInput.value.trim() , evidence_id: row.evidence_id, expected_revision: row.revision || 0, idempotency_key: `${actor}-${row.source_row_id}-${kind}-${Date.now()}` });
+              await loadConflictQueue(nodeId, market, startDate, endDate);
+            } catch (error) { state.textContent = `复核失败：${error.message}`; button.disabled = false; }
+          });
+          action.appendChild(button);
+        });
+      } else if (canReview && row.review_status === "approved" && !row.applied && row.apply_status !== "pending_apply") {
+        const button = document.createElement("button"); button.className = "secondary"; button.type = "button";
+        button.textContent = "生成待应用记录";
+        button.addEventListener("click", async () => {
+          if (!noteInput.value.trim()) { state.textContent = "请填写应用理由后重试"; noteInput.focus(); return; }
+          button.disabled = true;
+          try {
+            const actor = conflictSession.user.id;
+            await post(`/api/v1/quality/conflicts/${row.source_row_id}/apply`, { evidence_id: row.evidence_id, expected_revision: row.revision, note: noteInput.value.trim(), idempotency_key: `${actor}-${row.source_row_id}-apply-${Date.now()}` });
+            await loadConflictQueue(nodeId, market, startDate, endDate);
+          } catch (error) { state.textContent = `应用门禁失败：${error.message}`; button.disabled = false; }
+        });
+        action.appendChild(button);
+      } else { const info = document.createElement("p"); info.textContent = row.review_status === "approved" ? "已审核，尚未应用" : (canReview ? "待处理" : "只读权限：写入需要 maintain_data"); action.appendChild(info); }
+      tr.appendChild(action); body.appendChild(tr);
+    });
+    if (!rows.length) body.innerHTML = '<tr><td colspan="6">当前范围没有冲突记录</td></tr>';
+    const roleText = (conflictSession?.user?.id || "未验证会话") + " / " + authIdentityRole;
+    setStatus(state, rows.some((row) => row.review_status === "pending") ? "error" : "ok", `${rows.length} 条冲突 · 当前身份 ${roleText}`);
+  } catch (error) { setStatus(state, "error", "队列读取失败"); body.innerHTML = `<tr><td colspan="6">${error.message}</td></tr>`; }
+}
+
 async function refresh() {
   try {
     const nodeId = $("node").value;
@@ -916,6 +1156,9 @@ async function refresh() {
     $("weatherRows").textContent = weather.observations;
     $("coverage").textContent = `${(quality.coverage_ratio * 100).toFixed(1)}%`;
     $("qualityDetail").textContent = quality.total_records ? `${quality.complete_records}/${quality.total_records} 条完整记录` : "暂无记录";
+    if ($("qualityConflicts")) $("qualityConflicts").textContent = quality.multiple_source_records + quality.duplicate_records;
+    if ($("qualityAction")) $("qualityAction").textContent = quality.manual_review_records ? ("需人工复核 " + quality.manual_review_records + " 条") : (quality.no_canonical_records ? ("缺少 Canonical " + quality.no_canonical_records + " 条") : "来源一致");
+    await loadConflictQueue(nodeId, $("market").value, $("startDate").value, $("endDate").value);
     $("priceSource").textContent = price.sources.length ? price.sources.map(displaySource).join("、") : "演示/暂无来源文件";
     $("priceRange").textContent = price.first_date ? `${price.first_date} 至 ${price.last_date}` : "所选范围暂无有效日";
     $("weatherSource").textContent = weather.source ? displaySource(weather.source) : "暂无气象观测";
@@ -945,13 +1188,11 @@ async function submitFinancial() {
   const capacity = Number($("capacityMwh").value);
   const duration = capacity / power;
   if (!Number.isFinite(duration) || duration < 0.25 || duration > 24) {
-    state.textContent = "参数无效";
-    state.className = "status status-error";
+    setStatus(state, "error", "参数无效");
     message.textContent = "容量/功率时长须在 0.25 至 24 小时之间。2 小时、4 小时仅是常见配置，不锁死具体规模。";
     return;
   }
-  state.textContent = "正在提交";
-  state.className = "status status-progress";
+  setStatus(state, "progress", "正在提交");
   submitButton.disabled = true;
   submitButton.setAttribute("aria-busy", "true");
   try {
@@ -962,8 +1203,7 @@ async function submitFinancial() {
     const finished = await pollRun(run.run_id);
     renderFinancialResult(finished.result);
   } catch (error) {
-    state.textContent = "提交失败";
-    state.className = "status status-error";
+    setStatus(state, "error", "提交失败");
     message.textContent = error.message;
   } finally {
     submitButton.disabled = false;
@@ -989,13 +1229,12 @@ async function loadOperationsReport() {
         const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell);
       }); body.appendChild(row);
     });
-    state.textContent = `${report.market} · ${report.start_date} 至 ${report.end_date} · ${report.valid_nodes}/${report.node_count} 个节点有效 · ${report.total_valid_days} 个有效日 · 来源 ${displaySource(report.source_mode)}`;
-    state.className = "task-progress status-ok";
-    ReportUI.complete("operationsReport", ticket, report.node_count, report.source_mode);
+    setTaskProgress(state, "ok", `${report.market} · ${report.start_date} 至 ${report.end_date} · ${report.valid_nodes}/${report.node_count} 个节点有效 · ${report.total_valid_days} 个有效日 · 来源 ${displaySource(report.source_mode)}`);
+    ReportUI.complete("operationsReport", ticket, report.node_count, report.source_mode); const opsHash = buildQueryHash(["operationsReportMarket","operationsReportStart","operationsReportEnd"]); bindExportHash(["exportOperationsReport"], opsHash);
   } catch (error) {
     if (!ReportUI.current("operationsReport", ticket)) return;
     ReportUI.invalidate("operationsReport", `运营报告失败：${error.message}`);
-    state.textContent = `运营报告失败：${error.message}`; state.className = "task-progress status-error";
+    setTaskProgress(state, "error", `运营报告失败：${error.message}`);
     body.innerHTML = '<tr><td colspan="5">请检查日期范围和 API</td></tr>';
   }
 }
@@ -1081,18 +1320,29 @@ function syncFinancialParameterGroup() {
   if (summary) summary.textContent = "当前组显示 " + fields.filter((label) => !label.hidden).length + " 项 · 共 " + fields.length + " 项参数";
 }
 
+function syncEolMethodHint() {
+  const method = $("eolMethod"); const hint = $("eolMethodHint");
+  if (!method || !hint) return;
+  const messages = {
+    linear: "服务器线性衰减，适合快速方案比较。",
+    calendar_cycle_min: "按日历衰减与循环衰减取小，适合寿命边界分析。",
+    native_xlsm: "原版 XLSM 公式口径：同步折旧、税费、换电池与现金流。",
+  };
+  hint.textContent = messages[method.value] || messages.linear;
+}
+
 async function submitSensitivity() {
   ReportUI.clearRun("taskView");
   const state = $("sensitivityState"); const message = $("sensitivityMessage"); const resultBox = $("sensitivityResult");
   const down = Number($("sensitivityDown").value) / 100; const up = Number($("sensitivityUp").value) / 100; const step = Number($("sensitivityStep").value) / 100;
-  if (!Number.isFinite(down) || !Number.isFinite(up) || !Number.isFinite(step) || down >= up || step <= 0 || Math.ceil((up - down) / step) + 1 > 9) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "请检查上下限和步长，情景点数须为 3 至 9 个"; return; }
+  if (!Number.isFinite(down) || !Number.isFinite(up) || !Number.isFinite(step) || down >= up || step <= 0 || Math.ceil((up - down) / step) + 1 > 9) { setStatus(state, "error", "参数无效"); message.textContent = "请检查上下限和步长，情景点数须为 3 至 9 个"; return; }
   const changeRates = []; for (let value = down; value <= up + 1e-9; value += step) changeRates.push(Number(value.toFixed(6)));
-  if (changeRates.length < 3) { state.textContent = "参数无效"; state.className = "status status-error"; message.textContent = "至少需要 3 个情景点"; return; }
-  state.textContent = "正在生成"; state.className = "status status-progress"; message.textContent = "正在生成敏感性情景，请稍候…"; resultBox.hidden = true; $("submitSensitivity").disabled = true; $("submitSensitivity").setAttribute("aria-busy", "true");
+  if (changeRates.length < 3) { setStatus(state, "error", "参数无效"); message.textContent = "至少需要 3 个情景点"; return; }
+  setStatus(state, "progress", "正在生成"); message.textContent = "正在生成敏感性情景，请稍候…"; resultBox.hidden = true; window.BanboosUI.LoadingGuard("sensitivityResult", "loading", { message: "正在生成敏感性情景…" }); $("submitSensitivity").disabled = true; $("submitSensitivity").setAttribute("aria-busy", "true");
   try {
     const run = await post("/api/v1/runs", { kind: "sensitivity", parameters: { base: collectFinancialParameters(), variable: $("sensitivityVariable").value, change_rates: changeRates } });
-    $("sensitivityRunId").textContent = run.run_id; const finished = await pollSensitivity(run.run_id); renderSensitivityResult(finished.result); ReportUI.run("taskView", run.run_id, "敏感性分析", apiBase); state.textContent = "计算完成"; state.className = "status status-ok"; message.textContent = "情景结果已绑定当前财务参数。";
-  } catch (error) { state.textContent = "计算失败"; state.className = "status status-error"; message.textContent = error.message; } finally { $("submitSensitivity").disabled = false; $("submitSensitivity").removeAttribute("aria-busy"); }
+    $("sensitivityRunId").textContent = run.run_id; const finished = await pollSensitivity(run.run_id); renderSensitivityResult(finished.result); ReportUI.run("taskView", run.run_id, "敏感性分析", apiBase); setStatus(state, "ok", "计算完成"); window.BanboosUI.LoadingGuard("sensitivityResult", "idle"); message.textContent = "情景结果已绑定当前财务参数。";
+  } catch (error) { setStatus(state, "error", "计算失败"); message.textContent = error.message; window.BanboosUI.LoadingGuard("sensitivityResult", "error", { errorMessage: `敏感性分析失败：${error.message}` }); } finally { $("submitSensitivity").disabled = false; $("submitSensitivity").removeAttribute("aria-busy"); }
 }
 
 async function pollSensitivity(runId) {
@@ -1214,6 +1464,10 @@ if ($("createInvestmentScenario")) $("createInvestmentScenario").addEventListene
 $("useAnalysisForFinance").addEventListener("click", useAnalysisForFinance);
 $("submitDispatch").addEventListener("click", submitDispatch);
 if ($("lpReconcileButton")) $("lpReconcileButton").addEventListener("click", reconcileLpRun);
+if ($("dispatchDaySelect")) $("dispatchDaySelect").addEventListener("change", () => drawDispatchDay((dispatchResultData?.days || []).find((day) => day.run_date === $("dispatchDaySelect").value)));
+if ($("exportDispatchCsv")) $("exportDispatchCsv").addEventListener("click", exportDispatchTrajectoryCsv);
+if ($("exportDispatchPng")) $("exportDispatchPng").addEventListener("click", exportDispatchChartPng);
+if ($("exportDispatchXlsx")) $("exportDispatchXlsx").addEventListener("click", (event) => { if (lpReconcileRunId) ReportUI.download(`${apiBase}/api/v1/runs/${lpReconcileRunId}/export`, `LP回放-${lpReconcileRunId}.xlsx`, event.currentTarget, "dispatchView"); });
 $("refresh").addEventListener("click", refresh);
 $("submitFinancial").addEventListener("click", submitFinancial);
 if ($("financialReconcileButton")) $("financialReconcileButton").addEventListener("click", reconcileFinancialRun);
@@ -1233,6 +1487,28 @@ $("exportPortfolioCandidatesXlsx").addEventListener("click", (event) => {
     `portfolio-snapshot-${params.snapshot_id.slice(0, 12)}.xlsx`, event.currentTarget, "portfolioCandidates");
 });
 $("optimizePortfolioSnapshot").addEventListener("click", optimizePortfolioSnapshot);
+$("archivePortfolio").addEventListener("click", async (event) => {
+  if (!portfolioRunId) return;
+  const button = event.currentTarget; button.disabled = true; button.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch(apiBase + "/api/v1/runs/" + portfolioRunId + "/archive", { headers: authHeaders() });
+    if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.detail || ("归档请求失败（HTTP " + response.status + "）")); }
+    const blob = await response.blob(); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "portfolio-" + portfolioRunId + ".zip"; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 30000);
+    $("portfolioDashboardState").textContent = "归档包已生成，SHA256：" + (response.headers.get("X-Archive-SHA256") || "服务端已校验");
+  } catch (error) { $("portfolioDashboardState").textContent = "归档失败：" + error.message; }
+  finally { button.disabled = false; button.removeAttribute("aria-busy"); }
+});
+["submit", "approve", "reject", "archive"].forEach((action) => $("portfolioReview" + action[0].toUpperCase() + action.slice(1)).addEventListener("click", () => applyPortfolioReview(action)));
+PortfolioBrowser.init({ api: get, onOpen: (parameters) => {
+  portfolioCandidateSnapshotId = parameters.snapshot_id || portfolioCandidateSnapshotId;
+  const query = { market: parameters.market, start_date: parameters.start_date, end_date: parameters.end_date,
+    power_mw: parameters.power_mw, capacity_mwh: parameters.capacity_mwh, page_size: 20,
+    snapshot_id: portfolioCandidateSnapshotId };
+  const ticket = ReportUI.begin("portfolioCandidates", query, "原始候选快照");
+  ReportUI.complete("portfolioCandidates", ticket, 1, "portfolio-candidates-v1", { snapshot_id: portfolioCandidateSnapshotId });
+}, onSelection: (count) => {
+  $("optimizePortfolioSnapshot").disabled = !portfolioCandidateSnapshotId || count === 0;
+}, onImport: importSelectedPortfolioCandidates });
 $("resumePortfolio").addEventListener("click", resumePortfolio);
 try { portfolioRunId = localStorage.getItem("banboosPortfolioRun"); $("resumePortfolio").hidden = !portfolioRunId; } catch { /* Optional task recovery. */ }
 addPortfolioProject();
@@ -1263,6 +1539,10 @@ $("capacityMwh").addEventListener("input", updateDurationHint);
 if ($("financialParameterGroup")) {
   $("financialParameterGroup").addEventListener("change", syncFinancialParameterGroup);
   syncFinancialParameterGroup();
+}
+if ($("eolMethod")) {
+  $("eolMethod").addEventListener("change", syncEolMethodHint);
+  syncEolMethodHint();
 }
 document.querySelectorAll("[data-auth-provider]").forEach((item) => item.addEventListener("click", () => renderAuthProvider(item.dataset.authProvider)));
 $("authSendCode").addEventListener("click", async () => {
@@ -1299,7 +1579,7 @@ $("authForm").addEventListener("submit", async (event) => {
   else $("authMessage").textContent = "令牌无效或已过期，请重新输入。";
   button.disabled = false; button.removeAttribute("aria-busy");
 });
-$("authSignOutButton").addEventListener("click", () => { setAuthToken(null); $("authOpenButton").textContent = "登录"; $("authSessionState").textContent = "未登录"; $("authSessionState").className = "status status-error"; $("currentAuthUser").textContent = "未建立会话"; $("currentAuthScope").textContent = "请登录后查看租户和权限范围"; showAuthDialog("已退出当前会话。请输入访问令牌后继续。"); });
+$("authSignOutButton").addEventListener("click", () => { setAuthToken(null); $("authOpenButton").textContent = "登录"; setStatus("authSessionState", "error", "未登录"); $("currentAuthUser").textContent = "未建立会话"; $("currentAuthScope").textContent = "请登录后查看租户和权限范围"; showAuthDialog("已退出当前会话。请输入访问令牌后继续。"); });
 ["powerMw", "capacityMwh", "annualRevenue"].forEach((id) => $(id).addEventListener("input", () => {
   if (financialSourceRunId) $("taskMessage").textContent = "已修改规模或收入，当前使用手动财务假设；可重新从节点分析带入。";
   financialSourceRunId = null;

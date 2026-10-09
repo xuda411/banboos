@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import copy
 from hashlib import sha256
-from math import isfinite
+from math import isclose, isfinite
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -12,7 +12,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 NATIVE_DIFFERENCES = [
-    ("EOL!D3:B4、财务指标!E5", "原表使用日历/循环衰减及年首年末平均；服务器另有线性、循环取小方案。"),
+    ("EOL!D3:AG5、财务指标!E5", "原表按手工日历/循环曲线取小，并用相邻年份平均值进入年度收益；desktop_template 已写入同一曲线，但年度插值仍需逐年验收。"),
     ("财务指标!E28、E50", "原表不含税收入固定除以 1.13，印花税固定 0.0005；服务器使用输入税率。"),
     ("财务指标!E49", "原表附加税按应计增值税的 12%；服务器按抵扣后的实缴税额及输入附加率。"),
     ("财务指标!E29、E32", "原表折旧含建设利息、末年回收残值；服务器折旧和残值现金流规则不同。"),
@@ -22,6 +22,21 @@ NATIVE_DIFFERENCES = [
     ("财务指标!D65、D78", "原表标为税前 IRR，但引用扣过所得税的现金流；不能按标签认定税前等价。"),
     ("原生数据表/数组公式", "本程序不运行 Excel/WPS 引擎；缓存值对比与结构保留均不能证明公式完全等价。"),
 ]
+
+
+def _difference_group(sheet: str, cell: str) -> str:
+    """Classify a native-template difference for the next repair batch."""
+    if sheet == "财务指标":
+        row = int("".join(character for character in cell if character.isdigit()) or 0)
+        if row in {4, 5, 8, 9, 12, 13, 14}:
+            return "eol_and_revenue"
+        if row in {29, 30, 31, 32}:
+            return "depreciation_and_residual"
+        if row in {45, 46, 47, 48, 49, 50, 51, 52, 53}:
+            return "tax_and_deduction"
+        if row in {63, 64, 65, 66, 76, 77, 78, 79, 80}:
+            return "cashflow_and_return"
+    return "other"
 
 
 def comparison_cases(result: dict) -> list[dict]:
@@ -138,6 +153,14 @@ def _formula_value(value):
     return value
 
 
+def _same_preserved_value(left, right) -> bool:
+    """Compare persisted input values without flagging Excel's float rounding."""
+    if isinstance(left, (int, float)) and not isinstance(left, bool) and \
+            isinstance(right, (int, float)) and not isinstance(right, bool):
+        return isclose(float(left), float(right), rel_tol=1e-10, abs_tol=1e-9)
+    return left == right
+
+
 def native_preservation_report(source: str | Path, exported: str | Path,
                                allowed_changes: dict[str, dict]) -> dict:
     """Compare persisted contents, including VBA bytes, rather than archive presence."""
@@ -162,7 +185,8 @@ def native_preservation_report(source: str | Path, exported: str | Path,
                         entry = {"sheet": sheet.title, "cell": cell.coordinate, "before": old, "after": new}
                         changes.append(entry)
                         if (cell.coordinate not in allowed_changes.get(sheet.title, {})
-                                or new != allowed_changes[sheet.title][cell.coordinate]):
+                                or not _same_preserved_value(
+                                    new, allowed_changes[sheet.title][cell.coordinate])):
                             unexpected.append(entry)
                     if any(copy(getattr(cell, key)) != copy(getattr(other, key)) for key in
                            ("font", "fill", "border", "alignment", "number_format", "protection")):
@@ -183,8 +207,10 @@ def native_preservation_report(source: str | Path, exported: str | Path,
         output.close()
 
 
-def review_native_cached_values(path: str | Path, result: dict) -> dict:
-    """Read saved caches only. This does not execute or certify Excel formulas."""
+def review_native_cached_values(path: str | Path, result: dict,
+                                *, engine_executed: bool = False,
+                                native_engine: dict | None = None) -> dict:
+    """Read saved caches, optionally after an external native recalculation."""
     workbook = load_workbook(path, data_only=True)
     rows = []
     try:
@@ -197,15 +223,27 @@ def review_native_cached_values(path: str | Path, result: dict) -> dict:
             status = ("PENDING" if value is None else "UNDEFINED" if expected is None
                       else "ERROR" if not numeric else "MATCH" if abs(delta) <= case["tolerance"]
                       else "DIFFERENCE")
-            rows.append(case | {"cached_value": value, "difference": delta, "status": status})
+            rows.append(case | {"cached_value": value, "difference": delta, "status": status,
+                                "difference_group": _difference_group(case["sheet"], case["cell"])})
         counts = {status: sum(row["status"] == status for row in rows)
                   for status in ("MATCH", "DIFFERENCE", "PENDING", "ERROR", "UNDEFINED")}
+        difference_groups = {}
+        for row in rows:
+            if row["status"] == "DIFFERENCE":
+                group = row["difference_group"]
+                difference_groups[group] = difference_groups.get(group, 0) + 1
         matches_run = bool(result.get("run_id")) and identity == result["run_id"]
         status = ("RUN_MISMATCH" if not matches_run else "DIFFERENCES" if counts["DIFFERENCE"] or counts["ERROR"]
                   else "PENDING_RECALCULATION" if counts["PENDING"] or counts["UNDEFINED"]
                   else "CACHED_VALUES_MATCH")
+        native_mode = (result.get("input_parameters") or {}).get("eol_method") == "native_xlsm"
         return {"run_id": result.get("run_id"), "workbook_run_id": identity, "status": status,
-                "engine_executed": False, "formula_equivalence_verified": False,
-                "known_rule_differences": NATIVE_DIFFERENCES, "counts": counts, "checks": rows}
+                "engine_executed": engine_executed,
+                "native_recalculation_engine": native_engine,
+                "formula_equivalence_verified": False,
+                "known_rule_differences": [] if native_mode else NATIVE_DIFFERENCES,
+                "compatibility_mode": "native_xlsm" if native_mode else "desktop_template_or_other",
+                "counts": counts,
+                "difference_groups": difference_groups, "checks": rows}
     finally:
         workbook.close()

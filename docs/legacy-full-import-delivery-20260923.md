@@ -41,6 +41,23 @@
 
 完整机器结果保存在 [legacy-full-20260923-report.json](../var/migrations/legacy-full-20260923-report.json)。
 
+后续 Web 人工测试统一使用 E 盘全量数据，不再自动生成正向夹具：
+
+```powershell
+& .\scripts\start_full_database_check.ps1
+```
+
+该脚本将节点、电价、质量和聚合指向 `var/migrations/legacy-full-20260923.sqlite3`，将旧库管理信息指向经过审计的 `var/data-quality/legacy-price-clean-20261003.sqlite3`，财务模板指向 E 盘模板副本，并强制关闭 demo/fixture 回退。访问地址为 `http://127.0.0.1:5173/?apiPort=8012`。
+
+启动后使用以下命令执行全量 Web 检查：
+
+```powershell
+& .\scripts\verify_full_database_check.ps1 `
+  -Report E:\Banboos2.0\var\manual-check\full-database-test-20261003.json
+```
+
+本轮检查通过：API/就绪状态正常，节点接口返回 5,372 个有电价节点，抽取湖北、山西、广东节点分别验证日前/实时、2 小时/4 小时聚合、质量覆盖和两个 XLSX 导出接口。
+
 ## 交付边界
 
 本次交付接入的是隔离 staging 只读库，未启用用户写入、实时 EMS 控制或生产数据库。原始数据库仍作为冻结基线；上线前还需按部署环境配置 PostgreSQL、Redis、短信/邮箱/微信身份服务及租户隔离，再将同一批次通过正式 ETL 导入生产数据库。

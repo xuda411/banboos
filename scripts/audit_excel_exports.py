@@ -12,6 +12,9 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+from packages.application.financial_release_gate import inspect_workbook_features
+from packages.application.spreadsheet_engine import detect_spreadsheet_engines
+
 REQUIRED_FINANCIAL_XLSX = [
     "项目概览", "测算参数", "年度现金流", "融资明细", "全周期现金流",
     "财务指标", "财务模板", "模板复核", "重算复核", "模板映射", "公式复核",
@@ -72,11 +75,20 @@ def audit(financial_xlsx: Path | None, financial_xlsm: Path | None, export_dir: 
                        and workbook["参数设定 "]["D4"].value is not None else "WARN",
                        "value": {"D3": workbook["参数设定 "]["D3"].value,
                                  "D4": workbook["参数设定 "]["D4"].value}})
+        checks.append({"file": financial_xlsm.name, "name": "native_feature_inventory",
+                       "status": "PASS", "value": inspect_workbook_features(financial_xlsm)})
     failures = [item for item in checks if item["status"] == "FAIL"]
     warnings = [item for item in checks if item["status"] == "WARN"]
+    engine = detect_spreadsheet_engines()
+    checks.append({"file": "host", "name": "native_recalculation_engine",
+                   "status": "PASS" if engine["status"] == "available" else "WARN",
+                   "value": engine})
+    if engine["status"] != "available":
+        warnings.append(checks[-1])
     return {
         "generated_at_utc": datetime.now(UTC).isoformat(), "files": workbooks,
         "checks": checks, "pass": not failures, "failures": len(failures), "warnings": len(warnings),
+        "native_recalculation_engine": engine,
     }
 
 

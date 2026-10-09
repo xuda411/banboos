@@ -14,6 +14,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from openpyxl.workbook.properties import CalcProperties
 
 from packages.application.financial_xlsm_review import write_native_review
@@ -125,8 +126,14 @@ def template_sheet_values(result: dict) -> dict[str, dict]:
     parameters["L14"] = p["capex_yuan_per_wh"] * (1 - p["equipment_investment_share"])
     parameters.update({"I12": "设备投资汇总", "J12": "未提供明细",
                        "J14": "其他投资汇总"})
+    # In the frozen desktop workbook D24/D47 are the year-one energy base;
+    # the annual EOL factor is then applied again by 财务指标!E12/E14.  Keep
+    # the compatibility mode explicit so normal server exports retain their
+    # raw annual aggregate semantics.
     energy = p["annual_revenue_yuan"] / 10000
-    return {
+    if p["eol_method"] in {"desktop_template", "native_xlsm"}:
+        energy *= p["first_year_eol"]
+    mappings = {
         "参数设定 ": parameters,
         "容量类": {"D12": 0, "D13": 0, "D14": p["capacity_lease_yuan"] / 10000,
                   "D15": p["operation_years"], "D16": "延续", "D18": "否",
@@ -150,6 +157,37 @@ def template_sheet_values(result: dict) -> dict[str, dict]:
                       "D37": p["secondary_frequency_yuan"] / 10000,
                       "D39": 0, "D41": 0, "D43": 0, "D44": "否", "D47": 0},
     }
+    if p["eol_method"] in {"desktop_template", "native_xlsm"}:
+        mappings["EOL"] = _desktop_template_eol_values(p)
+    return mappings
+
+
+def _desktop_template_eol_values(parameters: dict) -> dict[str, float]:
+    """Map the explicit desktop calendar/cycle curves into the native EOL tab."""
+    table = list(parameters.get("calendar_eol_table") or ())
+    if not table:
+        table = [1.0] + [max(0.0, 1.0 - 0.005 * index) for index in range(1, 31)]
+    values: dict[str, float] = {}
+    for index in range(31):
+        if index < len(table):
+            calendar = float(table[index])
+        else:
+            calendar = max(0.0, float(table[-1]) - 0.005 * (index - len(table) + 1))
+        cycle = 1.0 if index == 0 else 0.99 if index == 1 else 0.98 - 0.015 * (index - 2) - 0.0075
+        column = get_column_letter(index + 3)  # C:AG, including curve year zero.
+        values[f"{column}3"] = calendar
+        values[f"{column}4"] = cycle
+        # The native workbook applies the row-9 midpoint curve to annual
+        # revenue.  Writing the combined curve explicitly avoids silently
+        # falling back to the template's sample formulas when the server
+        # supplies a desktop_template run.  Rows 5 and 8 are kept in sync so
+        # both the replacement and non-replacement branches use the same
+        # curve after Excel recalculation.
+        combined = min(calendar, cycle)
+        values[f"{column}5"] = combined
+        values[f"{column}9"] = combined
+        values[f"{column}8"] = combined
+    return values
 
 
 def export_financial_xlsm(

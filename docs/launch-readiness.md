@@ -34,12 +34,14 @@ Set-Location E:\Banboos2.0
 - `GET /health` 返回 `status=ok`。
 - `GET /readyz` 返回 `status=ready`，Redis 检查为 `ok`。
 - 生产环境必须配置手机号、邮箱和微信身份服务；API token 仅保留为联调 fallback，不作为正式用户登录。
+- 生产环境必须配置至少 32 位 `BANBOOS2_IDENTITY_HASH_SECRET`，手机号、邮箱和微信标识只以带密钥哈希保存。
 - `BANBOOS2_CORS_ORIGINS` 只填写实际 Web 域名，不使用 `*`。
+- `BANBOOS2_FINANCIAL_RELEASE_GATE` 必须由发布流水线写入 `RELEASE_READY`；`PENDING_CROSS_ENGINE` 或未声明时不得进入生产。
 - 数据库迁移完成后再启动 Worker；先用 `noop` 和 `price-summary` 做灰度任务。
 - 备份 PostgreSQL 和 Redis 持久卷，并记录当前 Git 提交与 Alembic revision。
 - 真实电站继续保持只读；调度建议、测试执行、生产执行必须另行通过验证门槛。
 - 使用 `GET /api/v1/system/launch-gate` 保存发布门禁快照；出现 `blocked` 或租户隔离 `warn` 时不得开放生产控制。
-- 部署前必须执行 `scripts/preflight_production.py --strict`；该命令会拒绝 API token fallback、未启用严格租户隔离、缺少身份服务、数据库、Redis、CORS 或财务模板的配置。
+- 部署前必须执行 `scripts/preflight_production.py --strict`；该命令会拒绝 API token fallback、未启用严格租户隔离、缺少身份服务、数据库、Redis、CORS、财务模板或 XLSM 发布门禁的配置。
 - Web 管理页对应的 `GET /api/v1/system/preflight` 返回完整检查项，可用于发布流水线留存门禁快照。
 
 生产编排文件为 [docker-compose.prod.yml](../deploy/docker-compose.prod.yml)，配置模板为 [.env.example](../.env.example)。

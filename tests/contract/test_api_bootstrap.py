@@ -31,6 +31,8 @@ def test_api_bootstrap_contract():
     assert any(route.path == "/api/v1/auth/login" for route in app.routes)
     assert any(route.path == "/api/v1/admin/users" for route in app.routes)
     assert any(route.path == "/api/v1/portfolio/candidates/{snapshot_id}/optimize" for route in app.routes)
+    assert any(route.path == "/api/v1/portfolio/candidates/snapshots" for route in app.routes)
+    assert any(route.path == "/api/v1/portfolio/candidates/{snapshot_id}/page" for route in app.routes)
 
 
 def test_readiness_and_optional_api_token(monkeypatch):
@@ -88,6 +90,11 @@ def test_identity_methods_and_provider_gate():
     })
     assert response.status_code == 503
     assert "尚未配置" in response.json()["detail"]
+    response = client.post("/api/v1/auth/challenges", json={
+        "provider": "phone", "identifier": "123", "purpose": "login",
+    })
+    assert response.status_code == 422
+    assert "手机号格式" in response.json()["detail"]
     response = client.get("/api/v1/admin/users")
     assert response.status_code == 200
     assert response.json()["mode"] == "preview-only"

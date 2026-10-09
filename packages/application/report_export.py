@@ -216,6 +216,11 @@ def export_task_xlsx(run):
         ], {2: "#,##0.00"})
         portfolio_audit["B8"].number_format = "0.00%"
         portfolio_audit["B13"].number_format = "0.00%"
+        if data.get("candidate_source"):
+            source = data["candidate_source"]
+            table(workbook, "候选来源", ["快照 ID", "节点 ID", "省份", "项目", "基线口径", "有效日"],
+                  [[source["snapshot_id"], row["node_id"], row["province"], row["name"],
+                    row.get("baseline_policy"), row["valid_days"]] for row in source["nodes"]], {2: "0", 6: "0"})
     else:
         keys = ["change_rate", "full_irr", "full_npv_yuan", "payback_year", "first_year_net_profit_yuan"]
         table(workbook, "敏感性分析", ["相对变动率", "项目 IRR", "项目 NPV（元）", "静态回收期（年）", "首年净利润（元）"],
@@ -333,12 +338,13 @@ def export_portfolio_candidates_xlsx(result):
         "口径": "候选收入来自完整日历史价差均值；候选快照只读保存，手工修改不会覆盖原始快照。",
     })
     headers = ["项目", "节点 ID", "省份", "市场", "容量（MWh）", "单位投资（元/Wh）",
-               "年净现金流（万元）", "平均价差（元/MWh）", "有效日", "来源模式"]
+               "年净现金流（万元）", "平均价差（元/MWh）", "有效日", "可用日", "基线口径", "来源模式"]
     table(workbook, "候选项目", headers, [[row.get("name"), row.get("node_id"), row.get("province"),
           row.get("market"), row.get("capacity_mwh"), row.get("unit_investment_yuan_wh"),
           row.get("annual_revenue_wan"), row.get("spread_yuan_per_mwh"), row.get("valid_days"),
-          row.get("source_mode")] for row in payload.get("candidates", [])],
-          {1: "0", 4: "#,##0.00", 5: "0.0000", 6: "#,##0.00", 7: "#,##0.00", 8: "#,##0"})
+          row.get("available_days"), row.get("baseline_policy"), row.get("source_mode")]
+          for row in payload.get("candidates", [])],
+          {1: "0", 4: "#,##0.00", 5: "0.0000", 6: "#,##0.00", 7: "#,##0.00", 8: "#,##0", 9: "#,##0"})
     power = payload.get("power_mw") or 0
     capacity = payload.get("capacity_mwh") or 0
     duration = payload.get("duration_hours")

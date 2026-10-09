@@ -16,3 +16,4 @@ class PortfolioCandidatesResult(BaseModel):
     snapshot_id: str
     algorithm_version: str
     candidates: list[PortfolioCandidate] = Field(default_factory=list)
+    candidate_count: int = Field(default=0, ge=0)

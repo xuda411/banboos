@@ -220,6 +220,73 @@ class LegacySQLiteReader:
             "source_mode": "legacy-readonly",
         }
 
+    def duplicate_audit_summary(self, limit: int = 100, node_id: int | None = None,
+                                market: str | None = None, start_date: date | None = None,
+                                end_date: date | None = None, source: str | None = None) -> dict[str, Any]:
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        with closing(self._connect()) as connection:
+            exists = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='price_duplicate_registry'").fetchone()
+            if not exists:
+                return {"available": False, "total_records": 0, "same_payload_records": 0,
+                        "different_payload_records": 0, "items": [], "source_mode": "legacy-readonly"}
+            clauses = []
+            params = []
+            for column, value in (("node_id", node_id), ("market", market)):
+                if value is not None:
+                    clauses.append(column + "=?"); params.append(value)
+            if start_date:
+                clauses.append("run_date>=?"); params.append(start_date.isoformat())
+            if end_date:
+                clauses.append("run_date<=?"); params.append(end_date.isoformat())
+            if source:
+                clauses.append("source_files_json LIKE ?"); params.append("%" + source + "%")
+            where = " WHERE " + " AND ".join(clauses) if clauses else ""
+            total, same_payload = connection.execute("SELECT COUNT(*),COALESCE(SUM(same_payload),0) FROM price_duplicate_registry" + where, params).fetchone()
+            rows = connection.execute("SELECT run_id,node_id,run_date,market,kept_id,source_ids_json,removed_ids_json,payload_hashes_json,source_files_json,decision_reason,same_payload,all_complete FROM price_duplicate_registry" + where + " ORDER BY run_id,node_id,run_date LIMIT ?", [*params, limit]).fetchall()
+        return {"available": True, "total_records": total, "same_payload_records": same_payload,
+                "different_payload_records": total - same_payload,
+                "items": [dict(run_id=row[0], node_id=row[1], run_date=row[2], market=row[3],
+                                kept_id=row[4], source_ids_json=row[5], removed_ids_json=row[6],
+                                payload_hashes_json=row[7], source_files_json=row[8], decision_reason=row[9],
+                                same_payload=bool(row[10]), all_complete=bool(row[11])) for row in rows],
+                "source_mode": "legacy-readonly"}
+
+    def conflicting_duplicate_rows(self, limit: int = 100, offset: int = 0,
+                                   node_id: int | None = None, market: str | None = None,
+                                   start_date: date | None = None, end_date: date | None = None) -> list[dict[str, Any]]:
+        """Return only differing-payload groups from the immutable duplicate registry."""
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        with closing(self._connect()) as connection:
+            clauses = ["same_payload=0"]
+            params: list[Any] = []
+            for column, value in (("node_id", node_id), ("market", market)):
+                if value is not None:
+                    clauses.append(column + "=?"); params.append(value)
+            if start_date:
+                clauses.append("run_date>=?"); params.append(start_date.isoformat())
+            if end_date:
+                clauses.append("run_date<=?"); params.append(end_date.isoformat())
+            rows = connection.execute("SELECT node_id,run_date,market,kept_id,source_ids_json,payload_hashes_json,source_files_json,decision_reason FROM price_duplicate_registry WHERE " + " AND ".join(clauses) + " ORDER BY node_id,run_date LIMIT ? OFFSET ?", [*params, limit, offset]).fetchall()
+        result = []
+        import json
+        for row in rows:
+            source_ids, hashes, files = (json.loads(row[i]) for i in (4, 5, 6))
+            for source_id, payload_hash, source_file in zip(source_ids, hashes, files):
+                if int(source_id) == int(row[3]):
+                    continue
+                result.append(dict(source_row_id=int(source_id), node_id=row[0], run_date=row[1],
+                                   market=row[2], conflict_type="multiple_source",
+                                   payload_sha256=payload_hash, source_file=source_file,
+                                   canonical_source_row_id=int(row[3]),
+                                   selection_rule="lowest_source_id_provisional",
+                                   processing_state="manual_review_required",
+                                   decision_reason=row[7],
+                                   candidate_source_ids=[int(value) for value in source_ids],
+                                   candidate_hashes=hashes))
+        return result
+
     def baseline_curves(self, node_id: int, market: str) -> list[dict[str, Any]]:
         """All source candidates for annual baselines; quality labels do not select a winner."""
         if market not in {"日前", "实时"}:

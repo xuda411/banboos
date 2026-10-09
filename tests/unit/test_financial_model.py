@@ -106,6 +106,20 @@ def test_calendar_cycle_eol_uses_annual_cycles_against_cycle_life():
     assert result["yearly"][0]["eol"] == pytest.approx(0.95625)
 
 
+def test_desktop_template_eol_reproduces_hand_authored_curve_and_restart():
+    parameters = FinancialTaskParameters(
+        power_mw=100, capacity_mwh=200, annual_revenue_yuan=8_000_000,
+        eol_method="desktop_template", replace_year=3,
+        calendar_eol_table=[1.0, 0.995, 0.99, 0.985, 0.98],
+    )
+    result = calculate_financials(parameters.financial())
+    # Desktop 1.6.6 uses 0.99 for the first curve year and restarts the curve
+    # when a battery is replaced in year three.
+    assert [item["eol"] for item in result["yearly"][:4]] == pytest.approx(
+        [0.99, 0.9725, 0.99, 0.9725]
+    )
+
+
 def test_auxiliary_cycles_are_traceable_and_reduce_cycle_eol():
     parameters = FinancialTaskParameters(
         power_mw=100, capacity_mwh=200, annual_revenue_yuan=8_000_000,

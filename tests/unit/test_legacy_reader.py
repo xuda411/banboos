@@ -105,3 +105,19 @@ def test_management_rows_use_fixed_allowlist_and_missing_tables_are_empty(tmp_pa
         reader.management_rows("price_data")
     with pytest.raises(ValueError):
         reader.management_rows("import-logs", 201)
+
+
+def test_duplicate_audit_summary_reads_registry_without_writes(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    make_fixture(path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("""CREATE TABLE price_duplicate_registry (
+            run_id TEXT, node_id INTEGER, run_date TEXT, market TEXT, kept_id INTEGER,
+            source_ids_json TEXT, removed_ids_json TEXT, payload_hashes_json TEXT,
+            publish_types_json TEXT, source_files_json TEXT, all_complete INTEGER,
+            same_payload INTEGER, decision_reason TEXT)""")
+        connection.execute("INSERT INTO price_duplicate_registry VALUES ('r',1,'2026-01-01','实时',1,'[1,2]','[2]','{}','[]','[]',1,1,'same payload')")
+    summary = LegacySQLiteReader(path).duplicate_audit_summary()
+    assert summary["total_records"] == 1
+    assert summary["same_payload_records"] == 1
+    assert summary["items"][0]["kept_id"] == 1

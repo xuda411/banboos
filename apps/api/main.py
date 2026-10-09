@@ -9,7 +9,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import redis
-from fastapi import Body, FastAPI, Header, HTTPException, Query, Response
+from fastapi import Body, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi import Path as APIPath
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -31,8 +31,14 @@ from packages.application.financial_template_xlsm import (
     financial_template_path,
 )
 from packages.application.financial_xlsm_review import review_native_cached_values
+from packages.application.identity_service import IdentityInputError, normalize_identifier
 from packages.application.import_service import ImportService
 from packages.application.operations_service import OperationsService, OperationsUnavailable
+from packages.application.portfolio_archive import create_portfolio_archive
+from packages.application.portfolio_browser import candidate_page, select_candidates
+from packages.application.portfolio_dashboard import build_portfolio_dashboard
+from packages.application.portfolio_review import PortfolioReviewStore
+from packages.application.price_conflict_review import PriceConflictReviewStore
 from packages.application.readonly_service import ReadonlyService
 from packages.application.report_export import (
     SUPPORTED_TASKS,
@@ -44,6 +50,7 @@ from packages.application.report_export import (
     export_weather_xlsx,
 )
 from packages.application.run_registry import RedisStateStore, RunRegistry
+from packages.application.spreadsheet_engine import recalculate_xlsm
 from packages.application.sqlite_runtime import SQLiteRuntime, runtime_path
 from packages.application.task_queue import RedisTaskQueue
 from packages.contracts.dispatch import DispatchParameters
@@ -78,7 +85,14 @@ from packages.contracts.operations import OperationsSummary
 from packages.contracts.operations_report import OperationsReport
 from packages.contracts.portfolio import PortfolioTaskParameters
 from packages.contracts.portfolio_candidates_result import PortfolioCandidatesResult
+from packages.contracts.portfolio_review import PortfolioReview, PortfolioReviewRequest
 from packages.contracts.portfolio_snapshot import PortfolioSnapshotOptimizationRequest
+from packages.contracts.price_conflicts import (
+    PriceConflict,
+    PriceConflictApplyRequest,
+    PriceConflictApplyResult,
+    PriceConflictReviewRequest,
+)
 from packages.contracts.readonly import (
     DataQualitySummary,
     PriceAggregateResult,
@@ -93,6 +107,7 @@ from packages.contracts.sensitivity import SensitivityTaskParameters
 from packages.contracts.tasks import RunRequest
 from packages.contracts.telemetry import TelemetryAlert, TelemetryBatch, TelemetryPoint
 from packages.domain.telemetry_alerts import evaluate_alerts
+from packages.infrastructure.portfolio_catalog import PortfolioCatalog
 
 
 class HealthResponse(BaseModel):
@@ -108,6 +123,8 @@ redis_url = os.getenv("BANBOOS2_REDIS_URL")
 local_runtime = SQLiteRuntime(runtime_path()) if not redis_url else None
 run_registry = RunRegistry(RedisTaskQueue(redis_url) if redis_url else local_runtime,
                            RedisStateStore(redis_url) if redis_url else local_runtime)
+portfolio_review_store = PortfolioReviewStore()
+price_conflict_review_store = PriceConflictReviewStore()
 edge_spool = TelemetrySpool(os.getenv("BANBOOS2_EDGE_SPOOL", "var/edge/telemetry.sqlite"))
 ems_service = EMSService()
 import_service = ImportService()
@@ -130,6 +147,22 @@ AUTH_ROLE_CATALOG = [
     {"key": "auditor", "label": "审计只读", "scope": "授权范围", "permissions": ["read", "export"]},
 ]
 
+
+def _current_identity() -> dict:
+    configured = bool(configured_token())
+    role = os.getenv("BANBOOS2_TOKEN_ROLE" if configured else "BANBOOS2_DEV_ROLE", "platform_admin")
+    tenant_id = os.getenv("BANBOOS2_TENANT_ID", "staging-tenant")
+    if role not in {item["key"] for item in AUTH_ROLE_CATALOG}:
+        role = ""
+    return {"id": "token-owner" if configured else "dev-user", "name": "预发布访问用户" if configured else "开发联调用户",
+            "role": role, "tenant_id": tenant_id}
+
+
+def _review_write_allowed(identity: dict) -> bool:
+    role = identity["role"]
+    permissions = next((item["permissions"] for item in AUTH_ROLE_CATALOG if item["key"] == role), [])
+    return role == "platform_admin" or "maintain_data" in permissions
+
 IDENTITY_PROVIDER_ENV = {
     "phone": "BANBOOS2_SMS_PROVIDER",
     "email": "BANBOOS2_EMAIL_PROVIDER",
@@ -150,7 +183,8 @@ app.add_middleware(CORSMiddleware, allow_origins=allowed_origins,
 
 @app.middleware("http")
 async def request_guard(request, call_next):
-    request_id = request.headers.get("X-Request-ID") or str(uuid4())
+    request_id = request.headers.get("X-Request-ID", "").strip() or str(uuid4())
+    request.state.audit_request_id = request_id
     protected = request.url.path.startswith("/api/")
     candidate = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
     identity_routes = {
@@ -171,9 +205,28 @@ async def request_guard(request, call_next):
         return response
     if protected and token_fallback_enabled() and configured_token() \
             and not token_matches(candidate or request.headers.get("X-API-Key")):
-        response = JSONResponse({"detail": "authentication required"}, status_code=401)
+        response = JSONResponse({"detail": {"code": "SESSION_REQUIRED", "message": "authentication required"}}, status_code=401)
         response.headers["X-Request-ID"] = request_id
         return response
+    if request.url.path.startswith("/api/v1/quality/"):
+        identity = _current_identity()
+        is_dev = auth_mode() == "development-open" and not is_production()
+        verified = token_fallback_enabled() and token_matches(candidate or request.headers.get("X-API-Key"))
+        error = None
+        if not (is_dev or verified):
+            error = (401, "SESSION_REQUIRED", "需要已验证会话")
+        elif identity["tenant_id"] != os.getenv("BANBOOS2_DATASET_TENANT_ID", "staging-tenant"):
+            error = (403, "TENANT_FORBIDDEN", "会话租户无权访问此数据集")
+        else:
+            permissions = next((item["permissions"] for item in AUTH_ROLE_CATALOG if item["key"] == identity["role"]), [])
+            permission = "read" if request.method == "GET" else "maintain_data"
+            if permission not in permissions:
+                error = (403, "PERMISSION_REQUIRED", "当前角色缺少权限：" + permission)
+        if error:
+            response = JSONResponse({"detail": {"code": error[1], "message": error[2]}}, status_code=error[0])
+            response.headers["X-Request-ID"] = request_id
+            return response
+        request.state.quality_identity = identity
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     return response
@@ -222,12 +275,13 @@ def auth_session() -> dict:
     """Return the current interim token session; identity storage comes in the user service milestone."""
     if is_production() and auth_mode() in {"identity", "oidc", "oauth2"}:
         raise HTTPException(status_code=503, detail="正式身份服务尚未完成接入")
+    identity = _current_identity()
     configured = bool(configured_token())
     return {
         "authenticated": True,
         "mode": "token" if configured else "development-open",
-        "user": {"id": "token-owner" if configured else "dev-user", "name": "预发布访问用户" if configured else "开发联调用户", "role": "platform_admin"},
-        "tenant": {"id": "staging-tenant", "name": "联调租户"},
+        "user": {"id": identity["id"], "name": identity["name"], "role": identity["role"]},
+        "tenant": {"id": identity["tenant_id"], "name": "联调租户"},
         "control_mode": os.getenv("BANBOOS2_CONTROL_MODE", "disabled"),
         "identity_source": "api-token" if configured else "development-default",
     }
@@ -265,6 +319,10 @@ def create_auth_challenge(request: VerificationChallengeRequest) -> Verification
     gives the web client a stable contract and returns an actionable configuration error until
     SMS, email or WeChat infrastructure is connected.
     """
+    try:
+        normalize_identifier(request.provider, request.identifier)
+    except IdentityInputError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     if _identity_provider_status(request.provider) != "ready":
         label = IDENTITY_PROVIDER_META[request.provider][0]
         raise HTTPException(status_code=503, detail=f"{label}登录服务尚未配置，请联系管理员。")
@@ -453,10 +511,12 @@ def export_price_aggregates(node_id: int = Query(gt=0), market: str = Query(...)
 def portfolio_candidates(market: str = Query(...), start_date: date = Query(...), end_date: date = Query(...),
                           power_mw: float = Query(default=100, gt=0), capacity_mwh: float = Query(default=200, gt=0),
                           round_trip_efficiency: float = Query(default=0.92, gt=0, le=1),
-                          unit_investment_yuan_wh: float = Query(default=1.2, gt=0)) -> PortfolioCandidatesResult:
+                          unit_investment_yuan_wh: float = Query(default=1.2, gt=0),
+                          page_size: int | None = Query(default=None, ge=1, le=50)) -> PortfolioCandidatesResult:
     try:
-        return readonly_service.portfolio_candidates(market, start_date, end_date, power_mw, capacity_mwh,
-                                                      round_trip_efficiency, unit_investment_yuan_wh)
+        result = readonly_service.portfolio_candidates(market, start_date, end_date, power_mw, capacity_mwh,
+                                                       round_trip_efficiency, unit_investment_yuan_wh)
+        return result.model_copy(update={"candidates": result.candidates[:page_size]}) if page_size else result
     except (ValueError, RuntimeError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -475,6 +535,24 @@ def export_portfolio_candidates(market: str = Query(...), start_date: date = Que
         return xlsx_response(content, f"portfolio-candidates-{market_label}-{start_date}-{end_date}.xlsx")
     except (ValueError, RuntimeError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/v1/portfolio/candidates/snapshots", tags=["readonly"])
+def portfolio_snapshot_catalog(offset: int = Query(default=0, ge=0),
+                               limit: int = Query(default=20, ge=1, le=50)) -> dict:
+    return PortfolioCatalog().page(offset, limit)
+
+
+@app.get("/api/v1/portfolio/candidates/{snapshot_id}/page", tags=["readonly"])
+def portfolio_snapshot_page(snapshot_id: str = APIPath(..., pattern=r"^[0-9a-f]{64}$"),
+                            offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=50),
+                            province: str = Query(default="", max_length=80),
+                            q: str = Query(default="", max_length=120)) -> dict:
+    try:
+        snapshot = readonly_service.portfolio_candidate_snapshot(snapshot_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return candidate_page(snapshot, offset=offset, limit=limit, province=province, query=q)
 
 
 @app.get("/api/v1/portfolio/candidates/{snapshot_id}", response_model=PortfolioCandidatesResult, tags=["readonly"])
@@ -506,10 +584,14 @@ def optimize_portfolio_snapshot(snapshot_id: str = APIPath(..., min_length=64, m
                                                                      max_length=160)) -> RunStatus:
     try:
         snapshot = readonly_service.portfolio_candidate_snapshot(snapshot_id)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    try:
+        selected = select_candidates(snapshot, request.node_ids)
         projects = [{"name": item.name, "capacity_mwh": item.capacity_mwh,
                      "unit_investment_yuan_wh": item.unit_investment_yuan_wh,
                      "annual_revenue_wan": item.annual_revenue_wan}
-                    for item in snapshot.candidates]
+                    for item in selected]
         if not projects:
             raise ValueError("候选快照没有可优化项目")
         parameters = PortfolioTaskParameters(
@@ -517,9 +599,15 @@ def optimize_portfolio_snapshot(snapshot_id: str = APIPath(..., min_length=64, m
             budget_limit_wan=request.budget_limit_wan, revenue_target_wan=request.revenue_target_wan,
             discount_rate=request.discount_rate, operation_years=request.operation_years,
         )
-        return run_registry.submit("portfolio-optimization", idempotency_key, parameters.model_dump())
+        inputs = parameters.model_dump()
+        inputs["candidate_source"] = {"snapshot_id": snapshot_id,
+            "algorithm_version": snapshot.algorithm_version,
+            "selected_node_ids": [item.node_id for item in selected],
+            "candidate_count": snapshot.candidate_count,
+            "nodes": [item.model_dump() for item in selected]}
+        return run_registry.submit("portfolio-optimization", idempotency_key, inputs)
     except (ValueError, RuntimeError) as error:
-        raise HTTPException(status_code=404 if "快照" in str(error) else 422, detail=str(error)) from error
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.get("/api/v1/weather/summary", response_model=WeatherSummary, tags=["readonly"])
@@ -548,6 +636,84 @@ def quality_summary(node_id: int = Query(gt=0), market: str = Query(...),
         return readonly_service.quality(node_id, market, start_date, end_date)
     except (ValueError, RuntimeError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/v1/quality/conflicts", response_model=list[PriceConflict], tags=["readonly"])
+def quality_conflicts(node_id: int | None = Query(default=None, gt=0), market: str | None = Query(default=None),
+                      start_date: date | None = Query(default=None), end_date: date | None = Query(default=None),
+                      conflict_type: str | None = Query(default="multiple_source"),
+                      offset: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=500)) -> list[PriceConflict]:
+    try:
+        rows = readonly_service.price_conflicts(node_id, market, start_date, end_date, limit, offset, conflict_type)
+        result = []
+        for row in rows:
+            detail = row if row.get("evidence_id") else (readonly_service.price_conflict(row["source_row_id"]) or row)
+            result.append(price_conflict_review_store.overlay(PriceConflict.model_validate(detail)))
+        return result
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/v1/quality/duplicate-audit", tags=["readonly"])
+def quality_duplicate_audit(limit: int = Query(default=100, ge=1, le=500), node_id: int | None = Query(default=None, gt=0),
+                            market: str | None = Query(default=None), start_date: date | None = Query(default=None),
+                            end_date: date | None = Query(default=None), source: str | None = Query(default=None, max_length=240)) -> dict:
+    try:
+        return readonly_service.duplicate_audit(limit, node_id, market, start_date, end_date, source)
+    except (ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/v1/quality/conflicts/{source_row_id}", response_model=PriceConflict, tags=["readonly"])
+def quality_conflict_detail(source_row_id: int = APIPath(..., gt=0)) -> PriceConflict:
+    conflict = readonly_service.price_conflict(source_row_id)
+    if not conflict:
+        raise HTTPException(status_code=404, detail="冲突记录不存在")
+    return price_conflict_review_store.overlay(PriceConflict.model_validate(conflict))
+
+
+@app.post("/api/v1/quality/conflicts/{source_row_id}/review", response_model=PriceConflict, tags=["readonly"])
+def review_quality_conflict(http_request: Request, source_row_id: int = APIPath(..., gt=0), request: PriceConflictReviewRequest = Body(...)) -> PriceConflict:
+    conflict = readonly_service.price_conflict(source_row_id)
+    if not conflict:
+        raise HTTPException(status_code=404, detail="冲突记录不存在")
+    item = price_conflict_review_store.overlay(PriceConflict.model_validate(conflict))
+    # In development the authenticated fallback session is the auditable actor; in
+    # production the request guard requires the configured identity boundary first.
+    identity = http_request.state.quality_identity
+    if not _review_write_allowed(identity):
+        raise HTTPException(status_code=403, detail={"code": "REVIEW_PERMISSION_REQUIRED", "message": "需要数据维护或平台管理员权限"})
+    actor = identity["id"]
+    if request.actor != actor:
+        raise HTTPException(status_code=403, detail={"code": "REVIEWER_IDENTITY_MISMATCH", "message": "复核人必须来自已验证会话"})
+    try:
+        request_id = http_request.state.audit_request_id
+        return price_conflict_review_store.review(item, request, identity["tenant_id"], request_id)
+    except ValueError as error:
+        message = str(error)
+        code = message.split(":", 1)[0] if ":" in message else "REVIEW_INVALID"
+        status = 409 if code in {"STALE_REVIEW", "IDEMPOTENCY_CONFLICT", "EVIDENCE_CHANGED"} else 422
+        raise HTTPException(status_code=status, detail={"code": code, "message": message}) from error
+
+
+@app.post("/api/v1/quality/conflicts/{source_row_id}/apply", response_model=PriceConflictApplyResult, tags=["readonly"])
+def apply_quality_conflict(http_request: Request, source_row_id: int = APIPath(..., gt=0), request: PriceConflictApplyRequest = Body(...)) -> PriceConflictApplyResult:
+    conflict = readonly_service.price_conflict(source_row_id)
+    if not conflict:
+        raise HTTPException(status_code=404, detail="冲突记录不存在")
+    identity = http_request.state.quality_identity
+    if not _review_write_allowed(identity):
+        raise HTTPException(status_code=403, detail={"code": "REVIEW_PERMISSION_REQUIRED", "message": "需要数据维护或平台管理员权限"})
+    item = price_conflict_review_store.overlay(PriceConflict.model_validate(conflict))
+    try:
+        request_id = http_request.state.audit_request_id
+        result = price_conflict_review_store.apply_intent(item, request, identity["id"], identity["tenant_id"], request_id)
+        return PriceConflictApplyResult.model_validate(result)
+    except ValueError as error:
+        message = str(error)
+        code = message.split(":", 1)[0] if ":" in message else "APPLY_INVALID"
+        status = 409 if code in {"STALE_REVIEW", "EVIDENCE_CHANGED", "IDEMPOTENCY_CONFLICT", "REVIEW_NOT_APPROVED"} else 422
+        raise HTTPException(status_code=status, detail={"code": code, "message": message}) from error
 
 
 @app.post("/api/v1/telemetry/batches", tags=["edge"])
@@ -763,12 +929,80 @@ def reconcile_financial_template_run(run_id: str):
     export_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="template-audit-", dir=export_root) as workdir:
         target = Path(workdir) / f"financial-{run_id}.xlsm"
+        recalculated = Path(workdir) / f"financial-{run_id}.recalculated.xlsm"
         try:
             export_financial_xlsm(item.result | {"run_id": run_id, "completed_at": str(item.completed_at)},
                                   target, template)
-            return review_native_cached_values(target, item.result | {"run_id": run_id})
+            native = recalculate_xlsm(target, recalculated)
+            review_path = recalculated if native["status"] == "recalculated" else target
+            report = review_native_cached_values(
+                review_path,
+                item.result | {"run_id": run_id},
+                engine_executed=native["status"] == "recalculated",
+                native_engine=native,
+            )
+            report["native_recalculation"] = native
+            return report
         except (FileNotFoundError, OSError, ValueError, KeyError, RuntimeError) as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.get("/api/v1/runs/{run_id}/portfolio-dashboard", tags=["reports"])
+def portfolio_dashboard(run_id: str) -> dict:
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", run_id):
+        raise HTTPException(status_code=400, detail="invalid run id")
+    item = run_registry.get(run_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    try:
+        dashboard = build_portfolio_dashboard(item)
+        dashboard["review"] = portfolio_review_store.get(run_id).model_dump(mode="json")
+        return dashboard
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.get("/api/v1/runs/{run_id}/portfolio-review", response_model=PortfolioReview, tags=["reports"])
+def get_portfolio_review(run_id: str) -> PortfolioReview:
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", run_id):
+        raise HTTPException(status_code=400, detail="invalid run id")
+    item = run_registry.get(run_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    if item.kind != "portfolio-optimization" or item.status != "succeeded" or not item.result:
+        raise HTTPException(status_code=409, detail="组合任务尚未成功完成")
+    return portfolio_review_store.get(run_id)
+
+
+@app.post("/api/v1/runs/{run_id}/portfolio-review", response_model=PortfolioReview, tags=["reports"])
+def transition_portfolio_review(run_id: str, request: PortfolioReviewRequest = Body(...)) -> PortfolioReview:
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", run_id):
+        raise HTTPException(status_code=400, detail="invalid run id")
+    item = run_registry.get(run_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    if item.kind != "portfolio-optimization" or item.status != "succeeded" or not item.result:
+        raise HTTPException(status_code=409, detail="组合任务尚未成功完成")
+    try:
+        return portfolio_review_store.transition(run_id, request.action, request.actor,
+                                                 request.note, request.expected_status)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.get("/api/v1/runs/{run_id}/archive", tags=["reports"])
+def archive_portfolio_run(run_id: str):
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", run_id):
+        raise HTTPException(status_code=400, detail="invalid run id")
+    item = run_registry.get(run_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    try:
+        path, archive_hash = create_portfolio_archive(item)
+    except (ValueError, FileNotFoundError, OSError, RuntimeError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return FileResponse(path, media_type="application/zip", filename=path.name,
+                        headers={"X-Archive-SHA256": archive_hash})
 
 
 @app.post("/api/v1/runs/{run_id}/cancel", response_model=RunStatus, tags=["runs"])

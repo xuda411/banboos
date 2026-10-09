@@ -14,3 +14,5 @@ class PortfolioCandidate(BaseModel):
     spread_yuan_per_mwh: float
     valid_days: int = Field(ge=0)
     source_mode: str
+    available_days: int = Field(default=0, ge=0)
+    baseline_policy: str = "all_valid_days"

@@ -205,6 +205,7 @@ def _write_parameters(sheet, result: dict) -> None:
         "eol_method": ("EOL 计算方式", ""),
         "calendar_eol_decline": ("日历衰减率", "%"),
         "cycle_life_cycles": ("循环寿命", "次"),
+        "calendar_eol_table": ("日历 EOL 年度表", "JSON"),
         "annual_revenue_yuan": ("首年电能量收入", "元"),
         "capacity_lease_yuan": ("容量租赁收入", "元/年"),
         "capacity_fee_yuan": ("容量电费收入", "元/年"),

@@ -6,9 +6,11 @@
 
 - PostgreSQL 和 Redis：生产必须声明连接地址；开发环境继续允许本地运行时。
 - 手机、邮箱、微信身份服务：生产必须声明供应商配置。
+- 身份标识哈希：生产必须声明至少 32 位 `BANBOOS2_IDENTITY_HASH_SECRET`，禁止以明文持久化手机号、邮箱或微信标识。
 - 认证模式：生产必须使用 `BANBOOS2_AUTH_MODE=identity`，禁止把 API token 当作正式账号登录。
 - 租户隔离：生产必须设置 `BANBOOS2_TENANT_ENFORCEMENT=strict`。
 - CORS、财务模板和生产控制：生产域名必须明确，1.6.6 模板必须可用，生产控制必须保持关闭。
+- 财务 XLSM 发布门禁：生产必须声明 `BANBOOS2_FINANCIAL_RELEASE_GATE=RELEASE_READY`；跨引擎仍在待验收时保持阻断。
 
 ## 执行方式
 

@@ -9,6 +9,7 @@ class PortfolioSnapshotOptimizationRequest(BaseModel):
     revenue_target_wan: float | None = Field(default=None, gt=0)
     discount_rate: float = Field(default=0.08, ge=0, le=1)
     operation_years: int = Field(default=15, ge=1, le=100)
+    node_ids: list[int] | None = Field(default=None, min_length=1, max_length=50)
 
     @model_validator(mode="after")
     def validate_objective(self):

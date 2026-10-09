@@ -33,6 +33,23 @@ def test_portfolio_api_worker_and_export_snapshot():
     assert book['组合复核']['B10'].value == 1
     assert book['组合复核']['B14'].value == 'optimal'
     assert book['导出说明']['B5'].value == run_id
+    dashboard = client.get(f'/api/v1/runs/{run_id}/portfolio-dashboard')
+    assert dashboard.status_code == 200
+    assert dashboard.json()['metrics']['selected_count'] == 1
+    assert client.get(f'/api/v1/runs/{run_id}/portfolio-review').json()['status'] == 'draft'
+    review = client.post(f'/api/v1/runs/{run_id}/portfolio-review', json={
+        'action': 'submit', 'actor': '测试分析员', 'note': '输入已核对'})
+    assert review.status_code == 200 and review.json()['status'] == 'pending'
+    review = client.post(f'/api/v1/runs/{run_id}/portfolio-review', json={
+        'action': 'approve', 'actor': '测试复核员'})
+    assert review.status_code == 200 and review.json()['status'] == 'approved'
+    review = client.post(f'/api/v1/runs/{run_id}/portfolio-review', json={
+        'action': 'archive', 'actor': '测试归档员'})
+    assert review.status_code == 200 and review.json()['status'] == 'archived'
+    archive = client.get(f'/api/v1/runs/{run_id}/archive')
+    assert archive.status_code == 200
+    assert archive.headers['content-type'].startswith('application/zip')
+    assert archive.content[:2] == b'PK'
     payload['parameters']['budget_limit_wan'] = None
     assert client.post('/api/v1/runs', json=payload).status_code == 422
 

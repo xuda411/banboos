@@ -34,6 +34,12 @@ def write_formula_audit(workbook, result, title, header):
     years = p("operation_years")
     replace_year, replace_capex = p("replace_year"), p("replace_capex_yuan")
     inputs = result["input_parameters"]
+    # The frozen 1.6.6 workbook's hand-authored EOL table and cycle midpoint
+    # curve are not expressible by the generic formula block below.  Native
+    # template review remains available; do not emit a misleading audit that
+    # silently applies the server's calendar/cycle formula instead.
+    if inputs.get("eol_method") in {"desktop_template", "native_xlsm"}:
+        return
     phase_enabled = bool(inputs.get("revenue_phases"))
     extended = any(float(inputs.get(key, default)) != default for key, default in {
         "insurance_rate": 0.0, "fixed_operation_cost_yuan": 0.0,

@@ -38,6 +38,14 @@ CREATE TABLE quality_price_records (
  quality_status TEXT NOT NULL, PRIMARY KEY (batch_id, source_row_id)
 );
 CREATE INDEX quality_scope ON quality_price_records(node_id, market, run_date);
+CREATE TABLE IF NOT EXISTS price_conflicts (
+ batch_id TEXT NOT NULL, source_row_id INTEGER NOT NULL, node_id INTEGER NOT NULL,
+ run_date TEXT NOT NULL, market TEXT, conflict_type TEXT NOT NULL,
+ payload_sha256 TEXT NOT NULL, source_file TEXT, canonical_source_row_id INTEGER,
+ selection_rule TEXT NOT NULL, processing_state TEXT NOT NULL,
+ PRIMARY KEY (batch_id, source_row_id)
+);
+CREATE INDEX conflict_scope ON price_conflicts(node_id, market, run_date);
 CREATE TABLE canonical_price_curves (
  batch_id TEXT NOT NULL, source_row_id INTEGER NOT NULL, node_id INTEGER NOT NULL,
  run_date TEXT NOT NULL, market TEXT NOT NULL, prices_json TEXT NOT NULL,
@@ -109,6 +117,14 @@ def migrate_legacy_snapshot(manifest_path: str | Path, target_path: str | Path,
             dst.commit()
         if dict(dst.execute("SELECT key,value FROM staging_meta")) != {"format_version": "2", "snapshot_sha256": manifest["sha256"]}:
             raise ValueError("目标格式或快照不同，不允许混合来源")
+        dst.execute("""CREATE TABLE IF NOT EXISTS price_conflicts (
+            batch_id TEXT NOT NULL, source_row_id INTEGER NOT NULL, node_id INTEGER NOT NULL,
+            run_date TEXT NOT NULL, market TEXT, conflict_type TEXT NOT NULL,
+            payload_sha256 TEXT NOT NULL, source_file TEXT, canonical_source_row_id INTEGER,
+            selection_rule TEXT NOT NULL, processing_state TEXT NOT NULL,
+            PRIMARY KEY (batch_id, source_row_id))""")
+        dst.execute("CREATE INDEX IF NOT EXISTS conflict_scope ON price_conflicts(node_id, market, run_date)")
+        dst.commit()
         previous = dst.execute("SELECT b.batch_id FROM migration_batches b JOIN migration_scopes s USING(batch_id) WHERE b.status='succeeded' AND s.scope_json=?", (scope_json,)).fetchone()
         if previous:
             return {"batch_id": previous[0], "status": "succeeded", "reused": True, "target_path": str(target)}
@@ -150,8 +166,14 @@ def migrate_legacy_snapshot(manifest_path: str | Path, target_path: str | Path,
                     normalized = json.dumps([float(v) for v in values], separators=(",", ":"))
                     key = (row["node_id"], row["run_date"], row["case_type"])
                     old = dst.execute("SELECT source_row_id,prices_json FROM canonical_price_curves WHERE node_id=? AND run_date=? AND market=?", key).fetchone()
+                    conflict_type = None
+                    selection_rule = "single_valid_source"
+                    processing_state = "resolved"
                     if old:
                         status = "duplicate" if old[1] == normalized else "multiple_source"
+                        conflict_type = status
+                        selection_rule = "lowest_source_id_duplicate" if status == "duplicate" else "lowest_source_id_provisional"
+                        processing_state = "manual_review_required" if status == "multiple_source" else "resolved"
                     # Curves/dispatch retain the lowest valid source id, like desktop.
                     # Annual baselines separately retain ALL raw candidates.
                     if not old or row["id"] < old[0]:
@@ -159,6 +181,15 @@ def migrate_legacy_snapshot(manifest_path: str | Path, target_path: str | Path,
                         counters["canonical"] += int(old is None)
                 else:
                     counters["rejected"] += 1
+                    old = dst.execute("SELECT source_row_id FROM canonical_price_curves WHERE node_id=? AND run_date=? AND market=?", (row["node_id"], row["run_date"], row["case_type"])).fetchone()
+                    conflict_type = "rejected" if old else "no_canonical"
+                    selection_rule = "candidate_rejected_canonical_retained" if old else "no_valid_canonical_candidate"
+                    processing_state = "manual_review_required"
+                if conflict_type:
+                    dst.execute("INSERT OR REPLACE INTO price_conflicts VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                                (batch_id, row["id"], row["node_id"], row["run_date"], row["case_type"],
+                                 conflict_type, hashlib.sha256(payload.encode()).hexdigest(), row["source_file"],
+                                 old[0] if old else None, selection_rule, processing_state))
                 dst.execute("INSERT INTO quality_price_records VALUES (?,?,?,?,?,?,?,?,?)", (batch_id, row["id"], row["node_id"], row["run_date"], row["case_type"], missing, non_finite, complete, status))
                 counters["quality"] += 1
             dst.execute("UPDATE migration_batches SET finished_at=?,status='succeeded',raw_count=?,quality_count=?,canonical_count=?,rejected_count=? WHERE batch_id=?", (datetime.now(UTC).isoformat(), *counters.values(), batch_id))

@@ -5,6 +5,7 @@ import os
 from datetime import UTC, date, datetime, timedelta
 from math import cos, isfinite, pi, sin
 
+from packages.application.price_conflict_review import evidence_key
 from packages.contracts.analysis import PriceAnalysisResult, PriceBaselineMonth, PriceWindowBaseline
 from packages.contracts.operations_report import (
     OperationsReport,
@@ -27,6 +28,7 @@ from packages.domain.annual_spread import annual_window_average
 from packages.domain.price_aggregates import aggregate_periods
 from packages.infrastructure.dispatch_snapshots import DispatchSnapshots
 from packages.infrastructure.legacy_sqlite import LegacySQLiteReader
+from packages.infrastructure.portfolio_catalog import PortfolioCatalog
 from packages.infrastructure.staging_sqlite import StagingSQLiteReader
 
 
@@ -103,21 +105,29 @@ class ReadonlyService:
         duration = capacity_mwh / power_mw
         if duration < 0.25 or duration > 24 or not 0 < round_trip_efficiency <= 1:
             raise ValueError("容量/功率时长或效率无效")
+        slots = round(duration * 4)
+        if abs(duration * 4 - slots) > 1e-6:
+            raise ValueError("容量/功率时长须为15分钟的整数倍")
         candidates = []
-        for node in self.nodes()[:50]:
-            aggregate = self.price_aggregates(node.id, market, start_date, end_date, duration)
-            if not aggregate.annual:
+        for node in self.nodes():
+            if not self._reader:
                 continue
-            baseline = aggregate.annual[0]
-            daily = max(0.0, (baseline.discharge_price_yuan_per_mwh * round_trip_efficiency
-                              - baseline.charge_price_yuan_per_mwh) * capacity_mwh)
+            rows = [row for row in self._reader.baseline_curves(node.id, market)
+                    if start_date <= date.fromisoformat(str(row["run_date"])[:10]) <= end_date]
+            try:
+                baseline = annual_window_average(rows, slots)
+            except ValueError:
+                continue
+            daily = max(0.0, (baseline["discharge_price_yuan_per_mwh"] * round_trip_efficiency
+                              - baseline["charge_price_yuan_per_mwh"]) * capacity_mwh)
             candidates.append({
                 "name": f"{node.name}·{market}", "node_id": node.id, "province": node.province,
                 "market": market, "capacity_mwh": capacity_mwh,
                 "unit_investment_yuan_wh": unit_investment_yuan_wh,
                 "annual_revenue_wan": daily * 365 / 10000,
-                "spread_yuan_per_mwh": baseline.spread_yuan_per_mwh,
-                "valid_days": aggregate.valid_days, "source_mode": aggregate.source_mode,
+                "spread_yuan_per_mwh": baseline["spread_yuan_per_mwh"],
+                "valid_days": baseline["valid_days"], "available_days": baseline["available_days"],
+                "baseline_policy": baseline["baseline_policy"], "source_mode": self.data_mode,
             })
         snapshot_id = "demo"
         if self._reader:
@@ -129,10 +139,20 @@ class ReadonlyService:
                                "unit_investment_yuan_wh": unit_investment_yuan_wh},
                 "candidates": candidates,
             })
-        return PortfolioCandidatesResult(market=market, power_mw=power_mw, capacity_mwh=capacity_mwh,
+        result = PortfolioCandidatesResult(market=market, power_mw=power_mw, capacity_mwh=capacity_mwh,
             duration_hours=duration, round_trip_efficiency=round_trip_efficiency,
             start_date=start_date.isoformat(), end_date=end_date.isoformat(), snapshot_id=snapshot_id,
-            algorithm_version="portfolio-candidates-v1", candidates=candidates)
+            algorithm_version="portfolio-candidates-v1", candidates=candidates, candidate_count=len(candidates))
+        if snapshot_id != "demo":
+            self._index_portfolio_snapshot(result)
+        return result
+
+    @staticmethod
+    def _index_portfolio_snapshot(result):
+        PortfolioCatalog().register(result.snapshot_id, {
+            **result.model_dump(exclude={"candidates", "snapshot_id"}),
+            "candidate_count": len(result.candidates),
+        })
 
     def portfolio_candidate_snapshot(self, snapshot_id: str) -> PortfolioCandidatesResult:
         """Read and validate an immutable real-node candidate snapshot."""
@@ -149,14 +169,16 @@ class ReadonlyService:
             power_mw = float(parameters["power_mw"])
             capacity_mwh = float(parameters["capacity_mwh"])
             duration_hours = capacity_mwh / power_mw
-            return PortfolioCandidatesResult(
+            result = PortfolioCandidatesResult(
                 market=str(parameters["market"]), power_mw=power_mw,
                 capacity_mwh=capacity_mwh, duration_hours=duration_hours,
                 round_trip_efficiency=float(parameters["round_trip_efficiency"]),
                 start_date=str(parameters["start_date"]), end_date=str(parameters["end_date"]),
                 snapshot_id=snapshot_id, algorithm_version=str(payload.get("algorithm_version") or "unknown"),
-                candidates=payload.get("candidates") or [],
+                candidates=payload.get("candidates") or [], candidate_count=len(payload.get("candidates") or []),
             )
+            self._index_portfolio_snapshot(result)
+            return result
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError("候选快照内容不完整") from error
 
@@ -220,9 +242,17 @@ class ReadonlyService:
                 # Date-bounded staging samples may not have a full-history scope.
                 rows = self._reader.price_curves(node_id, market, start_date, end_date)
         aggregate = aggregate_periods(rows, slots, start_date, end_date)
+        conflict_count = 0
+        manual_review_required = False
+        if self._reader and hasattr(self._reader, "conflict_records"):
+            conflicts = self._reader.conflict_records(node_id, market, start_date, end_date)
+            conflict_count = len(conflicts)
+            manual_review_required = any(row.get("processing_state") == "manual_review_required" for row in conflicts)
         return PriceAggregateResult(
             node_id=node_id, market=market, start_date=start_date, end_date=end_date,
-            duration_hours=duration_hours, source_mode=self.data_mode, **aggregate,
+            duration_hours=duration_hours, source_mode=self.data_mode,
+            data_status="manual_review_required" if manual_review_required else ("available" if aggregate["valid_days"] else "no_canonical"),
+            conflict_count=conflict_count, manual_review_required=manual_review_required, **aggregate,
         )
 
     def weather(self, node_id: int, start_time: datetime | None = None,
@@ -334,6 +364,57 @@ class ReadonlyService:
                                   end_date=end_date, total_records=0, complete_records=0,
                                   incomplete_records=0, missing_cells=0, non_finite_cells=0,
                                   coverage_ratio=0.0, source_mode="demo")
+
+    def price_conflicts(self, node_id: int | None = None, market: str | None = None,
+                        start_date: date | None = None, end_date: date | None = None,
+                        limit: int = 100, offset: int = 0, conflict_type: str | None = None) -> list[dict]:
+        if not self._reader:
+            return []
+        if not 1 <= limit <= 500 or offset < 0:
+            raise ValueError("limit must be between 1 and 500")
+        if (start_date and end_date and end_date < start_date) or (market and market not in {"日前", "实时"}):
+            raise ValueError("invalid conflict scope")
+        if conflict_type == "multiple_source" and self._legacy_reader and hasattr(self._legacy_reader, "conflicting_duplicate_rows"):
+            rows = self._legacy_reader.conflicting_duplicate_rows(limit, offset, node_id, market, start_date, end_date)
+            for row in rows:
+                dataset_id = getattr(self._reader, "metadata", {}).get("snapshot_sha256", str(self._legacy_reader.path))
+                row["evidence_id"] = evidence_key(dataset_id, row, [
+                    {"source_row_id": source_id, "payload_sha256": payload_hash}
+                    for source_id, payload_hash in zip(row.get("candidate_source_ids", []), row.get("candidate_hashes", []))
+                ])
+                row["candidates"] = [{"source_row_id": source_id, "payload_sha256": payload_hash}
+                                      for source_id, payload_hash in zip(row.get("candidate_source_ids", []), row.get("candidate_hashes", []))]
+            return rows
+        if hasattr(self._reader, "list_conflicts"):
+            return self._reader.list_conflicts(node_id, market, start_date, end_date, limit, offset, conflict_type)
+        return []
+
+    def price_conflict(self, source_row_id: int) -> dict | None:
+        if self._legacy_reader and hasattr(self._legacy_reader, "conflicting_duplicate_rows"):
+            for row in self._legacy_reader.conflicting_duplicate_rows(500):
+                if row["source_row_id"] == source_row_id:
+                    dataset_id = getattr(self._reader, "metadata", {}).get("snapshot_sha256", str(self._legacy_reader.path))
+                    row["evidence_id"] = evidence_key(dataset_id, row, [
+                        {"source_row_id": source_id, "payload_sha256": payload_hash}
+                        for source_id, payload_hash in zip(row.get("candidate_source_ids", []), row.get("candidate_hashes", []))
+                    ])
+                    row["candidates"] = [{"source_row_id": source_id, "payload_sha256": payload_hash}
+                                          for source_id, payload_hash in zip(row.get("candidate_source_ids", []), row.get("candidate_hashes", []))]
+                    return row
+        if not self._reader or not hasattr(self._reader, "conflict_by_source_row"):
+            return None
+        item = self._reader.conflict_by_source_row(source_row_id)
+        if item:
+            return item
+        return None
+
+    def duplicate_audit(self, limit: int = 100, node_id: int | None = None, market: str | None = None,
+                        start_date: date | None = None, end_date: date | None = None,
+                        source: str | None = None) -> dict:
+        if not self._legacy_reader:
+            return {"available": False, "total_records": 0, "same_payload_records": 0,
+                    "different_payload_records": 0, "items": [], "source_mode": self.data_mode}
+        return self._legacy_reader.duplicate_audit_summary(limit, node_id, market, start_date, end_date, source)
 
     def analyze_price(self, node_id: int, market: str, start_date: date, end_date: date,
                       power_mw: float, capacity_mwh: float,

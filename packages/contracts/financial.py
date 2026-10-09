@@ -37,9 +37,10 @@ class FinancialTaskParameters(BaseModel):
     dod: float = Field(default=0.95, gt=0, le=1)
     annual_cycles: float = Field(default=350, ge=0)
     auxiliary_annual_cycles: float = Field(default=0, ge=0)
-    eol_method: Literal["linear", "calendar_cycle_min"] = "linear"
+    eol_method: Literal["linear", "calendar_cycle_min", "desktop_template", "native_xlsm"] = "linear"
     calendar_eol_decline: float = Field(default=0.015, ge=0, le=1)
     cycle_life_cycles: float = Field(default=8000, gt=0)
+    calendar_eol_table: list[float] = Field(default_factory=list, max_length=101)
     annual_revenue_yuan: float | None = Field(default=None, ge=0)
     capacity_lease_yuan: float = Field(default=0, ge=0)
     capacity_fee_yuan: float = Field(default=0, ge=0)
@@ -82,6 +83,7 @@ class FinancialTaskParameters(BaseModel):
         if self.annual_revenue_yuan is None:
             raise ValueError("annual_revenue_yuan or source_run_id is required")
         payload = self.model_dump(exclude={"source_run_id", "revenue_phases"})
+        payload["calendar_eol_table"] = tuple(payload["calendar_eol_table"])
         payload["revenue_phases"] = {
             component: RevenuePhaseRule(**rule.model_dump())
             for component, rule in self.revenue_phases.items()

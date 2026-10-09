@@ -157,3 +157,17 @@ Set-Location E:\Banboos2.0
 新增 `scripts/migrate_node_batches.py`，支持限定节点数、失败证据保存及成功范围复用。
 有效天数与标准曲线点数现按去重日期统计，原始完整记录数仍在质量摘要中保留。
 详见 [多节点验证报告](multi-node-replay-20260916.md)，其中明确列出了 Excel 原生模板、跨省抽样等尚未完成项。
+
+## 2026-10-03 原始库清洗副本
+
+针对原始库中同一节点、日期和市场的多来源记录，新增
+`scripts/clean_legacy_price_data.py`。命令只读取 E 盘隔离快照，输出保持旧表结构的清洗副本和冲突登记，不覆盖 1.6.6 源库：
+
+```powershell
+& .venv\Scripts\python.exe scripts\clean_legacy_price_data.py `
+  E:\Banboos2.0\var\legacy-snapshots\20260916-024117-b245f40d\price_analysis.db `
+  --target E:\Banboos2.0\var\data-quality\legacy-price-clean-20261003.sqlite3 `
+  --report E:\Banboos2.0\var\data-quality\legacy-price-clean-20261003.json
+```
+
+清洗规则只按 `node_id + run_date + case_type` 去重，`case_type` 只接受“日前/实时”；`OK`、`missing` 保留为质量/发布标签。优先保留完整的 96 点记录中最早 `source_id`，同组都不完整时保留最早记录，其余来源写入 `price_duplicate_registry`。节点名称仅生成规范化别名表，冲突不自动合并。结果详见 [原始库清洗报告](legacy-data-cleaning-20261003.md)。

@@ -6,7 +6,9 @@ from openpyxl import load_workbook
 from packages.application.financial_export import export_financial_xlsx
 from packages.application.financial_template_xlsm import (
     export_financial_xlsm,
+    financial_template_path,
     template_input_values,
+    template_sheet_values,
 )
 from packages.application.financial_xlsm_review import review_native_cached_values
 from packages.contracts.financial import FinancialTaskParameters
@@ -136,9 +138,34 @@ def test_template_xlsm_mapping_uses_native_units():
     assert values["D38"] == "是"
 
 
+def test_template_xlsm_maps_desktop_eol_curves():
+    parameters = FinancialTaskParameters(
+        power_mw=100, capacity_mwh=200, annual_revenue_yuan=8_000_000,
+        eol_method="desktop_template", calendar_eol_table=[1.0, 0.995, 0.99],
+    )
+    mappings = template_sheet_values({"input_parameters": parameters.model_dump(exclude_none=True),
+                                      "yearly": [{}] * 25})
+    assert mappings["EOL"]["C3"] == 1.0
+    assert mappings["EOL"]["D3"] == 0.995
+    assert mappings["EOL"]["E4"] == pytest.approx(0.9725)
+    assert mappings["EOL"]["D9"] == pytest.approx(0.99)
+    assert mappings["电量类 "]["D24"] == pytest.approx(776)
+
+
+def test_template_xlsm_mapping_accepts_native_mode():
+    parameters = FinancialTaskParameters(
+        power_mw=60, capacity_mwh=120, annual_revenue_yuan=16_919_681.739130434,
+        eol_method="native_xlsm",
+    )
+    mappings = template_sheet_values({"input_parameters": parameters.model_dump(exclude_none=True),
+                                      "yearly": [{}] * 25})
+    assert mappings["电量类 "]["D24"] == pytest.approx(16_919_681.739130434 / 10000 * .97)
+    assert mappings["EOL"]["D9"] == pytest.approx(.99)
+
+
 def test_template_xlsm_copies_source_and_records_native_review(tmp_path):
-    source = r"C:\Users\Laptop\Desktop\晔旭辉能源测算工具\独立储能项目经济性测算工具.xlsm"
-    if not __import__("pathlib").Path(source).exists():
+    source = financial_template_path()
+    if source is None:
         pytest.skip("开发机未提供 1.6.6 原版 XLSM 模板")
     parameters = FinancialTaskParameters(power_mw=100, capacity_mwh=200,
                                          annual_revenue_yuan=8_000_000)

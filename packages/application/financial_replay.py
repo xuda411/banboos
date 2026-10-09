@@ -34,6 +34,9 @@ def replay_financial_baselines(baselines: list[dict], capacity_mwh: float = 200,
                 parameters = FinancialParameters(power_mw=capacity_mwh / baseline["hours"],
                     capacity_mwh=capacity_mwh, annual_revenue_yuan=revenue)
                 inputs[side] = asdict(parameters)
+                # JSON evidence must use the same representation as the API
+                # contract; the domain keeps the immutable EOL curve tuple.
+                inputs[side]["calendar_eol_table"] = list(parameters.calendar_eol_table)
                 outputs[side] = calculate_financials(parameters)
             changed = sorted(k for k in outputs["source"]
                              if outputs["source"][k] != outputs["staging"].get(k))
