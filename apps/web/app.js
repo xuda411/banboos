@@ -557,6 +557,10 @@ async function syncCurveDateRange() {
 }
 
 let curvePointer = null;
+let curveKeyboardSlot = null;
+let curveHoverText = "";
+let weatherKeyboardIndex = null;
+let weatherHoverText = "";
 
 function priceColor(value, min, max) {
   const ratio = Math.max(0, Math.min(1, (value - min) / Math.max(1, max - min)));
@@ -623,9 +627,10 @@ function drawCurves(curves, selectedIndex = 0, pointer = null) {
   canvas.width = width * ratio; canvas.height = height * ratio;
   const context = canvas.getContext("2d"); context.scale(ratio, ratio);
   context.clearRect(0, 0, width, height);
-  if (!curves.length) return;
+  canvas._curveGeometry = { curves: [] };
+  if (!curves.length) { const staleHover = document.getElementById("curveHover"); if (staleHover) { staleHover.hidden = true; staleHover.innerHTML = ""; } curveHoverText = ""; return; }
   const values = curves.flatMap((curve) => curve.prices).filter((value) => Number.isFinite(value));
-  if (!values.length) return;
+  if (!values.length) { const staleHover = document.getElementById("curveHover"); if (staleHover) { staleHover.hidden = true; staleHover.innerHTML = ""; } curveHoverText = ""; return; }
   const scale = curveScale(values); const min = scale.min; const max = scale.max; const span = max - min || 1;
   const pad = { left: 42, right: 14, top: 18, bottom: 30 };
   context.strokeStyle = window.BanboosChartConfig.grid.color; context.lineWidth = window.BanboosChartConfig.grid.lineWidth;
@@ -683,8 +688,41 @@ function formatCurveTime(slot) {
 }
 
 function hideCurveHover() {
-  curvePointer = null; const hover = $("curveHover"); if (hover) hover.hidden = true;
+  curvePointer = null; curveHoverText = ""; const hover = $("curveHover"); if (hover) { hover.hidden = true; hover.innerHTML = ""; }
   if (loadedCurves.length) drawCurves(loadedCurves, activeCurveIndex());
+}
+
+function hideCurveKeyboard() {
+  curveKeyboardSlot = null;
+  hideCurveHover();
+}
+
+// Shared point presentation for mouse and keyboard. Coordinates are
+// canvas-space; null pointer coords mean keyboard-triggered anchoring.
+function presentCurvePoint(slot, pointerX = null, pointerY = null) {
+  const canvas = $("curveChart"); const geometry = canvas._curveGeometry;
+  if (!geometry || !geometry.curves.length) return;
+  const boundedSlot = Math.max(0, Math.min(95, Math.round(slot)));
+  const selectedIndex = geometry.selectedIndex; const curve = geometry.curves[selectedIndex];
+  const rawPrice = curve?.prices[boundedSlot];
+  const value = Number(rawPrice);
+  const hasPrice = rawPrice != null && Number.isFinite(value);
+  curvePointer = { slot: boundedSlot }; drawCurves(geometry.curves, selectedIndex, curvePointer);
+  const hover = $("curveHover"); const selectedDay = curve.run_date;
+  const nodeLabel = $("curveNode").selectedOptions[0]?.textContent || `节点 ${curve.node_id}`;
+  const priceText = hasPrice ? `<b>${value.toFixed(2)} 元/MWh</b>` : "<b>—（暂无数据）</b>";
+  const html = `<strong>${nodeLabel}</strong><br>日期：${selectedDay}　市场：${curve.market}<br>时间：${formatCurveTime(boundedSlot)}（第 ${boundedSlot + 1}/96 点）<br>电价：${priceText}<br>来源：${curve.source_mode || "未标注"}`;
+  if (hover.hidden || curveHoverText !== html) hover.innerHTML = html;
+  curveHoverText = html;
+  hover.hidden = false;
+  const plotLeft = geometry.pad.left; const plotRight = geometry.width - geometry.pad.right;
+  const cursorX = plotLeft + (plotRight - plotLeft) * boundedSlot / 95;
+  const anchorX = pointerX === null ? cursorX : pointerX;
+  const preferRight = anchorX < geometry.width / 2;
+  const left = Math.max(8, Math.min(preferRight ? anchorX + 14 : anchorX - hover.offsetWidth - 14, geometry.width - hover.offsetWidth - 8));
+  const keyboardTop = geometry.pad.top + 6;
+  const top = Math.max(8, Math.min(pointerY === null ? keyboardTop : pointerY - hover.offsetHeight - 10, geometry.height - hover.offsetHeight - 8));
+  hover.style.left = `${left}px`; hover.style.top = `${top}px`;
 }
 
 function showCurveHover(event) {
@@ -694,16 +732,23 @@ function showCurveHover(event) {
   if (x < geometry.pad.left || x > geometry.width - geometry.pad.right || y < geometry.pad.top || y > geometry.height - geometry.pad.bottom) { hideCurveHover(); return; }
   const plotWidth = geometry.width - geometry.pad.left - geometry.pad.right;
   const raw = Math.round((x - geometry.pad.left) / plotWidth * 95); const slot = Math.max(0, Math.min(95, raw));
-  const selectedIndex = geometry.selectedIndex; const curve = geometry.curves[selectedIndex]; const value = Number(curve?.prices[slot]);
-  if (!Number.isFinite(value)) { hideCurveHover(); return; }
-  curvePointer = { slot }; drawCurves(geometry.curves, selectedIndex, curvePointer);
-  const hover = $("curveHover"); const selectedDay = curve.run_date;
-  const nodeLabel = $("curveNode").selectedOptions[0]?.textContent || `节点 ${curve.node_id}`;
-  hover.innerHTML = `<strong>${nodeLabel}</strong><br>日期：${selectedDay}　市场：${curve.market}<br>时间：${formatCurveTime(slot)}（第 ${slot + 1}/96 点）<br>电价：<b>${value.toFixed(2)} 元/MWh</b><br>来源：${curve.source_mode || "未标注"}`;
-  hover.hidden = false;
-  const left = Math.max(8, Math.min(event.clientX - rect.left + 14, rect.width - hover.offsetWidth - 8));
-  const top = Math.max(8, Math.min(event.clientY - rect.top - hover.offsetHeight - 10, rect.height - hover.offsetHeight - 8));
-  hover.style.left = `${left}px`; hover.style.top = `${top}px`;
+  presentCurvePoint(slot, x, y);
+}
+
+function onCurveChartKeydown(event) {
+  const geometry = $("curveChart")._curveGeometry;
+  if (!geometry || !geometry.curves.length) return;
+  let slot = curveKeyboardSlot;
+  if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+    event.preventDefault();
+    if (slot === null) slot = 0;
+    else slot = event.key === "ArrowRight" ? Math.min(95, slot + 1) : Math.max(0, slot - 1);
+  } else if (event.key === "Home") { event.preventDefault(); slot = 0; }
+  else if (event.key === "End") { event.preventDefault(); slot = 95; }
+  else if (event.key === "Escape") { event.preventDefault(); hideCurveKeyboard(); return; }
+  else return;
+  curveKeyboardSlot = slot;
+  presentCurvePoint(slot);
 }
 
 function activeCurveIndex() {
@@ -772,15 +817,16 @@ async function loadCurves() {
   const ticket = ReportUI.begin("curve", query, $("curveNode").selectedOptions[0].textContent);
   setStatus("curveState", "progress", "正在加载");
   window.BanboosUI.LoadingGuard("curvePlot", "loading", { message: "正在加载电价曲线…" });
+  curvePointer = null; curveKeyboardSlot = null; curveHoverText = ""; $("curveHover").hidden = true; $("curveChart")._curveGeometry = { curves: [] };
   try {
     const [curves, aggregates] = await Promise.all([
       get("/api/v1/price/curves", query),
       get("/api/v1/price/aggregates", {...query, duration_hours: $("curveAggregateDuration").value}),
     ]);
     if (!ReportUI.current("curve", ticket)) return;
-    loadedCurves = curves; loadedAggregates = aggregates; curvePointer = null; $("curveHover").hidden = true; $("exportCurves").disabled = curves.length === 0; $("exportCurveAggregate").disabled = !(aggregates.monthly?.length || aggregates.annual?.length); $("exportCurveAggregateXlsx").disabled = !(aggregates.monthly?.length || aggregates.annual?.length); $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
+    loadedCurves = curves; loadedAggregates = aggregates; curvePointer = null; curveKeyboardSlot = null; curveHoverText = ""; $("curveHover").hidden = true; $("exportCurves").disabled = curves.length === 0; $("exportCurveAggregate").disabled = !(aggregates.monthly?.length || aggregates.annual?.length); $("exportCurveAggregateXlsx").disabled = !(aggregates.monthly?.length || aggregates.annual?.length); $("exportCurvePng").disabled = curves.length === 0; $("exportCurveXlsx").disabled = curves.length === 0; updateCurveStats(curves);
     const dayList = $("curveDays"); dayList.replaceChildren();
-    curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.dataset.index = String(index); day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); curvePointer = null; $("curveHover").hidden = true; drawCurves(curves, index); updateCurveStats(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
+    curves.forEach((curve, index) => { const day = document.createElement("button"); day.className = `curve-day${index === 0 ? " active" : ""}`; day.dataset.index = String(index); day.textContent = curve.run_date; day.addEventListener("click", () => { document.querySelectorAll(".curve-day").forEach((item) => item.classList.remove("active")); day.classList.add("active"); curvePointer = null; curveKeyboardSlot = null; curveHoverText = ""; $("curveHover").hidden = true; drawCurves(curves, index); updateCurveStats(curves, index); $("curveTitle").textContent = `${curve.run_date} · ${$("curveMarket").value}`; }); dayList.appendChild(day); });
     $("curveEmpty").hidden = curves.length > 0; document.querySelector(".curve-card").classList.toggle("curve-empty", !curves.length); $("curveTitle").textContent = curves.length ? `${curves[0].run_date} · ${$("curveMarket").value}` : "当前范围暂无完整曲线"; setStatus("curveState", curves.length ? "ok" : "muted", curves.length ? `${curves.length} 天` : "暂无数据");
     if (!curves.length) {
       renderEmpty(dayList, "数据库暂无完整 96 点曲线", "调整日期范围或更换节点后重试");
@@ -793,31 +839,74 @@ async function loadCurves() {
     }
     drawCurves(curves); renderCurveAggregates(aggregates);
     ReportUI.complete("curve", ticket, curves.length, `来源模式：${[...new Set(curves.map(c => c.source_mode))].join("、")} · ${curves[0]?.run_date || ""} 至 ${curves.at(-1)?.run_date || ""} · ${curves.length} 个完整日（上限 ${query.limit} 日） · 选中日按价格渐变，其他日期用于对比`);
-  } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; loadedAggregates = null; $("exportCurves").disabled = true; $("exportCurveAggregate").disabled = true; $("exportCurveAggregateXlsx").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveAggregates").hidden = true; setStatus("curveState", "error", "加载失败"); $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; window.BanboosUI.LoadingGuard("curvePlot", "error", { errorMessage: `加载失败：${error.message}` }); }
+  } catch (error) { if (!ReportUI.current("curve", ticket)) return; ReportUI.invalidate("curve", "加载失败，重新加载后可导出。"); loadedCurves = []; loadedAggregates = null; curvePointer = null; curveKeyboardSlot = null; curveHoverText = ""; $("curveHover").hidden = true; drawCurves([]); $("exportCurves").disabled = true; $("exportCurveAggregate").disabled = true; $("exportCurveAggregateXlsx").disabled = true; $("exportCurvePng").disabled = true; $("exportCurveXlsx").disabled = true; updateCurveStats([]); $("curveAggregates").hidden = true; setStatus("curveState", "error", "加载失败"); $("curveEmpty").hidden = false; $("curveEmpty").textContent = `读取失败：${error.message}`; window.BanboosUI.LoadingGuard("curvePlot", "error", { errorMessage: `加载失败：${error.message}` }); }
 }
 
 function drawWeather(series, pointerIndex = null) {
   const canvas = $("weatherChart"); const width = canvas.clientWidth || 760; const height = 330; const ratio = Math.max(2, window.devicePixelRatio || 1);
   canvas.width = width * ratio; canvas.height = height * ratio; const context = canvas.getContext("2d"); context.scale(ratio, ratio); context.clearRect(0, 0, width, height);
-  if (!series.length) return;
+  canvas._weatherGeometry = { series: [] };
+  if (!series.length) { const staleHover = document.getElementById("weatherHover"); if (staleHover) { staleHover.hidden = true; staleHover.innerHTML = ""; } weatherHoverText = ""; return; }
   const ghi = series.map((row) => row.ghi_w_m2).filter((value) => value != null); const pv = series.map((row) => row.pv_predict_power_mw).filter((value) => value != null); const wind = series.map((row) => row.wind_speed_m_s).filter((value) => value != null); const maxGhi = Math.max(1, ...ghi); const maxPv = Math.max(1, ...pv); const maxWind = Math.max(1, ...wind); const pad = {left: 46, right: 20, top: 20, bottom: 30}; const x = (index) => pad.left + (width - pad.left - pad.right) * index / Math.max(1, series.length - 1);
   const line = (key, color, max) => { context.strokeStyle = color; context.lineWidth = 2; context.beginPath(); let hasPoint = false; series.forEach((row, index) => { const value = Number(row[key]); if (!Number.isFinite(value)) { hasPoint = false; return; } const y = pad.top + (height - pad.top - pad.bottom) * (1 - value / max); hasPoint ? context.lineTo(x(index), y) : context.moveTo(x(index), y); hasPoint = true; }); context.stroke(); };
   context.strokeStyle = window.BanboosChartConfig.grid.color; context.lineWidth = window.BanboosChartConfig.grid.lineWidth; for (let step = 0; step <= 4; step += 1) { const y = pad.top + (height - pad.top - pad.bottom) * step / 4; context.beginPath(); context.moveTo(pad.left, y); context.lineTo(width - pad.right, y); context.stroke(); }
   line("ghi_w_m2", window.BanboosChartConfig.series.weather.ghi, maxGhi); line("pv_predict_power_mw", window.BanboosChartConfig.series.weather.pv, maxPv); line("wind_speed_m_s", window.BanboosChartConfig.series.weather.wind, maxWind); line("wind_predict_power_mw", window.BanboosChartConfig.series.weather.windPower, Math.max(1, ...series.map((row) => row.wind_predict_power_mw || 0)));
   if (Number.isInteger(pointerIndex) && pointerIndex >= 0 && pointerIndex < series.length) { const px = x(pointerIndex); context.strokeStyle = window.BanboosChartConfig.axes.cursorBamboo; context.lineWidth = 1; context.setLineDash([4, 4]); context.beginPath(); context.moveTo(px, pad.top); context.lineTo(px, height - pad.bottom); context.stroke(); context.setLineDash([]); }
-  context.font = "11px Microsoft YaHei"; context.fillStyle = window.BanboosChartConfig.series.weather.ghi; context.fillText("辐照度", pad.left, 13); context.fillStyle = window.BanboosChartConfig.series.weather.pv; context.fillText("光伏功率（预计）", pad.left + 58, 13); context.fillStyle = window.BanboosChartConfig.series.weather.wind; context.fillText("风速", pad.left + 168, 13); context.fillStyle = window.BanboosChartConfig.series.weather.windPower; context.fillText("风电功率（预计）", pad.left + 210, 13);
+  context.font = `${window.BanboosChartConfig.font.sizeAxis} ${window.BanboosChartConfig.font.family}`; context.fillStyle = window.BanboosChartConfig.series.weather.ghi; context.fillText("辐照度", pad.left, 13); context.fillStyle = window.BanboosChartConfig.series.weather.pv; context.fillText("光伏功率（预计）", pad.left + 58, 13); context.fillStyle = window.BanboosChartConfig.series.weather.wind; context.fillText("风速", pad.left + 168, 13); context.fillStyle = window.BanboosChartConfig.series.weather.windPower; context.fillText("风电功率（预计）", pad.left + 210, 13);
   canvas._weatherGeometry = { series, width, height, pad };
 }
 
-function hideWeatherHover() { const hover = $("weatherHover"); if (hover) hover.hidden = true; const geometry = $("weatherChart")._weatherGeometry; if (geometry) drawWeather(geometry.series); }
+function hideWeatherHover() { weatherHoverText = ""; const hover = $("weatherHover"); if (hover) { hover.hidden = true; hover.innerHTML = ""; } const geometry = $("weatherChart")._weatherGeometry; if (geometry) drawWeather(geometry.series); }
+
+function hideWeatherKeyboard() {
+  weatherKeyboardIndex = null;
+  hideWeatherHover();
+}
+
+// Shared point presentation for mouse and keyboard. Null values render as
+// em dash; indices are bounded to the displayed aggregate series length.
+function presentWeatherPoint(index, pointerX = null, pointerY = null) {
+  const canvas = $("weatherChart"); const geometry = canvas._weatherGeometry;
+  if (!geometry?.series?.length) return;
+  const boundedIndex = Math.max(0, Math.min(geometry.series.length - 1, Math.round(index)));
+  const row = geometry.series[boundedIndex];
+  drawWeather(geometry.series, boundedIndex);
+  const hover = $("weatherHover"); const format = (value, digits = 1) => { const number = Number(value); return value == null || !Number.isFinite(number) ? "—" : number.toFixed(digits); };
+  const html = `<strong>${row.data_time || "未标注时间"}</strong><br>辐照度：${format(row.ghi_w_m2)} W/m²　风速：${format(row.wind_speed_m_s)} m/s<br>光伏功率（预计）：${format(row.pv_predict_power_mw, 2)} MW<br>风电功率（预计）：${format(row.wind_predict_power_mw, 2)} MW`;
+  if (hover.hidden || weatherHoverText !== html) hover.innerHTML = html;
+  weatherHoverText = html;
+  hover.hidden = false;
+  const plotLeft = geometry.pad.left; const plotRight = geometry.width - geometry.pad.right;
+  const cursorX = plotLeft + (plotRight - plotLeft) * boundedIndex / Math.max(1, geometry.series.length - 1);
+  const anchorX = pointerX === null ? cursorX : pointerX;
+  const left = Math.max(8, Math.min(anchorX < geometry.width / 2 ? anchorX + 14 : anchorX - hover.offsetWidth - 14, geometry.width - hover.offsetWidth - 8));
+  const top = Math.max(8, Math.min(pointerY === null ? geometry.pad.top + 6 : pointerY - hover.offsetHeight - 10, geometry.height - hover.offsetHeight - 8));
+  hover.style.left = `${left}px`; hover.style.top = `${top}px`;
+}
 
 function showWeatherHover(event) {
   const canvas = $("weatherChart"); const geometry = canvas._weatherGeometry; if (!geometry?.series?.length) return;
   const rect = canvas.getBoundingClientRect(); const xPos = event.clientX - rect.left; if (xPos < geometry.pad.left || xPos > geometry.width - geometry.pad.right) { hideWeatherHover(); return; }
-  const plotWidth = geometry.width - geometry.pad.left - geometry.pad.right; const index = Math.max(0, Math.min(geometry.series.length - 1, Math.round((xPos - geometry.pad.left) / plotWidth * (geometry.series.length - 1)))); const row = geometry.series[index];
-  drawWeather(geometry.series, index); const hover = $("weatherHover"); const format = (value, digits = 1) => Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "—";
-  hover.innerHTML = `<strong>${row.data_time || "未标注时间"}</strong><br>辐照度：${format(row.ghi_w_m2)} W/m²　风速：${format(row.wind_speed_m_s)} m/s<br>光伏功率（预计）：${format(row.pv_predict_power_mw, 2)} MW<br>风电功率（预计）：${format(row.wind_predict_power_mw, 2)} MW`;
-  hover.hidden = false; const left = Math.max(8, Math.min(xPos + 14, rect.width - hover.offsetWidth - 8)); const top = Math.max(8, Math.min(event.clientY - rect.top - hover.offsetHeight - 10, rect.height - hover.offsetHeight - 8)); hover.style.left = `${left}px`; hover.style.top = `${top}px`;
+  const plotWidth = geometry.width - geometry.pad.left - geometry.pad.right;
+  const index = Math.max(0, Math.min(geometry.series.length - 1, Math.round((xPos - geometry.pad.left) / plotWidth * (geometry.series.length - 1))));
+  presentWeatherPoint(index, xPos, event.clientY - rect.top);
+}
+
+function onWeatherChartKeydown(event) {
+  const geometry = $("weatherChart")._weatherGeometry;
+  if (!geometry?.series?.length) return;
+  const last = geometry.series.length - 1;
+  let index = weatherKeyboardIndex;
+  if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+    event.preventDefault();
+    if (index === null) index = 0;
+    else index = event.key === "ArrowRight" ? Math.min(last, index + 1) : Math.max(0, index - 1);
+  } else if (event.key === "Home") { event.preventDefault(); index = 0; }
+  else if (event.key === "End") { event.preventDefault(); index = last; }
+  else if (event.key === "Escape") { event.preventDefault(); hideWeatherKeyboard(); return; }
+  else return;
+  weatherKeyboardIndex = index;
+  presentWeatherPoint(index);
 }
 
 async function loadWeather() {
@@ -827,14 +916,15 @@ async function loadWeather() {
   if ($("weatherEnd").value) query.end_time = $("weatherEnd").value;
   const ticket = ReportUI.begin("weather", query, $("weatherNode").selectedOptions[0].textContent);
   window.BanboosUI.LoadingGuard("weatherPlot", "loading", { message: "正在加载气象数据…" });
+  weatherKeyboardIndex = null; weatherHoverText = ""; $("weatherHover").hidden = true; $("weatherChart")._weatherGeometry = { series: [] };
   try {
     const rawSeries = await get("/api/v1/weather/series", query);
     if (!ReportUI.current("weather", ticket)) return;
     const series = aggregateWeather(rawSeries, $("weatherGranularity").value);
     const mean = (key) => { const values = series.map((row) => row[key]).filter((value) => value != null); return values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1) : "—"; };
-    $("weatherObservations").textContent = series.length; $("weatherGhi").textContent = mean("ghi_w_m2"); $("weatherWind").textContent = mean("wind_speed_m_s"); $("weatherTemp").textContent = mean("temp_c"); $("weatherSourceDetail").textContent = series.length ? `${series[0].source || "未标注来源"} · ${series[0].is_power_simulated ? "功率估算" : "功率实测"}` : "当前范围暂无气象观测"; $("weatherChartTitle").textContent = series.length ? `${series[0].data_time.slice(0, 10)} 至 ${series[series.length - 1].data_time.slice(0, 10)}` : "当前范围暂无观测"; $("weatherEmpty").hidden = series.length > 0; document.querySelector(".weather-chart-card").classList.toggle("weather-empty", !series.length); if (!series.length) { $("weatherEmpty").textContent = "数据库暂无气象观测"; window.BanboosUI.LoadingGuard("weatherPlot", "empty", { emptyAction: "暂无气象观测数据", emptyHint: "调整时间范围或更换节点后重试" }); } else { window.BanboosUI.LoadingGuard("weatherPlot", "idle"); const hash = buildQueryHash(["weatherNode", "weatherType", "weatherStart", "weatherEnd", "weatherGranularity"]); bindExportHash(["exportWeatherPng", "exportWeatherXlsx"], hash); } $("exportWeatherPng").disabled = !series.length; $("exportWeatherXlsx").disabled = !series.length; drawWeather(series);
+    $("weatherObservations").textContent = series.length; $("weatherGhi").textContent = mean("ghi_w_m2"); $("weatherWind").textContent = mean("wind_speed_m_s"); $("weatherTemp").textContent = mean("temp_c"); $("weatherSourceDetail").textContent = series.length ? `${series[0].source || "未标注来源"} · ${series[0].is_power_simulated ? "功率估算" : "功率实测"}` : "当前范围暂无气象观测"; $("weatherChartTitle").textContent = series.length ? `${series[0].data_time.slice(0, 10)} 至 ${series[series.length - 1].data_time.slice(0, 10)}` : "当前范围暂无观测"; $("weatherEmpty").hidden = series.length > 0; document.querySelector(".weather-chart-card").classList.toggle("weather-empty", !series.length); if (!series.length) { $("weatherEmpty").textContent = "数据库暂无气象观测"; window.BanboosUI.LoadingGuard("weatherPlot", "empty", { emptyAction: "暂无气象观测数据", emptyHint: "调整时间范围或更换节点后重试" }); } else { window.BanboosUI.LoadingGuard("weatherPlot", "idle"); const hash = buildQueryHash(["weatherNode", "weatherType", "weatherStart", "weatherEnd", "weatherGranularity"]); bindExportHash(["exportWeatherPng", "exportWeatherXlsx"], hash); } $("exportWeatherPng").disabled = !series.length; $("exportWeatherXlsx").disabled = !series.length; weatherKeyboardIndex = null; weatherHoverText = ""; $("weatherHover").hidden = true; drawWeather(series);
     ReportUI.complete("weather", ticket, series.length, `来源：${[...new Set(rawSeries.map(r => r.source || r.source_mode))].join("、")} · ${rawSeries.length} 条原始观测（上限 744 条） · 图表粒度：${$("weatherGranularity").value} · 各曲线独立缩放，仅用于趋势比较；辐照度 W/m²，风速 m/s，功率 MW（模型预计）`);
-  } catch (error) { if (!ReportUI.current("weather", ticket)) return; ReportUI.invalidate("weather", "加载失败，请重试。"); $("weatherEmpty").hidden = false; $("weatherEmpty").textContent = `读取失败：${error.message}`; window.BanboosUI.LoadingGuard("weatherPlot", "error", { errorMessage: `加载失败：${error.message}` }); }
+  } catch (error) { if (!ReportUI.current("weather", ticket)) return; ReportUI.invalidate("weather", "加载失败，请重试。"); $("weatherEmpty").hidden = false; $("weatherEmpty").textContent = `读取失败：${error.message}`; window.BanboosUI.LoadingGuard("weatherPlot", "error", { errorMessage: `加载失败：${error.message}` }); drawWeather([]); weatherKeyboardIndex = null; weatherHoverText = ""; $("weatherHover").hidden = true; }
 }
 
 async function submitAnalysis() {
@@ -983,7 +1073,7 @@ function drawDispatchDay(day) {
   const width = canvas.clientWidth || 900; const height = 360; const ratio = Math.max(2, window.devicePixelRatio || 1); canvas.width = width * ratio; canvas.height = height * ratio;
   const context = canvas.getContext("2d"); context.setTransform(ratio, 0, 0, ratio, 0, 0); context.clearRect(0, 0, width, height);
   const prices = day.prices_yuan_per_mwh.map(Number); const charge = (day.charge_mw || []).map(Number); const discharge = (day.discharge_mw || []).map(Number); const soc = (day.soc || []).map(Number); const pad = {left: 52, right: 56, top: 24, bottom: 34}; const plotWidth = width - pad.left - pad.right; const plotHeight = height - pad.top - pad.bottom; const x = (i) => pad.left + plotWidth * i / Math.max(1, prices.length - 1); const finite = (values) => values.filter(Number.isFinite); const minPrice = Math.min(...finite(prices)); const maxPrice = Math.max(...finite(prices)); const priceSpan = Math.max(1, maxPrice - minPrice); const maxPower = Math.max(1, ...finite([...charge, ...discharge])); const yPrice = (v) => pad.top + plotHeight * (1 - (v - minPrice) / priceSpan); const yPower = (v) => pad.top + plotHeight * (1 - v / maxPower); const ySoc = (v) => pad.top + plotHeight * (1 - v);
-  context.font = "11px Microsoft YaHei"; context.fillStyle = window.BanboosChartConfig.axes.tickColorMuted; context.strokeStyle = window.BanboosChartConfig.grid.colorSoft; context.lineWidth = window.BanboosChartConfig.grid.lineWidth; for (let step = 0; step <= 4; step += 1) { const y = pad.top + plotHeight * step / 4; context.beginPath(); context.moveTo(pad.left, y); context.lineTo(width - pad.right, y); context.stroke(); context.fillText((maxPrice - priceSpan * step / 4).toFixed(0), 5, y + 4); context.fillText((1 - step / 4).toFixed(2), width - pad.right + 8, y + 4); }
+  context.font = `${window.BanboosChartConfig.font.sizeAxis} ${window.BanboosChartConfig.font.family}`; context.fillStyle = window.BanboosChartConfig.axes.tickColorMuted; context.strokeStyle = window.BanboosChartConfig.grid.colorSoft; context.lineWidth = window.BanboosChartConfig.grid.lineWidth; for (let step = 0; step <= 4; step += 1) { const y = pad.top + plotHeight * step / 4; context.beginPath(); context.moveTo(pad.left, y); context.lineTo(width - pad.right, y); context.stroke(); context.fillText((maxPrice - priceSpan * step / 4).toFixed(0), 5, y + 4); context.fillText((1 - step / 4).toFixed(2), width - pad.right + 8, y + 4); }
   const line = (values, color, mapper, widthValue = 2) => { context.strokeStyle = color; context.lineWidth = widthValue; context.beginPath(); let started = false; values.forEach((value, index) => { if (!Number.isFinite(value)) { started = false; return; } const point = [x(index), mapper(value)]; if (started) context.lineTo(...point); else context.moveTo(...point); started = true; }); context.stroke(); };
   line(prices, window.BanboosChartConfig.series.spread.price, yPrice, 2); line(charge, window.BanboosChartConfig.series.dispatch.charge, yPower, 1.8); line(discharge.map((value) => -value), window.BanboosChartConfig.series.dispatch.discharge, (value) => yPower(Math.abs(value)), 1.8); line(soc, window.BanboosChartConfig.series.spread.soc, ySoc, 2);
   context.fillStyle = window.BanboosChartConfig.axes.tickColorMuted; context.fillText("电价（元/MWh）", pad.left, 13); context.fillText("SOC", width - pad.right + 8, 13); context.fillStyle = window.BanboosChartConfig.series.spread.price; context.fillText("节点电价", pad.left + 100, 13); context.fillStyle = window.BanboosChartConfig.series.dispatch.charge; context.fillText("充电功率", pad.left + 170, 13); context.fillStyle = window.BanboosChartConfig.series.dispatch.discharge; context.fillText("放电功率", pad.left + 245, 13); context.fillStyle = window.BanboosChartConfig.series.spread.soc; context.fillText("SOC", pad.left + 320, 13); context.fillStyle = window.BanboosChartConfig.axes.tickColorMuted; for (let hour = 0; hour <= 24; hour += 4) { const index = Math.min(prices.length - 1, hour * 4); context.fillText(`${String(hour).padStart(2, "0")}:00`, x(index) - 14, height - 10); }
@@ -1443,6 +1533,8 @@ $("curveNode").addEventListener("change", () => syncCurveDateRange().catch(() =>
 $("curveMarket").addEventListener("change", () => syncCurveDateRange().catch(() => {}));
 $("curveChart").addEventListener("mousemove", showCurveHover);
 $("curveChart").addEventListener("mouseleave", hideCurveHover);
+$("curveChart").addEventListener("keydown", onCurveChartKeydown);
+$("curveChart").addEventListener("blur", hideCurveKeyboard);
 $("loadCurves").addEventListener("click", loadCurves);
 $("exportCurveAggregate").addEventListener("click", exportCurveAggregate);
 $("exportCurveAggregateXlsx").addEventListener("click", (event) => {
@@ -1459,6 +1551,8 @@ $("exportWeatherXlsx").addEventListener("click", (event) => ReportUI.exportQuery
 $("loadWeather").addEventListener("click", loadWeather);
 $("weatherChart").addEventListener("mousemove", showWeatherHover);
 $("weatherChart").addEventListener("mouseleave", hideWeatherHover);
+$("weatherChart").addEventListener("keydown", onWeatherChartKeydown);
+$("weatherChart").addEventListener("blur", hideWeatherKeyboard);
 $("submitAnalysis").addEventListener("click", submitAnalysis);
 if ($("createInvestmentScenario")) $("createInvestmentScenario").addEventListener("click", createInvestmentScenario);
 $("useAnalysisForFinance").addEventListener("click", useAnalysisForFinance);
