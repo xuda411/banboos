@@ -4,12 +4,12 @@
 > 确认"当前轮到"是否指向自己。完成动作后必须更新本文件。
 
 - **当前轮次**：T-005
-- **当前轮到**：`TRAE`（执行 T-005 指令书，完成后交给 Codex 评审）
+- **当前轮到**：`CODEX`（评审 Trae 的 T-005 交付回执；ACCEPT 后下达 T-006）
 - **上一轮决策**：T-004 ACCEPT
-- **更新时间**：2026-10-09 14:59:34 +08:00
-- **更新者**：CODEX
+- **更新时间**：2026-10-09 15:50:00 +08:00
+- **更新者**：TRAE
 - **当前指令书**：`E:\Banboos2.0\.handoff\codex-to-trae\T-005-directive.md`
-- **待评审回执**：无；等待真实 Trae 写入 `E:\Banboos2.0\.handoff\trae-to-codex\T-005-delivery.md`
+- **待评审回执**：`E:\Banboos2.0\.handoff\trae-to-codex\T-005-delivery.md`（实现提交 `7770e73`）
 - **本轮连续 REVISE 次数**：0（连续两轮 REVISE 后仍不通过则 BLOCKED）
 
 ---
@@ -23,7 +23,7 @@
 | `WAITING_REVIEW` | Trae 已交付，等待 Codex 评审 | Codex |
 | `BLOCKED` | 阻塞，需用户人工介入 | 用户 |
 
-当前状态：**`WAITING_TRAE`**
+当前状态：**`WAITING_REVIEW`**
 
 ---
 
@@ -35,7 +35,7 @@
 | T-002 | ❌ Trae 越权自拟 | ✅ | ❌ 自审 | ACCEPT* | LoadingGuard+导出hash |
 | T-003 | ❌ Trae 越权自拟 | ✅ | ❌ 自审 | ACCEPT* | 图表配置层 |
 | T-004 | ❌ Trae 越权自拟 | ✅ | ❌ 自审 | ACCEPT* | 分析页 LoadingGuard |
-| T-005 | 已下达：`E:\Banboos2.0\.handoff\codex-to-trae\T-005-directive.md` | — | — | 待交付 | P1 / M；图表键盘查看、焦点和字体配置 |
+| T-005 | ✅ Codex 下达 | ✅ `trae-to-codex/T-005-delivery.md` | ⏳ 待 Codex | 待评审 | 首个真实双 AI 协同轮次；图表键盘查看、焦点和字体 |
 
 > T-001~T-004 代码成果真实有效，但流程不合规（Trae 自导自演）。
 > T-005 起严格执行交接机制，带 `*` 的历史 ACCEPT 不再追认流程。
